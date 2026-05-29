@@ -25,6 +25,14 @@ pub enum PolicyReason {
     WebRootExecutableUpload,
     PathTraversal,
     SymlinkEscape,
+    SymlinkDenied,
+    InvalidRootId,
+    AbsolutePathRejected,
+    NullByteRejected,
+    InvalidFilename,
+    ReservedName,
+    PathEscapesRoot,
+    HiddenFile,
     AccountRejected,
 }
 
@@ -50,6 +58,24 @@ impl ErrorPayload {
             operation: Some(operation.into()),
             retryable: false,
             policy_reason: Some(PolicyReason::FeatureDisabled),
+            debug_ref: None,
+        }
+    }
+
+    pub fn policy_denied(
+        request_id: RequestId,
+        operation: impl Into<String>,
+        reason: PolicyReason,
+        safe_message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: "POLICY_DENIED".to_owned(),
+            error_kind: ErrorKind::PolicyDenied,
+            safe_message: safe_message.into(),
+            request_id,
+            operation: Some(operation.into()),
+            retryable: false,
+            policy_reason: Some(reason),
             debug_ref: None,
         }
     }
@@ -93,6 +119,34 @@ pub enum TealDriveError {
     PayloadLengthMismatch,
     #[error("invalid TDRV raw chunk")]
     InvalidChunk,
+    #[error("invalid root id")]
+    InvalidRootId,
+    #[error("absolute paths are rejected")]
+    AbsolutePathRejected,
+    #[error("path traversal rejected")]
+    TraversalRejected,
+    #[error("NUL byte rejected")]
+    NullByteRejected,
+    #[error("invalid filename")]
+    InvalidFilename,
+    #[error("invalid path")]
+    InvalidPath,
+    #[error("reserved name rejected")]
+    ReservedNameRejected,
+    #[error("path escapes configured root")]
+    PathEscapesRoot,
+    #[error("symlink denied")]
+    SymlinkDenied,
+    #[error("symlink escapes configured root")]
+    SymlinkEscape,
+    #[error("sensitive file denied")]
+    SensitiveFileDenied,
+    #[error("hidden file denied")]
+    HiddenFileDenied,
+    #[error("read-only root")]
+    ReadOnlyRoot,
+    #[error("webroot executable denied")]
+    WebrootExecutableDenied,
     #[error("internal error")]
     Internal,
 }

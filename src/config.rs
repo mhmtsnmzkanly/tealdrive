@@ -58,6 +58,12 @@ impl Default for AppConfig {
     }
 }
 
+impl AppConfig {
+    pub fn allowed_roots(&self) -> &[AllowedRoot] {
+        &self.roots
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub bind_addr: String,
@@ -154,12 +160,24 @@ impl Default for SensitivePolicyConfig {
         Self {
             deny_edit_patterns: vec![
                 ".env".to_owned(),
+                ".env.*".to_owned(),
                 "id_rsa".to_owned(),
+                "id_dsa".to_owned(),
+                "id_ecdsa".to_owned(),
                 "id_ed25519".to_owned(),
                 "*.pem".to_owned(),
                 "*.key".to_owned(),
+                "authorized_keys".to_owned(),
+                "known_hosts".to_owned(),
+                "*.sql".to_owned(),
+                "*.dump".to_owned(),
             ],
-            warn_read_patterns: vec![".env".to_owned(), "*.pem".to_owned(), "*.key".to_owned()],
+            warn_read_patterns: vec![
+                ".env".to_owned(),
+                ".env.*".to_owned(),
+                "*.pem".to_owned(),
+                "*.key".to_owned(),
+            ],
         }
     }
 }
@@ -176,9 +194,11 @@ impl Default for WebRootPolicyConfig {
             block_executable_uploads: true,
             blocked_extensions: vec![
                 "php".to_owned(),
+                "phtml".to_owned(),
                 "cgi".to_owned(),
                 "pl".to_owned(),
                 "py".to_owned(),
+                "rb".to_owned(),
                 "sh".to_owned(),
             ],
         }

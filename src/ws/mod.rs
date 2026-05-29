@@ -1,4 +1,4 @@
 pub mod connection;
-pub mod handlers;
-
-pub use connection::WsConnection;
+pub mod dispatch;
+pub mod handshake;
+pub mod upgrade;

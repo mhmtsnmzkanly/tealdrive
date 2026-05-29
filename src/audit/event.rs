@@ -129,6 +129,90 @@ impl AuditEvent {
         event.reason = Some(AuditReason::SessionExpired);
         event
     }
+
+    pub fn websocket_connect(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::WebSocketConnect,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn websocket_disconnect(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::WebSocketDisconnect,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn websocket_handshake_success(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::WebSocketHandshake,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn websocket_handshake_failure(
+        request_id: RequestId,
+        username: impl Into<String>,
+        reason: AuditReason,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            username,
+            0,
+            0,
+            AuditAction::WebSocketHandshake,
+            AuditStatus::Failed,
+        );
+        event.reason = Some(reason);
+        event
+    }
+
+    pub fn websocket_rejection(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+        reason: AuditReason,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::WebSocketMessageRejected,
+            AuditStatus::Denied,
+        );
+        event.reason = Some(reason);
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +230,8 @@ pub enum AuditAction {
     SessionExpired,
     WebSocketConnect,
     WebSocketDisconnect,
+    WebSocketHandshake,
+    WebSocketMessageRejected,
     ListDirectory,
     FilePreview,
     Download,
@@ -171,6 +257,9 @@ pub enum AuditReason {
     RootLoginDisabled,
     SystemAccountDisabled,
     SessionExpired,
+    HandshakeFailed,
+    OperationBeforeReady,
+    InvalidMessageDirection,
 }
 
 #[cfg(test)]
@@ -192,5 +281,27 @@ mod tests {
         assert_eq!(event.uid, 1000);
         assert_eq!(event.action, AuditAction::ListDirectory);
         assert_eq!(event.status, AuditStatus::Success);
+    }
+
+    #[test]
+    fn websocket_handshake_success_event_created() {
+        let event = AuditEvent::websocket_handshake_success(RequestId::new(), "alice", 1000, 1000);
+
+        assert_eq!(event.action, AuditAction::WebSocketHandshake);
+        assert_eq!(event.status, AuditStatus::Success);
+        assert_eq!(event.username, "alice");
+    }
+
+    #[test]
+    fn websocket_handshake_failure_event_created() {
+        let event = AuditEvent::websocket_handshake_failure(
+            RequestId::new(),
+            "alice",
+            AuditReason::HandshakeFailed,
+        );
+
+        assert_eq!(event.action, AuditAction::WebSocketHandshake);
+        assert_eq!(event.status, AuditStatus::Failed);
+        assert_eq!(event.reason, Some(AuditReason::HandshakeFailed));
     }
 }

@@ -13,6 +13,7 @@ pub enum ErrorKind {
     InvalidPath,
     RateLimited,
     ProtocolError,
+    NotImplemented,
     InternalError,
 }
 
@@ -66,6 +67,8 @@ pub enum TealDriveError {
     FeatureDisabled,
     #[error("protocol error")]
     Protocol,
+    #[error("not implemented")]
+    NotImplemented,
     #[error("invalid TDRV magic")]
     InvalidMagic,
     #[error("unsupported TDRV version")]

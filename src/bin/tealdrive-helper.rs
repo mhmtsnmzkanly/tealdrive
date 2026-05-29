@@ -1,6 +1,8 @@
-use tealdrive::helper::types::HelperCommand;
+use std::io::{stdin, stdout};
 
 fn main() {
-    let _supported_command = HelperCommand::ListDirectory;
-    println!("tealdrive-helper skeleton: typed IPC only, no privilege drop yet");
+    let result = tealdrive::helper::ipc::run_helper_once(&mut stdin().lock(), &mut stdout().lock());
+    if result.is_err() {
+        std::process::exit(1);
+    }
 }

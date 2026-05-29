@@ -147,6 +147,28 @@ pub enum TealDriveError {
     ReadOnlyRoot,
     #[error("webroot executable denied")]
     WebrootExecutableDenied,
+    #[error("helper spawn failed")]
+    HelperSpawnFailed,
+    #[error("helper timed out")]
+    HelperTimeout,
+    #[error("helper stdin failed")]
+    HelperStdinFailed,
+    #[error("helper stdout failed")]
+    HelperStdoutFailed,
+    #[error("helper returned malformed response")]
+    HelperMalformedResponse,
+    #[error("helper exited with non-zero status")]
+    HelperNonZeroExit,
+    #[error("helper request too large")]
+    HelperRequestTooLarge,
+    #[error("helper response too large")]
+    HelperResponseTooLarge,
+    #[error("helper decode failed")]
+    HelperDecodeFailed,
+    #[error("helper encode failed")]
+    HelperEncodeFailed,
+    #[error("helper command not implemented")]
+    HelperCommandNotImplemented,
     #[error("internal error")]
     Internal,
 }

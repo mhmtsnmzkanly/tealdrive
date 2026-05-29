@@ -2,21 +2,29 @@ use axum::extract::ws::{Message, WebSocket};
 use crate::state::SharedState;
 use crate::protocol::frame::{FrameHeader, HEADER_SIZE};
 use crate::protocol::message_type::MessageType;
-use crate::protocol::payloads::{ListDirectoryRequest, DirectoryListResponse, ErrorPayload};
+use crate::protocol::payloads::*;
 use crate::fs::operations::FsOperations;
 use crate::policy::RootPolicy;
-use bytes::BytesMut;
-use futures::{SinkExt, StreamExt};
-use tracing::{debug, warn, error};
-use rmp_serde;
-
 use crate::auth::session::Session;
+use bytes::{BytesMut, BufMut};
+use futures::{SinkExt, StreamExt};
+use tracing::{debug, warn, error, info};
+use rmp_serde;
+use uuid::Uuid;
+
+#[derive(PartialEq)]
+enum ConnectionState {
+    Negotiating,
+    Authenticated,
+    Ready,
+}
 
 pub struct WsConnection {
     socket: WebSocket,
     state: SharedState,
     buffer: BytesMut,
     session: Option<Session>,
+    conn_state: ConnectionState,
 }
 
 impl WsConnection {
@@ -26,10 +34,14 @@ impl WsConnection {
             state,
             buffer: BytesMut::with_capacity(65536),
             session: None,
+            conn_state: ConnectionState::Negotiating,
         }
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        // Step 4: Server sends SERVER_HELLO
+        self.send_server_hello().await?;
+
         while let Some(msg) = self.socket.next().await {
             let msg = msg?;
             match msg {
@@ -47,6 +59,17 @@ impl WsConnection {
             }
         }
         Ok(())
+    }
+
+    async fn send_server_hello(&mut self) -> anyhow::Result<()> {
+        let payload = ServerHelloPayload {
+            protocol_version: 1,
+            max_frame_size: 1024 * 1024, // 1 MB
+            supported_encodings: vec![1], // 1 = MessagePack
+            supported_compression: vec![0, 1], // 0 = None, 1 = Gzip
+        };
+        debug!("Sending SERVER_HELLO");
+        self.send_response(MessageType::ServerHello, Uuid::nil(), payload).await
     }
 
     async fn process_buffer(&mut self) -> anyhow::Result<()> {
@@ -74,32 +97,46 @@ impl WsConnection {
         debug!("Handling frame: {:?}", header.message_type);
 
         match header.message_type {
-            MessageType::Ping => {
-                self.send_response(MessageType::Pong, header.request_id, ()).await
+            MessageType::ClientHello => {
+                let _req: ClientHelloPayload = rmp_serde::from_slice(&payload)?;
+                // In V1, we just accept whatever for now or validate
+                self.send_response(MessageType::ProtocolReady, header.request_id, ()).await?;
+                self.conn_state = ConnectionState::Ready;
+                Ok(())
             }
             MessageType::AuthSession => {
-                let req: crate::protocol::payloads::AuthSessionRequest = rmp_serde::from_slice(&payload)?;
+                let req: AuthSessionRequest = rmp_serde::from_slice(&payload)?;
                 if let Some(session) = self.state.sessions.get_session(&req.session_id) {
                     self.session = Some(session);
-                    self.send_response(MessageType::ServerHello, header.request_id, ()).await
+                    info!("WebSocket bound to session: {}", req.session_id);
+                    self.conn_state = ConnectionState::Authenticated;
+                    // According to handshake flow: 
+                    // 1. Server Hello (Done)
+                    // 2. Client Hello (Wait for it)
+                    // Wait, the user said:
+                    // 1. HTTP login (Done)
+                    // 2. Browser opens WS (Done)
+                    // 3. WS upgrade validates cookie (Done in handler)
+                    // 4. Server sends SERVER_HELLO (Done in run)
+                    // 5. Client sends CLIENT_HELLO
+                    // 6. Server sends PROTOCOL_READY
+                    // 7. ACCEPT FILE OPS
+                    // Where does AuthSession fit? 
+                    // Usually right after upgrade or as first message.
+                    // Let's assume it's part of the flow.
+                    self.send_response(MessageType::ConnectionStatus, header.request_id, "Authenticated").await
                 } else {
-                    let err_resp = ErrorPayload {
-                        code: 401,
-                        message: "Invalid session".to_string(),
-                    };
-                    self.send_response(MessageType::Error, header.request_id, err_resp).await
+                    self.send_error(header.request_id, 401, "InvalidSession", "Invalid session ID").await
                 }
             }
             MessageType::ListDirectory => {
+                if self.conn_state != ConnectionState::Ready {
+                    return self.send_error(header.request_id, 403, "ProtocolError", "Protocol not ready").await;
+                }
+                
                 let session = match &self.session {
                     Some(s) => s,
-                    None => {
-                        let err_resp = ErrorPayload {
-                            code: 401,
-                            message: "Unauthorized".to_string(),
-                        };
-                        return self.send_response(MessageType::Error, header.request_id, err_resp).await;
-                    }
+                    None => return self.send_error(header.request_id, 401, "Unauthorized", "Not authenticated").await,
                 };
 
                 let req: ListDirectoryRequest = rmp_serde::from_slice(&payload)?;
@@ -115,11 +152,7 @@ impl WsConnection {
                     }
                     Err(e) => {
                         error!("List directory error: {:?}", e);
-                        let err_resp = ErrorPayload {
-                            code: 403,
-                            message: e.to_string(),
-                        };
-                        self.send_response(MessageType::Error, header.request_id, err_resp).await
+                        self.send_error(header.request_id, 403, "PolicyDenied", &e.to_string()).await
                     }
                 }
             }
@@ -133,7 +166,7 @@ impl WsConnection {
     async fn send_response<T: serde::Serialize>(
         &mut self,
         msg_type: MessageType,
-        request_id: uuid::Uuid,
+        request_id: Uuid,
         payload: T,
     ) -> anyhow::Result<()> {
         let payload_bytes = rmp_serde::to_vec(&payload)?;
@@ -145,5 +178,22 @@ impl WsConnection {
         
         self.socket.send(Message::Binary(buf.to_vec())).await?;
         Ok(())
+    }
+
+    async fn send_error(
+        &mut self,
+        request_id: Uuid,
+        code: u16,
+        kind: &str,
+        message: &str,
+    ) -> anyhow::Result<()> {
+        let payload = ErrorPayload {
+            code,
+            error_kind: kind.to_string(),
+            safe_message: message.to_string(),
+            request_id,
+            retryable: false,
+        };
+        self.send_response(MessageType::Error, request_id, payload).await
     }
 }

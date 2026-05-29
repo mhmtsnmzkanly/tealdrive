@@ -1,9 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use crate::fs::metadata::{FileEntry, EntryType};
 use crate::policy::{RootPolicy, SensitivePolicy};
 use std::fs;
 use std::time::UNIX_EPOCH;
 use mime_guess;
+use std::os::linux::fs::MetadataExt;
+use std::os::unix::fs::PermissionsExt;
 
 pub struct FsOperations;
 
@@ -43,21 +45,31 @@ impl FsOperations {
                 .as_secs();
 
             let is_sensitive = SensitivePolicy::is_sensitive(&path);
+            let is_hidden = name.starts_with('.');
             
-            // Basic metadata extraction
-            // In a real system, we'd get owner/group names
+            // Octal mode and permissions string
+            let mode = metadata.permissions().mode();
+            let permissions = format!("{:o}", mode & 0o777);
+
             let entry = FileEntry {
-                id: path.to_string_lossy().to_string(), // In V1, use path as ID
                 name,
                 entry_type,
                 size: metadata.len(),
                 modified,
-                permissions: 0o644, // Placeholder
-                owner: "user".to_string(), // Placeholder
+                owner: "user".to_string(), // Placeholder, real implementation would use nix or users crate
                 group: "group".to_string(), // Placeholder
-                mime: mime_guess::from_path(&path).first_or_octet_stream().to_string(),
+                mode: mode & 0o777,
+                permissions,
+                capabilities: vec!["read".to_string()],
                 is_sensitive,
-                capabilities: vec!["READ".to_string()],
+                is_protected: false,
+                is_hidden,
+                is_symlink: metadata.is_symlink(),
+                symlink_target: if metadata.is_symlink() {
+                    fs::read_link(&path).ok().map(|p| p.to_string_lossy().to_string())
+                } else {
+                    None
+                },
             };
             
             entries.push(entry);

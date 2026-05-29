@@ -51,6 +51,84 @@ impl AuditEvent {
             bytes_out: 0,
         }
     }
+
+    pub fn login_success(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::Login,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn login_failure(
+        request_id: RequestId,
+        username: impl Into<String>,
+        reason: AuditReason,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            username,
+            0,
+            0,
+            AuditAction::Login,
+            AuditStatus::Failed,
+        );
+        event.reason = Some(reason);
+        event
+    }
+
+    pub fn logout(request_id: RequestId, username: impl Into<String>, uid: u32, gid: u32) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::Logout,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn logout_all(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::LogoutAll,
+            AuditStatus::Success,
+        )
+    }
+
+    pub fn session_expired(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::SessionExpired,
+            AuditStatus::Failed,
+        );
+        event.reason = Some(AuditReason::SessionExpired);
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +142,8 @@ pub enum AuditStatus {
 pub enum AuditAction {
     Login,
     Logout,
+    LogoutAll,
+    SessionExpired,
     WebSocketConnect,
     WebSocketDisconnect,
     ListDirectory,
@@ -84,6 +164,13 @@ pub enum AuditReason {
     PolicyDenied,
     PathTraversalAttempt,
     SymlinkEscapeAttempt,
+    InvalidCredentials,
+    AccountLocked,
+    AccountExpired,
+    DisabledShell,
+    RootLoginDisabled,
+    SystemAccountDisabled,
+    SessionExpired,
 }
 
 #[cfg(test)]

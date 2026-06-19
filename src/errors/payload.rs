@@ -11,6 +11,16 @@ pub enum ErrorKind {
     FeatureDisabled,
     NotFound,
     InvalidPath,
+    AlreadyExists,
+    InvalidTarget,
+    CrossDeviceMove,
+    FileTooLarge,
+    DiskFull,
+    UnsupportedBinaryFile,
+    InvalidTextEncoding,
+    SymlinkLoop,
+    NameTooLong,
+    ReadOnlyFilesystem,
     RateLimited,
     ProtocolError,
     NotImplemented,
@@ -91,6 +101,8 @@ pub enum TealDriveError {
     PolicyDenied,
     #[error("feature disabled")]
     FeatureDisabled,
+    #[error("not found")]
+    NotFound,
     #[error("protocol error")]
     Protocol,
     #[error("not implemented")]
@@ -131,6 +143,20 @@ pub enum TealDriveError {
     InvalidFilename,
     #[error("invalid path")]
     InvalidPath,
+    #[error("already exists")]
+    AlreadyExists,
+    #[error("invalid target")]
+    InvalidTarget,
+    #[error("cross-device move")]
+    CrossDeviceMove,
+    #[error("file too large")]
+    FileTooLarge,
+    #[error("disk full")]
+    DiskFull,
+    #[error("unsupported binary file")]
+    UnsupportedBinaryFile,
+    #[error("invalid text encoding")]
+    InvalidTextEncoding,
     #[error("reserved name rejected")]
     ReservedNameRejected,
     #[error("path escapes configured root")]

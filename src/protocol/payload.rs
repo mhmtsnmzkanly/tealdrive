@@ -114,6 +114,12 @@ pub struct DirectoryEntryPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileMetadataRequest {
+    pub root_id: RootId,
+    pub relative_path: RelativePath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileMetadataPayload {
     pub root_id: RootId,
     pub relative_path: RelativePath,
@@ -124,16 +130,46 @@ pub struct FileMetadataPayload {
 pub struct ReadTextFileRequest {
     pub root_id: RootId,
     pub relative_path: RelativePath,
+    pub max_bytes: Option<usize>,
+    pub encoding: Option<String>,
+}
+
+impl ReadTextFileRequest {
+    pub fn validate(&self, limits: &Limits) -> Result<(), TealDriveError> {
+        if self
+            .max_bytes
+            .is_some_and(|max| max > limits.max_text_edit_size)
+        {
+            return Err(TealDriveError::Validation);
+        }
+        if let Some(encoding) = &self.encoding {
+            if !encoding.eq_ignore_ascii_case("utf-8") {
+                return Err(TealDriveError::Validation);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextFileContentPayload {
     pub root_id: RootId,
     pub relative_path: RelativePath,
+    pub name: String,
     pub content: String,
     pub encoding: String,
-    pub read_only: bool,
+    pub size: u64,
+    pub modified: Option<String>,
+    pub owner: Option<OwnerName>,
+    pub group: Option<GroupName>,
+    pub mode: Option<UnixMode>,
+    pub permissions: Option<String>,
     pub is_sensitive: bool,
+    pub is_hidden: bool,
+    pub is_read_only: bool,
+    pub truncated: bool,
+    pub line_count: Option<usize>,
+    pub language_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,12 +229,15 @@ pub struct UploadAbortRequest {
 pub struct DownloadBeginRequest {
     pub root_id: RootId,
     pub relative_path: RelativePath,
-    pub requested_chunk_size: usize,
+    pub requested_chunk_size: Option<usize>,
 }
 
 impl DownloadBeginRequest {
     pub fn validate(&self, limits: &Limits) -> Result<(), TealDriveError> {
-        if self.requested_chunk_size > limits.max_chunk_size {
+        if self
+            .requested_chunk_size
+            .is_some_and(|chunk_size| chunk_size > limits.max_chunk_size)
+        {
             return Err(TealDriveError::Validation);
         }
         Ok(())
@@ -217,14 +256,15 @@ pub struct DownloadBeginResponse {
 pub struct DownloadEndPayload {
     pub transfer_id: TransferId,
     pub bytes_sent: u64,
+    pub chunk_count: u32,
     pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateFolderRequest {
     pub root_id: RootId,
-    pub relative_path: RelativePath,
-    pub name: String,
+    pub parent_relative_path: RelativePath,
+    pub folder_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,6 +490,99 @@ mod tests {
     }
 
     #[test]
+    fn msgpack_file_metadata_request_roundtrip() {
+        let value = FileMetadataRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("docs/file.txt"),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: FileMetadataRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_file_metadata_payload_roundtrip() {
+        let value = FileMetadataPayload {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("docs/file.txt"),
+            entry: directory_entry(),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: FileMetadataPayload = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_download_begin_request_roundtrip() {
+        let value = DownloadBeginRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("file.bin"),
+            requested_chunk_size: Some(MAX_CHUNK_SIZE),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: DownloadBeginRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_download_end_payload_roundtrip() {
+        let value = DownloadEndPayload {
+            transfer_id: TransferId::new(),
+            bytes_sent: 1024,
+            chunk_count: 4,
+            sha256: None,
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: DownloadEndPayload = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_read_text_file_request_roundtrip() {
+        let value = ReadTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            max_bytes: Some(1024),
+            encoding: Some("utf-8".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: ReadTextFileRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_text_file_content_payload_roundtrip() {
+        let value = TextFileContentPayload {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            name: "notes.txt".to_owned(),
+            content: "hello".to_owned(),
+            encoding: "utf-8".to_owned(),
+            size: 5,
+            modified: None,
+            owner: None,
+            group: None,
+            mode: Some(UnixMode(0o644)),
+            permissions: Some("rw-r--r--".to_owned()),
+            is_sensitive: false,
+            is_hidden: false,
+            is_read_only: false,
+            truncated: false,
+            line_count: Some(1),
+            language_hint: Some("text".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: TextFileContentPayload = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
     fn msgpack_operation_failed_roundtrip() {
         let request_id = RequestId::new();
         let error = ErrorPayload {
@@ -505,6 +638,35 @@ mod tests {
 
         assert!(matches!(
             payload.validate(&Limits::default()),
+            Err(TealDriveError::Validation)
+        ));
+    }
+
+    #[test]
+    fn download_begin_too_large_chunk_size_rejected() {
+        let request = DownloadBeginRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("file.bin"),
+            requested_chunk_size: Some(MAX_CHUNK_SIZE + 1),
+        };
+
+        assert!(matches!(
+            request.validate(&Limits::default()),
+            Err(TealDriveError::Validation)
+        ));
+    }
+
+    #[test]
+    fn read_text_file_too_large_max_bytes_rejected() {
+        let request = ReadTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            max_bytes: Some(Limits::default().max_text_edit_size + 1),
+            encoding: None,
+        };
+
+        assert!(matches!(
+            request.validate(&Limits::default()),
             Err(TealDriveError::Validation)
         ));
     }

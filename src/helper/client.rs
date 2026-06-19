@@ -69,6 +69,24 @@ impl HelperProcessClient {
     }
 }
 
+pub fn default_helper_binary_path() -> PathBuf {
+    if let Ok(path) = std::env::var("TEALDRIVE_HELPER_PATH") {
+        return PathBuf::from(path);
+    }
+
+    let mut path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tealdrive-server"));
+    path.set_file_name(helper_binary_name());
+    path
+}
+
+fn helper_binary_name() -> String {
+    if cfg!(windows) {
+        "tealdrive-helper.exe".to_owned()
+    } else {
+        "tealdrive-helper".to_owned()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HelperClient;
 

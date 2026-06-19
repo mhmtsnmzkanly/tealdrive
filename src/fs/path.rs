@@ -112,16 +112,13 @@ pub fn resolve_existing_path(
         resolved_root.canonical_base.join(&validated.0)
     };
 
-    let symlink_meta =
-        std::fs::symlink_metadata(&candidate).map_err(|_| TealDriveError::InvalidPath)?;
+    let symlink_meta = std::fs::symlink_metadata(&candidate).map_err(map_path_io_error)?;
     let is_symlink = symlink_meta.file_type().is_symlink();
     if is_symlink && !follow_symlinks {
         return Err(TealDriveError::SymlinkDenied);
     }
 
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|_| TealDriveError::InvalidPath)?;
+    let canonical = candidate.canonicalize().map_err(map_path_io_error)?;
     if !canonical.starts_with(&resolved_root.canonical_base) {
         return Err(if is_symlink {
             TealDriveError::SymlinkEscape
@@ -151,9 +148,14 @@ pub fn resolve_new_target(
     } else {
         resolved_root.canonical_base.join(&parent_relative_path.0)
     };
-    let resolved_parent = parent
-        .canonicalize()
-        .map_err(|_| TealDriveError::InvalidPath)?;
+    let parent_metadata = std::fs::symlink_metadata(&parent).map_err(map_path_io_error)?;
+    if parent_metadata.file_type().is_symlink() {
+        return Err(TealDriveError::SymlinkDenied);
+    }
+    if !parent_metadata.is_dir() {
+        return Err(TealDriveError::InvalidTarget);
+    }
+    let resolved_parent = parent.canonicalize().map_err(map_path_io_error)?;
     if !resolved_parent.starts_with(&resolved_root.canonical_base) {
         return Err(TealDriveError::PathEscapesRoot);
     }
@@ -170,6 +172,13 @@ pub fn resolve_new_target(
         resolved_parent,
         resolved_path,
     })
+}
+
+fn map_path_io_error(error: std::io::Error) -> TealDriveError {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => TealDriveError::NotFound,
+        _ => TealDriveError::InvalidPath,
+    }
 }
 
 #[cfg(test)]

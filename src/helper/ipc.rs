@@ -1,7 +1,14 @@
 use std::io::{Read, Write};
 
+use crate::config::SensitivePolicyConfig;
 use crate::errors::TealDriveError;
-use crate::helper::types::{command_disabled_in_v1, HelperRequest, HelperResponse};
+use crate::helper::create_folder::create_folder_with_roots;
+use crate::helper::download::download_file_with_roots;
+use crate::helper::listing::{allowed_roots_from_env, list_directory_with_roots};
+use crate::helper::metadata::file_metadata_with_roots;
+use crate::helper::rename::rename_with_roots;
+use crate::helper::text::read_text_file_with_roots;
+use crate::helper::types::{command_disabled_in_v1, HelperCommand, HelperRequest, HelperResponse};
 
 pub const MAX_HELPER_REQUEST_SIZE: usize = 1024 * 1024;
 pub const MAX_HELPER_RESPONSE_SIZE: usize = 1024 * 1024;
@@ -87,6 +94,30 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
     }
     if command_disabled_in_v1(request.command) {
         return HelperResponse::feature_disabled(request);
+    }
+    if request.command == HelperCommand::ListDirectory {
+        let roots = allowed_roots_from_env();
+        return list_directory_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::FileMetadata {
+        let roots = allowed_roots_from_env();
+        return file_metadata_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::DownloadFile {
+        let roots = allowed_roots_from_env();
+        return download_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::ReadTextFile {
+        let roots = allowed_roots_from_env();
+        return read_text_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::CreateFolder {
+        let roots = allowed_roots_from_env();
+        return create_folder_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::Rename {
+        let roots = allowed_roots_from_env();
+        return rename_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
     HelperResponse::not_implemented(request)
 }
@@ -243,7 +274,7 @@ mod tests {
 
     #[test]
     fn unsupported_command_returns_not_implemented() {
-        let request = sample_request(HelperCommand::ListDirectory);
+        let request = sample_request(HelperCommand::ReadFile);
         let response = handle_helper_request(&request);
 
         assert!(!response.success);
@@ -261,7 +292,7 @@ mod tests {
 
     #[test]
     fn run_helper_once_writes_one_response() {
-        let request = sample_request(HelperCommand::ListDirectory);
+        let request = sample_request(HelperCommand::ReadFile);
         let input = encode_helper_request(&request).expect("request");
         let mut output = Vec::new();
 
@@ -275,8 +306,11 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod tests_support {
     use crate::config::{RelativePath, RootId};
-    use crate::helper::types::{HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest};
+    use crate::helper::types::{
+        HelperCommand, HelperLimits, HelperListDirectoryOptions, HelperPolicyContext, HelperRequest,
+    };
     use crate::protocol::frame::RequestId;
+    use crate::protocol::schema::{FileFilter, FilterMode, SortMode};
 
     pub fn sample_request(command: HelperCommand) -> HelperRequest {
         HelperRequest {
@@ -295,7 +329,20 @@ pub(crate) mod tests_support {
             limits: HelperLimits {
                 max_directory_page_size: 500,
                 max_text_edit_size: 5 * 1024 * 1024,
+                max_chunk_size: crate::limits::MAX_CHUNK_SIZE,
+                max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
             },
+            list_options: Some(HelperListDirectoryOptions {
+                cursor: None,
+                limit: 200,
+                include_hidden: false,
+                sort: SortMode::NameAsc,
+                filter: FilterMode {
+                    query: None,
+                    file_kind: None,
+                    filter: Some(FileFilter::All),
+                },
+            }),
         }
     }
 }

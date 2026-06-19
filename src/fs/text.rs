@@ -9,52 +9,32 @@ use crate::helper::types::{
 };
 use crate::policy::decision::{FileOperation, PolicyAuditMetadata, PolicyDecision, PolicyEngine};
 use crate::policy::roots::require_allowed_root;
-use crate::protocol::chunk::RawChunk;
-use crate::protocol::codec::encode_msgpack;
-use crate::protocol::frame::{RequestId, TdrvFrame, TransferId};
-use crate::protocol::header::{Encoding, TdrvHeader};
-use crate::protocol::message_type::MessageType;
-use crate::protocol::payload::{DownloadBeginRequest, DownloadEndPayload, FileMetadataRequest};
+use crate::protocol::frame::RequestId;
+use crate::protocol::payload::{FileMetadataRequest, ReadTextFileRequest, TextFileContentPayload};
 use crate::protocol::schema::FileKind;
 
-pub const MAX_DOWNLOAD_HELPER_BYTES: usize = 768 * 1024;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DownloadState {
-    pub transfer_id: TransferId,
-    pub bytes_sent: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DownloadFrameSet {
-    pub transfer_id: TransferId,
-    pub frames: Vec<TdrvFrame>,
-    pub total_bytes: u64,
-    pub chunk_count: u32,
-}
-
-pub trait DownloadHelper {
+pub trait TextPreviewHelper {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
 }
 
-impl DownloadHelper for HelperProcessClient {
+impl TextPreviewHelper for HelperProcessClient {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         self.execute(request)
     }
 }
 
-pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
+pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
     user_context: &UserContext,
-    request: DownloadBeginRequest,
+    request: ReadTextFileRequest,
     config: &AppConfig,
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
-) -> Result<DownloadFrameSet, TealDriveError> {
+) -> Result<TextFileContentPayload, TealDriveError> {
     request.validate(&config.limits)?;
     let relative_path = validate_relative_path(&request.relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     match policy_engine.check_operation(
-        FileOperation::DownloadFile,
+        FileOperation::ReadTextFile,
         &request.root_id,
         &relative_path,
         None,
@@ -64,12 +44,12 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
         PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
         PolicyDecision::Deny(reason) => {
             let _audit = PolicyAuditMetadata {
-                action: FileOperation::DownloadFile,
+                action: FileOperation::ReadTextFile,
                 root_id: request.root_id.clone(),
                 relative_path: relative_path.clone(),
                 target_relative_path: None,
                 reason,
-                safe_message: "Download denied by TealDrive policy.".to_owned(),
+                safe_message: "Text preview denied by TealDrive policy.".to_owned(),
             };
             return Err(TealDriveError::PolicyDenied);
         }
@@ -88,26 +68,27 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
     if metadata.entry.file_type == FileKind::Directory {
         return Err(TealDriveError::InvalidTarget);
     }
-    if metadata.entry.is_symlink {
+    if metadata.entry.is_symlink || metadata.entry.is_sensitive {
         return Err(TealDriveError::PolicyDenied);
     }
-    if metadata.entry.is_sensitive {
-        return Err(TealDriveError::PolicyDenied);
+    if metadata.entry.size > config.limits.max_text_edit_size as u64 {
+        return Err(TealDriveError::FileTooLarge);
+    }
+    if request
+        .max_bytes
+        .is_some_and(|max_bytes| metadata.entry.size > max_bytes as u64)
+    {
+        return Err(TealDriveError::FileTooLarge);
     }
 
-    let chunk_size = request
-        .requested_chunk_size
-        .unwrap_or(config.limits.max_chunk_size)
-        .min(config.limits.max_chunk_size)
-        .max(1);
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
         uid: user_context.uid,
         gid: user_context.gid,
-        command: HelperCommand::DownloadFile,
+        command: HelperCommand::ReadTextFile,
         root_id: request.root_id.clone(),
-        relative_path,
+        relative_path: relative_path.clone(),
         target_relative_path: None,
         policy_context: HelperPolicyContext {
             read_only_root: root.read_only,
@@ -115,49 +96,42 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
         },
         limits: HelperLimits {
             max_directory_page_size: config.limits.max_directory_page_size,
-            max_text_edit_size: config.limits.max_text_edit_size,
-            max_chunk_size: chunk_size,
-            max_download_helper_bytes: MAX_DOWNLOAD_HELPER_BYTES,
+            max_text_edit_size: request
+                .max_bytes
+                .unwrap_or(config.limits.max_text_edit_size)
+                .min(config.limits.max_text_edit_size),
+            max_chunk_size: config.limits.max_chunk_size,
+            max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
     };
 
-    let response = DownloadHelper::execute_helper(helper_client, &helper_request)?;
+    let response = TextPreviewHelper::execute_helper(helper_client, &helper_request)?;
     if !response.success {
         return Err(helper_response_to_error(&response));
     }
-
-    let HelperResponsePayload::DownloadFile(download) = response.payload else {
+    let HelperResponsePayload::TextFileContent(content) = response.payload else {
         return Err(TealDriveError::HelperMalformedResponse);
     };
-    let mut frames = Vec::with_capacity(download.chunks.len() + 1);
-    for chunk in &download.chunks {
-        let raw = RawChunk {
-            transfer_id: download.transfer_id,
-            chunk_index: chunk.chunk_index,
-            offset: chunk.offset,
-            chunk_bytes: chunk.chunk_bytes.clone(),
-        };
-        let mut header = TdrvHeader::new(MessageType::DownloadChunk, RequestId::new(), 0);
-        header.encoding = Encoding::RawBinary;
-        frames.push(TdrvFrame::new(header, raw.encode()?)?);
-    }
-    let chunk_count = u32::try_from(download.chunks.len()).map_err(|_| TealDriveError::Internal)?;
-    let end_payload = DownloadEndPayload {
-        transfer_id: download.transfer_id,
-        bytes_sent: download.total_bytes,
-        chunk_count,
-        sha256: None,
-    };
-    let mut end_header = TdrvHeader::new(MessageType::DownloadEnd, RequestId::new(), 0);
-    end_header.encoding = Encoding::MessagePack;
-    frames.push(TdrvFrame::new(end_header, encode_msgpack(&end_payload)?)?);
 
-    Ok(DownloadFrameSet {
-        transfer_id: download.transfer_id,
-        frames,
-        total_bytes: download.total_bytes,
-        chunk_count,
+    Ok(TextFileContentPayload {
+        root_id: request.root_id,
+        relative_path,
+        name: content.name,
+        content: content.content,
+        encoding: content.encoding,
+        size: content.size,
+        modified: content.modified,
+        owner: content.owner,
+        group: content.group,
+        mode: content.mode,
+        permissions: content.permissions,
+        is_sensitive: content.is_sensitive,
+        is_hidden: content.is_hidden,
+        is_read_only: content.is_read_only,
+        truncated: content.truncated,
+        line_count: content.line_count,
+        language_hint: content.language_hint,
     })
 }
 
@@ -169,6 +143,8 @@ fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
         Some(ErrorKind::InvalidPath) => TealDriveError::InvalidPath,
         Some(ErrorKind::InvalidTarget) => TealDriveError::InvalidTarget,
         Some(ErrorKind::FileTooLarge) => TealDriveError::FileTooLarge,
+        Some(ErrorKind::UnsupportedBinaryFile) => TealDriveError::UnsupportedBinaryFile,
+        Some(ErrorKind::InvalidTextEncoding) => TealDriveError::InvalidTextEncoding,
         _ => TealDriveError::HelperCommandNotImplemented,
     }
 }
@@ -177,11 +153,9 @@ fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
 mod tests {
     use super::*;
     use crate::config::{AllowedRoot, RelativePath, RootId};
-    use crate::helper::download::download_file_with_roots;
     use crate::helper::metadata::file_metadata_with_roots;
-    use crate::protocol::chunk::RawChunk;
-    use crate::protocol::codec::decode_msgpack;
-    use crate::protocol::payload::DownloadEndPayload;
+    use crate::helper::text::read_text_file_with_roots;
+    use crate::protocol::codec::{decode_msgpack, encode_msgpack};
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -191,12 +165,12 @@ mod tests {
         roots: Vec<AllowedRoot>,
     }
 
-    impl DownloadHelper for InProcessHelper {
+    impl TextPreviewHelper for InProcessHelper {
         fn execute_helper(
             &self,
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
-            Ok(download_file_with_roots(
+            Ok(read_text_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -218,10 +192,8 @@ mod tests {
     }
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "tealdrive-service-download-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-service-text-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
@@ -240,11 +212,12 @@ mod tests {
         }
     }
 
-    fn request(path: &str, chunk_size: Option<usize>) -> DownloadBeginRequest {
-        DownloadBeginRequest {
+    fn request(path: &str) -> ReadTextFileRequest {
+        ReadTextFileRequest {
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(path),
-            requested_chunk_size: chunk_size,
+            max_bytes: None,
+            encoding: None,
         }
     }
 
@@ -257,36 +230,25 @@ mod tests {
     }
 
     #[test]
-    fn normal_file_download_produces_chunks() {
+    fn normal_text_file_preview_succeeds() {
         let base = temp_root();
-        fs::write(base.join("file.txt"), b"hello world").expect("file");
+        fs::write(base.join("notes.txt"), b"hello\nworld\n").expect("file");
         let config = config_for(base, false, false);
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
         };
-        let result = download_file_request(
-            &user(),
-            request("file.txt", Some(5)),
-            &config,
-            &engine,
-            &helper,
-        )
-        .expect("download");
+        let payload =
+            read_text_file_request(&user(), request("notes.txt"), &config, &engine, &helper)
+                .expect("preview");
 
-        assert_eq!(result.total_bytes, 11);
-        assert_eq!(result.chunk_count, 3);
-        assert_eq!(
-            result.frames[0].header.message_type,
-            MessageType::DownloadChunk
-        );
-        let chunk = RawChunk::decode(&result.frames[0].payload).expect("chunk");
-        assert_eq!(chunk.offset, 0);
-        assert_eq!(chunk.transfer_id, result.transfer_id);
+        assert_eq!(payload.content, "hello\nworld\n");
+        assert_eq!(payload.encoding, "utf-8");
+        assert_eq!(payload.line_count, Some(2));
     }
 
     #[test]
-    fn directory_download_rejected() {
+    fn directory_preview_rejected() {
         let base = temp_root();
         fs::create_dir(base.join("folder")).expect("folder");
         let config = config_for(base, false, false);
@@ -296,13 +258,13 @@ mod tests {
         };
 
         assert_eq!(
-            download_file_request(&user(), request("folder", None), &config, &engine, &helper),
+            read_text_file_request(&user(), request("folder"), &config, &engine, &helper),
             Err(TealDriveError::InvalidTarget)
         );
     }
 
     #[test]
-    fn missing_file_maps_not_found() {
+    fn missing_preview_maps_not_found() {
         let config = config_for(temp_root(), false, false);
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
@@ -310,25 +272,27 @@ mod tests {
         };
 
         assert_eq!(
-            download_file_request(&user(), request("missing", None), &config, &engine, &helper),
+            read_text_file_request(&user(), request("missing.txt"), &config, &engine, &helper),
             Err(TealDriveError::NotFound)
         );
     }
 
     #[test]
-    fn sensitive_file_download_denied() {
+    fn sensitive_text_preview_denied_and_content_not_returned() {
         let base = temp_root();
         fs::write(base.join(".env"), b"SECRET=1").expect("env");
-        let config = config_for(base, false, true);
+        let config = config_for(base.clone(), false, true);
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
         };
+        let error = read_text_file_request(&user(), request(".env"), &config, &engine, &helper)
+            .expect_err("denied");
+        let serialized = format!("{error:?}");
 
-        assert_eq!(
-            download_file_request(&user(), request(".env", None), &config, &engine, &helper),
-            Err(TealDriveError::PolicyDenied)
-        );
+        assert_eq!(error, TealDriveError::PolicyDenied);
+        assert!(!serialized.contains("SECRET=1"));
+        assert!(!serialized.contains(base.to_string_lossy().as_ref()));
     }
 
     #[test]
@@ -342,14 +306,14 @@ mod tests {
         };
 
         assert_eq!(
-            download_file_request(&user(), request(".hidden", None), &config, &engine, &helper),
+            read_text_file_request(&user(), request(".hidden"), &config, &engine, &helper),
             Err(TealDriveError::PolicyDenied)
         );
     }
 
     #[cfg(unix)]
     #[test]
-    fn symlink_download_denied() {
+    fn symlink_preview_denied() {
         let base = temp_root();
         fs::write(base.join("target"), b"hello").expect("target");
         symlink(base.join("target"), base.join("link")).expect("symlink");
@@ -360,83 +324,74 @@ mod tests {
         };
 
         assert_eq!(
-            download_file_request(&user(), request("link", None), &config, &engine, &helper),
+            read_text_file_request(&user(), request("link"), &config, &engine, &helper),
             Err(TealDriveError::PolicyDenied)
         );
     }
 
     #[test]
-    fn read_only_root_allows_download() {
+    fn read_only_root_allows_preview() {
         let base = temp_root();
-        fs::write(base.join("file.txt"), b"hello").expect("file");
+        fs::write(base.join("notes.txt"), b"hello").expect("file");
         let config = config_for(base, true, false);
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
         };
 
-        assert!(download_file_request(
-            &user(),
-            request("file.txt", None),
-            &config,
-            &engine,
-            &helper
-        )
-        .is_ok());
+        assert!(
+            read_text_file_request(&user(), request("notes.txt"), &config, &engine, &helper)
+                .is_ok()
+        );
     }
 
     #[test]
-    fn chunk_size_over_max_rejected() {
-        let config = config_for(temp_root(), false, false);
+    fn file_over_size_limit_rejected() {
+        let base = temp_root();
+        fs::write(base.join("notes.txt"), b"12345").expect("file");
+        let mut config = config_for(base, false, false);
+        config.limits.max_text_edit_size = 4;
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
         };
 
         assert_eq!(
-            download_file_request(
-                &user(),
-                request("file.txt", Some(config.limits.max_chunk_size + 1)),
-                &config,
-                &engine,
-                &helper
-            ),
-            Err(TealDriveError::Validation)
+            read_text_file_request(&user(), request("notes.txt"), &config, &engine, &helper),
+            Err(TealDriveError::FileTooLarge)
         );
     }
 
     #[test]
-    fn download_end_payload_roundtrip_and_offsets_correct() {
+    fn binary_file_rejected() {
         let base = temp_root();
-        fs::write(base.join("file.txt"), b"abcdef").expect("file");
+        fs::write(base.join("binary.bin"), b"a\0b").expect("file");
         let config = config_for(base, false, false);
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
         };
-        let result = download_file_request(
-            &user(),
-            request("file.txt", Some(2)),
-            &config,
-            &engine,
-            &helper,
-        )
-        .expect("download");
-        let chunks: Vec<_> = result.frames[..result.frames.len() - 1]
-            .iter()
-            .map(|frame| RawChunk::decode(&frame.payload).expect("chunk"))
-            .collect();
-        let end: DownloadEndPayload =
-            decode_msgpack(&result.frames.last().expect("end").payload).expect("end");
 
-        assert_eq!(chunks[0].offset, 0);
-        assert_eq!(chunks[1].offset, 2);
-        assert!(chunks
-            .iter()
-            .all(|chunk| chunk.transfer_id == result.transfer_id));
-        assert_eq!(end.transfer_id, result.transfer_id);
-        assert_eq!(end.bytes_sent, 6);
-        assert_eq!(end.chunk_count, 3);
+        assert_eq!(
+            read_text_file_request(&user(), request("binary.bin"), &config, &engine, &helper),
+            Err(TealDriveError::UnsupportedBinaryFile)
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_rejected() {
+        let base = temp_root();
+        fs::write(base.join("bad.txt"), [0xff, 0xfe]).expect("file");
+        let config = config_for(base, false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            read_text_file_request(&user(), request("bad.txt"), &config, &engine, &helper),
+            Err(TealDriveError::InvalidTextEncoding)
+        );
     }
 
     #[test]
@@ -448,14 +403,40 @@ mod tests {
         };
 
         assert_eq!(
-            download_file_request(
-                &user(),
-                request("../secret", None),
-                &config,
-                &engine,
-                &helper
-            ),
+            read_text_file_request(&user(), request("../secret"), &config, &engine, &helper),
             Err(TealDriveError::TraversalRejected)
         );
+    }
+
+    #[test]
+    fn read_text_request_msgpack_roundtrip() {
+        let request = ReadTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            max_bytes: Some(1024),
+            encoding: Some("utf-8".to_owned()),
+        };
+        let bytes = encode_msgpack(&request).expect("encoded");
+        let decoded: ReadTextFileRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, request);
+    }
+
+    #[test]
+    fn text_file_content_msgpack_roundtrip() {
+        let base = temp_root();
+        fs::write(base.join("notes.txt"), b"hello").expect("file");
+        let config = config_for(base, false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let payload =
+            read_text_file_request(&user(), request("notes.txt"), &config, &engine, &helper)
+                .expect("preview");
+        let bytes = encode_msgpack(&payload).expect("encoded");
+        let decoded: TextFileContentPayload = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, payload);
     }
 }

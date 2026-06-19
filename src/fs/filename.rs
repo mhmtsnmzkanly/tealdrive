@@ -12,6 +12,7 @@ impl SafeFileName {
         if value.is_empty()
             || value.contains('\0')
             || value.contains('/')
+            || value.contains('\\')
             || value == "."
             || value == ".."
             || is_reserved_name(value)
@@ -44,6 +45,14 @@ mod tests {
     fn filename_with_slash_rejected() {
         assert_eq!(
             SafeFileName::parse("bad/name"),
+            Err(TealDriveError::InvalidFilename)
+        );
+    }
+
+    #[test]
+    fn filename_with_backslash_rejected() {
+        assert_eq!(
+            SafeFileName::parse("bad\\name"),
             Err(TealDriveError::InvalidFilename)
         );
     }

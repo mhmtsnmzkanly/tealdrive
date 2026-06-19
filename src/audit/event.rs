@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::config::{RelativePath, RootId};
+use crate::config::{RelativePath, RootId, UserContext};
 use crate::protocol::frame::RequestId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +213,124 @@ impl AuditEvent {
         event.reason = Some(reason);
         event
     }
+
+    pub fn file_metadata(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::FileMetadata,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event
+    }
+
+    pub fn download(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+        bytes_out: u64,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::Download,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event.bytes_out = bytes_out;
+        event
+    }
+
+    pub fn text_preview(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+        bytes_in: u64,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::FilePreview,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event.bytes_in = bytes_in;
+        event
+    }
+
+    pub fn create_folder(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        parent_relative_path: RelativePath,
+        folder_name: impl Into<String>,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::CreateFolder,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(parent_relative_path);
+        event.target_relative_path = Some(RelativePath::new(folder_name.into()));
+        event.reason = reason;
+        event
+    }
+
+    pub fn rename(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        new_name: impl Into<String>,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::Rename,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.target_relative_path = Some(RelativePath::new(new_name.into()));
+        event.reason = reason;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +351,7 @@ pub enum AuditAction {
     WebSocketHandshake,
     WebSocketMessageRejected,
     ListDirectory,
+    FileMetadata,
     FilePreview,
     Download,
     Upload,
@@ -250,6 +369,7 @@ pub enum AuditReason {
     PolicyDenied,
     PathTraversalAttempt,
     SymlinkEscapeAttempt,
+    NotFound,
     InvalidCredentials,
     AccountLocked,
     AccountExpired,
@@ -303,5 +423,112 @@ mod tests {
         assert_eq!(event.action, AuditAction::WebSocketHandshake);
         assert_eq!(event.status, AuditStatus::Failed);
         assert_eq!(event.reason, Some(AuditReason::HandshakeFailed));
+    }
+
+    #[test]
+    fn file_metadata_audit_event_created() {
+        let event = AuditEvent::file_metadata(
+            RequestId::new(),
+            &UserContext {
+                username: "alice".to_owned(),
+                uid: 1000,
+                gid: 1000,
+            },
+            RootId::new("home"),
+            RelativePath::new("file.txt"),
+            AuditStatus::Success,
+            None,
+        );
+
+        assert_eq!(event.action, AuditAction::FileMetadata);
+        assert_eq!(event.status, AuditStatus::Success);
+        assert_eq!(event.relative_path, Some(RelativePath::new("file.txt")));
+    }
+
+    #[test]
+    fn download_audit_event_records_bytes_out() {
+        let event = AuditEvent::download(
+            RequestId::new(),
+            &UserContext {
+                username: "alice".to_owned(),
+                uid: 1000,
+                gid: 1000,
+            },
+            RootId::new("home"),
+            RelativePath::new("file.bin"),
+            AuditStatus::Success,
+            None,
+            1024,
+        );
+
+        assert_eq!(event.action, AuditAction::Download);
+        assert_eq!(event.bytes_out, 1024);
+    }
+
+    #[test]
+    fn text_preview_audit_event_records_bytes_in() {
+        let event = AuditEvent::text_preview(
+            RequestId::new(),
+            &UserContext {
+                username: "alice".to_owned(),
+                uid: 1000,
+                gid: 1000,
+            },
+            RootId::new("home"),
+            RelativePath::new("notes.txt"),
+            AuditStatus::Success,
+            None,
+            128,
+        );
+
+        assert_eq!(event.action, AuditAction::FilePreview);
+        assert_eq!(event.bytes_in, 128);
+    }
+
+    #[test]
+    fn create_folder_audit_event_records_target_name() {
+        let event = AuditEvent::create_folder(
+            RequestId::new(),
+            &UserContext {
+                username: "alice".to_owned(),
+                uid: 1000,
+                gid: 1000,
+            },
+            RootId::new("home"),
+            RelativePath::new("docs"),
+            "new-folder",
+            AuditStatus::Success,
+            None,
+        );
+
+        assert_eq!(event.action, AuditAction::CreateFolder);
+        assert_eq!(
+            event.target_relative_path,
+            Some(RelativePath::new("new-folder"))
+        );
+    }
+
+    #[test]
+    fn rename_audit_event_records_new_name() {
+        let event = AuditEvent::rename(
+            RequestId::new(),
+            &UserContext {
+                username: "alice".to_owned(),
+                uid: 1000,
+                gid: 1000,
+            },
+            RootId::new("home"),
+            RelativePath::new("old.txt"),
+            "new.txt",
+            AuditStatus::Success,
+            None,
+        );
+
+        assert_eq!(event.action, AuditAction::Rename);
+        assert_eq!(event.relative_path, Some(RelativePath::new("old.txt")));
+        assert_eq!(
+            event.target_relative_path,
+            Some(RelativePath::new("new.txt"))
+        );
     }
 }

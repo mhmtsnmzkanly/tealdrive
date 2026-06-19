@@ -18,6 +18,7 @@ pub enum MessageType {
     ReadTextFile = 0x0103,
     TextFileContent = 0x0104,
     SaveTextFile = 0x0105,
+    FileMetadataRequest = 0x0106,
     UploadBegin = 0x0200,
     UploadChunk = 0x0201,
     UploadEnd = 0x0202,
@@ -49,10 +50,10 @@ impl MessageType {
     pub fn direction(self) -> MessageTypeDirection {
         use MessageType::*;
         match self {
-            ClientHello | ListDirectory | ReadTextFile | SaveTextFile | UploadBegin
-            | UploadChunk | UploadEnd | UploadAbort | DownloadBegin | CreateFolder | RenameFile
-            | MoveFile | CopyFile | MoveToTrash | RestoreFromTrash | DeletePermanently
-            | ChmodFile | CompressZip | CompressTarGz | ExtractArchive => {
+            ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile | SaveTextFile
+            | UploadBegin | UploadChunk | UploadEnd | UploadAbort | DownloadBegin
+            | CreateFolder | RenameFile | MoveFile | CopyFile | MoveToTrash | RestoreFromTrash
+            | DeletePermanently | ChmodFile | CompressZip | CompressTarGz | ExtractArchive => {
                 MessageTypeDirection::ClientToServer
             }
             ServerHello | ProtocolReady | ConnectionStatus | DirectoryList | FileMetadata
@@ -106,6 +107,7 @@ impl TryFrom<u16> for MessageType {
             0x0103 => Ok(ReadTextFile),
             0x0104 => Ok(TextFileContent),
             0x0105 => Ok(SaveTextFile),
+            0x0106 => Ok(FileMetadataRequest),
             0x0200 => Ok(UploadBegin),
             0x0201 => Ok(UploadChunk),
             0x0202 => Ok(UploadEnd),
@@ -172,6 +174,8 @@ mod tests {
     fn stable_numeric_values_are_preserved() {
         assert_eq!(u16::from(MessageType::ServerHello), 0x0001);
         assert_eq!(u16::from(MessageType::DirectoryList), 0x0101);
+        assert_eq!(u16::from(MessageType::FileMetadata), 0x0102);
+        assert_eq!(u16::from(MessageType::FileMetadataRequest), 0x0106);
         assert_eq!(u16::from(MessageType::DownloadChunk), 0x0211);
         assert_eq!(u16::from(MessageType::ExtractArchive), 0x0312);
     }
@@ -179,6 +183,15 @@ mod tests {
     #[test]
     fn direction_validation_rejects_client_sent_server_only_message() {
         assert_eq!(MessageType::ListDirectory.validate_inbound_client(), Ok(()));
+        assert_eq!(
+            MessageType::FileMetadataRequest.validate_inbound_client(),
+            Ok(())
+        );
+        assert_eq!(MessageType::RenameFile.validate_inbound_client(), Ok(()));
+        assert!(matches!(
+            MessageType::FileMetadata.validate_inbound_client(),
+            Err(TealDriveError::InvalidMessageDirection)
+        ));
         assert!(matches!(
             MessageType::DirectoryList.validate_inbound_client(),
             Err(TealDriveError::InvalidMessageDirection)

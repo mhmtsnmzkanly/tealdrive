@@ -48,7 +48,7 @@ impl FileOperation {
     pub fn as_message_type(self) -> Option<MessageType> {
         match self {
             Self::ListDirectory => Some(MessageType::ListDirectory),
-            Self::FileMetadata => None,
+            Self::FileMetadata => Some(MessageType::FileMetadataRequest),
             Self::ReadTextFile => Some(MessageType::ReadTextFile),
             Self::DownloadFile => Some(MessageType::DownloadBegin),
             Self::UploadFile => Some(MessageType::UploadBegin),

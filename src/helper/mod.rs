@@ -1,4 +1,10 @@
 pub mod client;
+pub mod create_folder;
+pub mod download;
 pub mod ipc;
+pub mod listing;
+pub mod metadata;
 pub mod privilege;
+pub mod rename;
+pub mod text;
 pub mod types;

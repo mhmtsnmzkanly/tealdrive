@@ -35,6 +35,20 @@ pub enum FileKind {
     Other,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileFilter {
+    All,
+    Folders,
+    Code,
+    Images,
+    Media,
+    Documents,
+    Archives,
+    Hidden,
+    Writable,
+    Symlinks,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortMode {
     #[default]
@@ -44,12 +58,15 @@ pub enum SortMode {
     ModifiedDesc,
     SizeAsc,
     SizeDesc,
+    TypeAsc,
+    TypeDesc,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilterMode {
     pub query: Option<String>,
     pub file_kind: Option<FileKind>,
+    pub filter: Option<FileFilter>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

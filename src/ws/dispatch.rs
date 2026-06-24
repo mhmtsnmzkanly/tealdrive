@@ -7,6 +7,9 @@ use crate::fs::metadata::{file_metadata_request, MetadataHelper};
 use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, MoveHelper};
 use crate::fs::rename::{rename_file_request, RenameHelper};
 use crate::fs::text::{read_text_file_request, TextPreviewHelper};
+use crate::fs::trash::{
+    move_to_trash_request, restore_from_trash_request, MoveToTrashHelper, RestoreFromTrashHelper,
+};
 use crate::policy::decision::PolicyEngine;
 use crate::policy::feature_gate::{FeatureGate, FeatureGateResult};
 use crate::protocol::codec::{decode_msgpack, encode_msgpack};
@@ -15,8 +18,8 @@ use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
     ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DownloadBeginRequest,
-    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, OperationFailedPayload,
-    ReadTextFileRequest, RenameFileRequest,
+    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
+    OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
 };
 use crate::ws::connection::{classify_message, InboundFrameKind, WsConnectionContext};
 use crate::ws::handshake::{
@@ -73,7 +76,9 @@ where
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
-        + CopyHelper,
+        + CopyHelper
+        + MoveToTrashHelper
+        + RestoreFromTrashHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
     handle_decoded_frame_with_service(context, frame, config, helper_client)
@@ -93,7 +98,9 @@ where
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
-        + CopyHelper,
+        + CopyHelper
+        + MoveToTrashHelper
+        + RestoreFromTrashHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
 
@@ -165,7 +172,9 @@ where
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
-        + CopyHelper,
+        + CopyHelper
+        + MoveToTrashHelper
+        + RestoreFromTrashHelper,
 {
     match message_type {
         MessageType::ListDirectory => Ok(DispatchDecision::Outbound(vec![
@@ -191,6 +200,12 @@ where
         ])),
         MessageType::CopyFile => Ok(DispatchDecision::Outbound(vec![
             handle_copy_file_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::MoveToTrash => Ok(DispatchDecision::Outbound(vec![
+            handle_move_to_trash_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::RestoreFromTrash => Ok(DispatchDecision::Outbound(vec![
+            handle_restore_from_trash_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         _ => placeholder_dispatch(context, frame, message_type),
     }
@@ -498,6 +513,68 @@ pub fn handle_copy_file_frame_with_service<H: CopyHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_move_to_trash_frame_with_service<H: MoveToTrashHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::MoveToTrash {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: MoveToTrashRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = move_to_trash_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_restore_from_trash_frame_with_service<H: RestoreFromTrashHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::RestoreFromTrash {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: RestoreFromTrashRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = restore_from_trash_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,6 +697,32 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(copy_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl MoveToTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::move_file_to_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl RestoreFromTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::restore_file_from_trash_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -1182,6 +1285,142 @@ mod tests {
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         assert!(base.join("orig.txt").is_file());
         assert!(base.join("copy.txt").is_file());
+    }
+
+    fn move_to_trash_request_payload(path: &str) -> MoveToTrashRequest {
+        MoveToTrashRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+        }
+    }
+
+    fn restore_from_trash_request_payload(trash_id: &str) -> RestoreFromTrashRequest {
+        RestoreFromTrashRequest {
+            trash_id: trash_id.to_owned(),
+            target_root_id: Some(RootId::new("home")),
+            target_relative_path: None,
+        }
+    }
+
+    #[test]
+    fn move_to_trash_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::MoveToTrash,
+            encode_msgpack(&move_to_trash_request_payload("file.txt")).expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_move_to_trash_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn restore_from_trash_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::RestoreFromTrash,
+            encode_msgpack(&restore_from_trash_request_payload(
+                "00000000-0000-0000-0000-000000000000",
+            ))
+            .expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_restore_from_trash_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn move_to_trash_after_ready_reaches_trash_service() {
+        let base = temp_root();
+        fs::write(base.join("trash_me.txt"), b"bye").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::MoveToTrash,
+            encode_msgpack(&move_to_trash_request_payload("trash_me.txt")).expect("payload"),
+        );
+
+        let outbound = handle_move_to_trash_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(!base.join("trash_me.txt").exists());
+        let payload: crate::protocol::payload::MoveToTrashPayload =
+            decode_msgpack(&outbound.payload).expect("payload");
+        assert_eq!(payload.display_name, "trash_me.txt");
+        assert!(!payload.trash_id.is_empty());
+    }
+
+    #[test]
+    fn restore_from_trash_after_ready_reaches_trash_service() {
+        let base = temp_root();
+        fs::write(base.join("restore_me.txt"), b"hello").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        // First move to trash
+        let trash_frame = client_frame(
+            MessageType::MoveToTrash,
+            encode_msgpack(&move_to_trash_request_payload("restore_me.txt")).expect("payload"),
+        );
+        let trash_resp =
+            handle_move_to_trash_frame_with_service(&context, &trash_frame, &config, &helper)
+                .expect("trash ok");
+        let trash_payload: crate::protocol::payload::MoveToTrashPayload =
+            decode_msgpack(&trash_resp.payload).expect("payload");
+
+        // Then restore
+        let restore_frame = client_frame(
+            MessageType::RestoreFromTrash,
+            encode_msgpack(&restore_from_trash_request_payload(&trash_payload.trash_id))
+                .expect("payload"),
+        );
+        let restore_resp = handle_restore_from_trash_frame_with_service(
+            &context,
+            &restore_frame,
+            &config,
+            &helper,
+        )
+        .expect("restore ok");
+
+        assert_eq!(restore_resp.header.message_type, MessageType::OperationDone);
+        assert!(base.join("restore_me.txt").exists());
     }
 
     #[test]

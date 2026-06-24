@@ -24,6 +24,7 @@ use crate::fs::metadata::MetadataHelper;
 use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
 use crate::fs::text::TextPreviewHelper;
+use crate::fs::trash::{MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
 use crate::session::store::{InMemorySessionStore, SessionId, SessionStore};
@@ -43,6 +44,8 @@ pub trait WsHelperBackend:
     + RenameHelper
     + MoveHelper
     + CopyHelper
+    + MoveToTrashHelper
+    + RestoreFromTrashHelper
     + Send
     + Sync
 {
@@ -57,6 +60,8 @@ impl<T> WsHelperBackend for T where
         + RenameHelper
         + MoveHelper
         + CopyHelper
+        + MoveToTrashHelper
+        + RestoreFromTrashHelper
         + Send
         + Sync
 {
@@ -640,6 +645,32 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(copy_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl MoveToTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::move_file_to_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl RestoreFromTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::restore_file_from_trash_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

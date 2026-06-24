@@ -304,6 +304,17 @@ pub struct RestoreFromTrashRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveToTrashPayload {
+    pub request_id: RequestId,
+    pub operation: String,
+    pub trash_id: String,
+    pub display_name: String,
+    pub deleted_at: u64,
+    pub original_relative_path: RelativePath,
+    pub original_root_id: RootId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeletePermanentlyRequest {
     pub root_id: RootId,
     pub relative_path: RelativePath,

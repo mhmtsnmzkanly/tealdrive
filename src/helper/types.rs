@@ -86,6 +86,16 @@ pub enum HelperResponsePayload {
     FileMetadata(HelperDirectoryEntry),
     DownloadFile(HelperDownloadFile),
     TextFileContent(HelperTextFileContent),
+    TrashEntry(HelperTrashEntry),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperTrashEntry {
+    pub trash_id: String,
+    pub display_name: String,
+    pub deleted_at: u64,
+    pub original_relative_path: RelativePath,
+    pub original_root_id: RootId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +319,29 @@ impl HelperResponse {
                 reason: None,
             }),
             payload: HelperResponsePayload::TextFileContent(content),
+        }
+    }
+
+    pub fn trash_entry(request: &HelperRequest, entry: HelperTrashEntry) -> Self {
+        Self {
+            success: true,
+            error_kind: None,
+            safe_message: Some("Moved to trash.".to_owned()),
+            os_error_code: None,
+            bytes_read: 0,
+            bytes_written: 0,
+            audit_metadata: Some(HelperAuditMetadata {
+                request_id: request.request_id,
+                command: request.command,
+                root_id: request.root_id.clone(),
+                relative_path: request.relative_path.clone(),
+                target_relative_path: request.target_relative_path.clone(),
+                bytes_read: 0,
+                bytes_written: 0,
+                status: "success".to_owned(),
+                reason: None,
+            }),
+            payload: HelperResponsePayload::TrashEntry(entry),
         }
     }
 

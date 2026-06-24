@@ -379,6 +379,52 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn move_to_trash(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        trash_id: impl Into<String>,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::MoveToTrash,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.target_relative_path = Some(RelativePath::new(trash_id.into()));
+        event.reason = reason;
+        event
+    }
+
+    pub fn restore_from_trash(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        trash_id: impl Into<String>,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::RestoreFromTrash,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(RelativePath::new(trash_id.into()));
+        event.reason = reason;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

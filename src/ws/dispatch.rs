@@ -4,6 +4,7 @@ use crate::errors::{ErrorKind, ErrorPayload, TealDriveError};
 use crate::fs::create_folder::{create_folder_request, CreateFolderHelper};
 use crate::fs::listing::{list_directory_request, DirectoryListingHelper};
 use crate::fs::metadata::{file_metadata_request, MetadataHelper};
+use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, MoveHelper};
 use crate::fs::rename::{rename_file_request, RenameHelper};
 use crate::fs::text::{read_text_file_request, TextPreviewHelper};
 use crate::policy::decision::PolicyEngine;
@@ -13,8 +14,9 @@ use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
-    ClientHelloPayload, CreateFolderRequest, DownloadBeginRequest, FileMetadataRequest,
-    ListDirectoryRequest, OperationFailedPayload, ReadTextFileRequest, RenameFileRequest,
+    ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DownloadBeginRequest,
+    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, OperationFailedPayload,
+    ReadTextFileRequest, RenameFileRequest,
 };
 use crate::ws::connection::{classify_message, InboundFrameKind, WsConnectionContext};
 use crate::ws::handshake::{
@@ -69,7 +71,9 @@ where
         + DownloadHelper
         + TextPreviewHelper
         + CreateFolderHelper
-        + RenameHelper,
+        + RenameHelper
+        + MoveHelper
+        + CopyHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
     handle_decoded_frame_with_service(context, frame, config, helper_client)
@@ -87,7 +91,9 @@ where
         + DownloadHelper
         + TextPreviewHelper
         + CreateFolderHelper
-        + RenameHelper,
+        + RenameHelper
+        + MoveHelper
+        + CopyHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
 
@@ -157,7 +163,9 @@ where
         + DownloadHelper
         + TextPreviewHelper
         + CreateFolderHelper
-        + RenameHelper,
+        + RenameHelper
+        + MoveHelper
+        + CopyHelper,
 {
     match message_type {
         MessageType::ListDirectory => Ok(DispatchDecision::Outbound(vec![
@@ -177,6 +185,12 @@ where
         ])),
         MessageType::RenameFile => Ok(DispatchDecision::Outbound(vec![
             handle_rename_file_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::MoveFile => Ok(DispatchDecision::Outbound(vec![
+            handle_move_file_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::CopyFile => Ok(DispatchDecision::Outbound(vec![
+            handle_copy_file_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         _ => placeholder_dispatch(context, frame, message_type),
     }
@@ -422,6 +436,68 @@ pub fn handle_rename_file_frame_with_service<H: RenameHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_move_file_frame_with_service<H: MoveHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::MoveFile {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: MoveFileRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = move_file_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_copy_file_frame_with_service<H: CopyHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::CopyFile {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: CopyFileRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = copy_file_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +506,7 @@ mod tests {
     use crate::helper::download::download_file_with_roots;
     use crate::helper::listing::list_directory_with_roots;
     use crate::helper::metadata::file_metadata_with_roots;
+    use crate::helper::move_copy::{copy_file_with_roots, move_file_with_roots};
     use crate::helper::rename::rename_with_roots;
     use crate::helper::text::read_text_file_with_roots;
     use crate::helper::types::{HelperRequest, HelperResponse};
@@ -524,6 +601,32 @@ mod tests {
         }
     }
 
+    impl MoveHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(move_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CopyHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(copy_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
     fn client_frame(message_type: MessageType, payload: Vec<u8>) -> TdrvFrame {
         let mut header = TdrvHeader::new(message_type, RequestId::new(), 0);
         header.encoding = Encoding::MessagePack;
@@ -609,6 +712,24 @@ mod tests {
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(path),
             new_name: new_name.to_owned(),
+        }
+    }
+
+    fn move_file_request_payload(src: &str, dst: &str) -> MoveFileRequest {
+        MoveFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(src),
+            target_root_id: RootId::new("home"),
+            target_relative_path: RelativePath::new(dst),
+        }
+    }
+
+    fn copy_file_request_payload(src: &str, dst: &str) -> CopyFileRequest {
+        CopyFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(src),
+            target_root_id: RootId::new("home"),
+            target_relative_path: RelativePath::new(dst),
         }
     }
 
@@ -764,6 +885,38 @@ mod tests {
         let frame = client_frame(
             MessageType::RenameFile,
             encode_msgpack(&rename_file_request_payload("old.txt", "new.txt")).expect("payload"),
+        )
+        .encode()
+        .expect("encoded");
+
+        assert!(matches!(
+            handle_inbound_frame(&mut context, &frame),
+            Err(TealDriveError::Validation)
+        ));
+    }
+
+    #[test]
+    fn move_file_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::MoveFile,
+            encode_msgpack(&move_file_request_payload("old.txt", "new.txt")).expect("payload"),
+        )
+        .encode()
+        .expect("encoded");
+
+        assert!(matches!(
+            handle_inbound_frame(&mut context, &frame),
+            Err(TealDriveError::Validation)
+        ));
+    }
+
+    #[test]
+    fn copy_file_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::CopyFile,
+            encode_msgpack(&copy_file_request_payload("orig.txt", "copy.txt")).expect("payload"),
         )
         .encode()
         .expect("encoded");
@@ -963,6 +1116,72 @@ mod tests {
 
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         assert!(base.join("new.txt").is_file());
+    }
+
+    #[test]
+    fn move_file_after_ready_reaches_move_service() {
+        let base = temp_root();
+        fs::write(base.join("old.txt"), b"hello").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::MoveFile,
+            encode_msgpack(&move_file_request_payload("old.txt", "new.txt")).expect("payload"),
+        );
+
+        let outbound = handle_move_file_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(!base.join("old.txt").exists());
+        assert!(base.join("new.txt").is_file());
+    }
+
+    #[test]
+    fn copy_file_after_ready_reaches_copy_service() {
+        let base = temp_root();
+        fs::write(base.join("orig.txt"), b"hello").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::CopyFile,
+            encode_msgpack(&copy_file_request_payload("orig.txt", "copy.txt")).expect("payload"),
+        );
+
+        let outbound = handle_copy_file_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(base.join("orig.txt").is_file());
+        assert!(base.join("copy.txt").is_file());
     }
 
     #[test]

@@ -21,6 +21,7 @@ use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::create_folder::CreateFolderHelper;
 use crate::fs::listing::DirectoryListingHelper;
 use crate::fs::metadata::MetadataHelper;
+use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
 use crate::fs::text::TextPreviewHelper;
 use crate::protocol::frame::{RequestId, TdrvFrame};
@@ -40,6 +41,8 @@ pub trait WsHelperBackend:
     + TextPreviewHelper
     + CreateFolderHelper
     + RenameHelper
+    + MoveHelper
+    + CopyHelper
     + Send
     + Sync
 {
@@ -52,6 +55,8 @@ impl<T> WsHelperBackend for T where
         + TextPreviewHelper
         + CreateFolderHelper
         + RenameHelper
+        + MoveHelper
+        + CopyHelper
         + Send
         + Sync
 {
@@ -522,6 +527,7 @@ mod tests {
     use crate::helper::download::download_file_with_roots;
     use crate::helper::listing::list_directory_with_roots;
     use crate::helper::metadata::file_metadata_with_roots;
+    use crate::helper::move_copy::{copy_file_with_roots, move_file_with_roots};
     use crate::helper::rename::rename_with_roots;
     use crate::helper::text::read_text_file_with_roots;
     use crate::helper::types::{HelperRequest, HelperResponse};
@@ -608,6 +614,32 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(rename_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl MoveHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(move_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CopyHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(copy_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

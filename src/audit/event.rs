@@ -331,6 +331,54 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn move_file(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        target_relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::MoveFile,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.target_relative_path = Some(target_relative_path);
+        event.reason = reason;
+        event
+    }
+
+    pub fn copy_file(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        target_relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::CopyFile,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.target_relative_path = Some(target_relative_path);
+        event.reason = reason;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -357,6 +405,8 @@ pub enum AuditAction {
     Upload,
     CreateFolder,
     Rename,
+    MoveFile,
+    CopyFile,
     MoveToTrash,
     RestoreFromTrash,
     FeatureDisabledAttempt,
@@ -530,5 +580,58 @@ mod tests {
             event.target_relative_path,
             Some(RelativePath::new("new.txt"))
         );
+    }
+
+    #[test]
+    fn move_file_audit_event_records_source_and_target() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let event = AuditEvent::move_file(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("old.txt"),
+            RelativePath::new("archive/old.txt"),
+            AuditStatus::Success,
+            None,
+        );
+
+        assert_eq!(event.action, AuditAction::MoveFile);
+        assert_eq!(event.relative_path, Some(RelativePath::new("old.txt")));
+        assert_eq!(
+            event.target_relative_path,
+            Some(RelativePath::new("archive/old.txt"))
+        );
+        assert_eq!(event.status, AuditStatus::Success);
+    }
+
+    #[test]
+    fn copy_file_audit_event_records_source_and_target() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let event = AuditEvent::copy_file(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("orig.txt"),
+            RelativePath::new("copies/orig.txt"),
+            AuditStatus::Denied,
+            Some(AuditReason::PolicyDenied),
+        );
+
+        assert_eq!(event.action, AuditAction::CopyFile);
+        assert_eq!(event.relative_path, Some(RelativePath::new("orig.txt")));
+        assert_eq!(
+            event.target_relative_path,
+            Some(RelativePath::new("copies/orig.txt"))
+        );
+        assert_eq!(event.status, AuditStatus::Denied);
+        assert_eq!(event.reason, Some(AuditReason::PolicyDenied));
     }
 }

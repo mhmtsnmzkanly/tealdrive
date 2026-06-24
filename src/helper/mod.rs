@@ -4,6 +4,7 @@ pub mod download;
 pub mod ipc;
 pub mod listing;
 pub mod metadata;
+pub mod move_copy;
 pub mod privilege;
 pub mod rename;
 pub mod text;

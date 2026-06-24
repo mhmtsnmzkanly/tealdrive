@@ -6,6 +6,7 @@ use crate::helper::create_folder::create_folder_with_roots;
 use crate::helper::download::download_file_with_roots;
 use crate::helper::listing::{allowed_roots_from_env, list_directory_with_roots};
 use crate::helper::metadata::file_metadata_with_roots;
+use crate::helper::move_copy::{copy_file_with_roots, move_file_with_roots};
 use crate::helper::rename::rename_with_roots;
 use crate::helper::text::read_text_file_with_roots;
 use crate::helper::types::{command_disabled_in_v1, HelperCommand, HelperRequest, HelperResponse};
@@ -118,6 +119,14 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
     if request.command == HelperCommand::Rename {
         let roots = allowed_roots_from_env();
         return rename_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::Move {
+        let roots = allowed_roots_from_env();
+        return move_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::Copy {
+        let roots = allowed_roots_from_env();
+        return copy_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
     HelperResponse::not_implemented(request)
 }

@@ -6,3 +6,4 @@ pub mod move_copy;
 pub mod path;
 pub mod rename;
 pub mod text;
+pub mod trash;

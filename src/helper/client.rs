@@ -93,6 +93,7 @@ impl HelperProcessClient {
         }
         drop(child.stdin.take());
 
+        let cancellation=crate::session::lease::current_cancellation();
         let timeout = self.timeout();
         let start = Instant::now();
         loop {
@@ -112,6 +113,9 @@ impl HelperProcessClient {
                 return Ok(response);
             }
 
+            if cancellation.as_ref().is_some_and(|c|c.is_cancelled()) {
+                let _=child.kill(); let _=child.wait(); return Err(TealDriveError::PermissionDenied);
+            }
             if start.elapsed() >= timeout {
                 let _ = child.kill();
                 let _ = child.wait();

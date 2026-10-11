@@ -11,7 +11,6 @@ use axum::routing::{get, patch, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::audit::event::{AuditEvent, AuditReason, AuditStatus};
@@ -428,15 +427,18 @@ where
         context.gid,
     ));
 
+    let lease=crate::session::lease::SessionLease::new(session_store.clone(),context.session_id);
     let mut handshake_completed = false;
 
     loop {
-        let idle_timeout = Duration::from_secs(config.load().session.idle_timeout_seconds);
-        let message = match timeout(idle_timeout, receiver.next()).await {
-            Ok(Some(message)) => message,
-            Ok(None) => break,
-            Err(_) => break,
+        let message=tokio::select! {
+            _=lease.cancellation.cancelled()=>break,
+            message=receiver.next()=>match message { Some(message)=>message,None=>break },
         };
+        {
+            let store=session_store.lock().await;
+            if !matches!(store.get_session(&context.session_id,InMemorySessionStore::now_epoch_seconds()),crate::session::store::SessionLookupResult::Found(_)) { break; }
+        }
 
         let message = match message {
             Ok(message) => message,
@@ -460,12 +462,12 @@ where
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
-                match crate::helper::policy::with_snapshot(&current_config, || handle_decoded_frame_with_service(
+                match crate::session::lease::with_cancellation(lease.cancellation.clone(),|| crate::helper::policy::with_snapshot(&current_config, || handle_decoded_frame_with_service(
                     &mut context,
                     frame.clone(),
                     &current_config,
                     helper_client.as_ref(),
-                )) {
+                ))) {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
                             send_frame(&mut sender, &outbound).await?;
@@ -535,6 +537,7 @@ where
         }
     }
 
+    for upload in context.active_uploads.values() { let _=std::fs::remove_file(&upload.staging_path); }
     let _ = audit_sink.emit(&AuditEvent::websocket_disconnect(
         RequestId::new(),
         context.username,

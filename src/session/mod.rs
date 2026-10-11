@@ -5,3 +5,4 @@ pub mod store;
 pub use store::{
     InMemorySessionStore, Session, SessionCreateInput, SessionId, SessionLookupResult, SessionStore,
 };
+pub mod lease;

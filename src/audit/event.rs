@@ -642,6 +642,7 @@ pub enum AuditReason {
     HandshakeFailed,
     OperationBeforeReady,
     InvalidMessageDirection,
+    RateLimited,
 }
 
 #[cfg(test)]

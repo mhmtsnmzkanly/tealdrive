@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::config::AccountPolicyConfig;
 
-pub trait Authenticator {
+pub trait Authenticator: Send + Sync {
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError>;
 }
 

@@ -40,6 +40,24 @@ impl SessionCookieConfig {
         }
         value
     }
+
+    pub fn build_clear_cookie_value(&self) -> String {
+        let same_site = match self.same_site {
+            SameSitePolicy::Strict => "Strict",
+            SameSitePolicy::Lax => "Lax",
+        };
+        let mut value = format!(
+            "{}=; Path={}; Max-Age=0; SameSite={}",
+            self.name, self.path, same_site
+        );
+        if self.http_only {
+            value.push_str("; HttpOnly");
+        }
+        if self.secure {
+            value.push_str("; Secure");
+        }
+        value
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

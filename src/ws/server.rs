@@ -6,7 +6,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
@@ -15,6 +15,8 @@ use uuid::Uuid;
 
 use crate::audit::event::{AuditEvent, AuditReason};
 use crate::audit::sink::JsonlAuditSink;
+use crate::auth::account::Authenticator;
+use crate::auth::api::{login_handler, logout_handler, session_handler};
 use crate::config::AppConfig;
 use crate::download::transfer::DownloadHelper;
 use crate::errors::{ErrorKind, TealDriveError};
@@ -29,6 +31,7 @@ use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
+use crate::rate_limit::login::InMemoryLoginRateLimiter;
 use crate::session::store::{InMemorySessionStore, SessionId, SessionStore};
 use crate::upload::transfer::UploadHelper;
 use crate::ws::connection::WsConnectionContext;
@@ -84,12 +87,26 @@ impl<T> WsHelperBackend for T where
 {
 }
 
-#[derive(Debug)]
 pub struct WsServerState<H> {
     pub config: Arc<AppConfig>,
     pub session_store: Arc<Mutex<InMemorySessionStore>>,
     pub helper_client: Arc<H>,
     pub audit_sink: Arc<JsonlAuditSink>,
+    pub authenticator: Arc<dyn Authenticator>,
+    pub rate_limiter: Arc<Mutex<InMemoryLoginRateLimiter>>,
+}
+
+impl<H: std::fmt::Debug> std::fmt::Debug for WsServerState<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WsServerState")
+            .field("config", &self.config)
+            .field("session_store", &"<session_store>")
+            .field("helper_client", &self.helper_client)
+            .field("audit_sink", &"<audit_sink>")
+            .field("authenticator", &"<authenticator>")
+            .field("rate_limiter", &"<rate_limiter>")
+            .finish()
+    }
 }
 
 impl<H> WsServerState<H> {
@@ -99,11 +116,31 @@ impl<H> WsServerState<H> {
         helper_client: H,
         audit_sink: JsonlAuditSink,
     ) -> Self {
+        Self::with_authenticator(
+            config,
+            session_store,
+            helper_client,
+            audit_sink,
+            Arc::new(crate::auth::pam::PamAuthenticator::new()),
+            InMemoryLoginRateLimiter::new(5),
+        )
+    }
+
+    pub fn with_authenticator(
+        config: AppConfig,
+        session_store: InMemorySessionStore,
+        helper_client: H,
+        audit_sink: JsonlAuditSink,
+        authenticator: Arc<dyn Authenticator>,
+        rate_limiter: InMemoryLoginRateLimiter,
+    ) -> Self {
         Self {
             config: Arc::new(config),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
             audit_sink: Arc::new(audit_sink),
+            authenticator,
+            rate_limiter: Arc::new(Mutex::new(rate_limiter)),
         }
     }
 }
@@ -115,6 +152,8 @@ impl<H> Clone for WsServerState<H> {
             session_store: self.session_store.clone(),
             helper_client: self.helper_client.clone(),
             audit_sink: self.audit_sink.clone(),
+            authenticator: self.authenticator.clone(),
+            rate_limiter: self.rate_limiter.clone(),
         }
     }
 }
@@ -125,6 +164,9 @@ where
 {
     Router::new()
         .route("/", get(health_check))
+        .route("/api/login", post(login_handler::<H>))
+        .route("/api/logout", post(logout_handler::<H>))
+        .route("/api/session", get(session_handler::<H>))
         .route("/ws", get(websocket_upgrade::<H>))
         .with_state(state)
 }
@@ -238,7 +280,7 @@ fn build_upgrade_request<H>(
     })
 }
 
-fn extract_session_id(headers: &HeaderMap, cookie_name: &str) -> Result<SessionId, TealDriveError> {
+pub fn extract_session_id(headers: &HeaderMap, cookie_name: &str) -> Result<SessionId, TealDriveError> {
     let cookie_header = headers
         .get(axum::http::header::COOKIE)
         .and_then(|value| value.to_str().ok())
@@ -259,7 +301,7 @@ fn extract_session_id(headers: &HeaderMap, cookie_name: &str) -> Result<SessionI
     Err(TealDriveError::PermissionDenied)
 }
 
-fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
+pub fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())

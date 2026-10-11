@@ -100,26 +100,36 @@ pub fn list_directory_with_roots(
 }
 
 pub fn allowed_roots_from_env() -> Vec<AllowedRoot> {
-    let Ok(value) = std::env::var("TEALDRIVE_HELPER_ROOTS") else {
-        return Vec::new();
-    };
-    value
-        .split(';')
-        .filter_map(|entry| {
-            let (root_id, path) = entry.split_once('=')?;
-            if root_id.is_empty() || path.is_empty() {
-                return None;
-            }
-            Some(AllowedRoot {
-                root_id: RootId::new(root_id),
-                base_path: PathBuf::from(path),
-                read_only: false,
-                uploads_allowed: false,
-                hidden_files_allowed: false,
-                is_web_root: false,
+    if let Ok(value) = std::env::var("TEALDRIVE_HELPER_ROOTS") {
+        let roots: Vec<AllowedRoot> = value
+            .split(';')
+            .filter_map(|entry| {
+                let (root_id, path) = entry.split_once('=')?;
+                if root_id.is_empty() || path.is_empty() {
+                    return None;
+                }
+                Some(AllowedRoot {
+                    root_id: RootId::new(root_id),
+                    base_path: PathBuf::from(path),
+                    read_only: false,
+                    uploads_allowed: true,
+                    hidden_files_allowed: false,
+                    is_web_root: false,
+                })
             })
-        })
-        .collect()
+            .collect();
+        if !roots.is_empty() {
+            return roots;
+        }
+    }
+
+    if let Ok(config) = crate::config::AppConfig::load_or_default(None) {
+        if !config.roots.is_empty() {
+            return config.roots;
+        }
+    }
+
+    Vec::new()
 }
 
 fn collect_entries(

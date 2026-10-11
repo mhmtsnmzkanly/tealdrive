@@ -12,6 +12,7 @@ use crate::helper::types::{HelperRequest, HelperResponse};
 pub struct HelperProcessClient {
     helper_path: PathBuf,
     timeout: Duration,
+    env_vars: Vec<(String, String)>,
 }
 
 impl HelperProcessClient {
@@ -19,16 +20,25 @@ impl HelperProcessClient {
         Self {
             helper_path: helper_path.into(),
             timeout,
+            env_vars: Vec::new(),
         }
+    }
+
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_vars.push((key.into(), value.into()));
+        self
     }
 
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         let request_bytes = encode_helper_request(request)?;
-        let mut child = Command::new(&self.helper_path)
-            .stdin(Stdio::piped())
+        let mut cmd = Command::new(&self.helper_path);
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .stderr(Stdio::piped());
+        for (key, val) in &self.env_vars {
+            cmd.env(key, val);
+        }
+        let mut child = cmd.spawn()
             .map_err(|_| TealDriveError::HelperSpawnFailed)?;
 
         {

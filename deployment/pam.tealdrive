@@ -1,0 +1,4 @@
+# Debian/Ubuntu example: install as /etc/pam.d/tealdrive.
+# On other distributions use that host's approved password/account PAM stack.
+@include common-auth
+@include common-account

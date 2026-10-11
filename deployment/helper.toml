@@ -1,0 +1,47 @@
+# Replace both drive.example.com and alice before installation.
+# The service account must own the parent directory to persist UI settings.
+[server]
+bind_addr = "127.0.0.1:3000"
+behind_tls_proxy = true
+
+[session]
+secure_cookies = true
+same_site = "Strict"
+idle_timeout_seconds = 1800
+absolute_timeout_seconds = 43200
+
+[security]
+production_wire_protocol = "Tdrv1Binary"
+allow_plain_ws_localhost_only = false
+allowed_origins = ["https://drive.example.com"]
+
+[account_policy]
+admin_users = ["alice"]
+reject_root = true
+reject_system_accounts = true
+reject_disabled_shells = true
+minimum_regular_uid = 1000
+
+[features]
+save_text_file = true
+chmod_file = false
+extract_archive = true
+delete_permanently = false
+chown = false
+
+[limits]
+max_in_flight_upload = 1048576
+max_text_edit_size = 131072
+
+[[roots]]
+root_id = "home"
+base_path = "/srv/tealdrive"
+read_only = false
+uploads_allowed = true
+hidden_files_allowed = false
+is_web_root = false
+quota_bytes = 10737418240
+
+# Root-owned ceiling. Server reloads cannot grant anything beyond this file.
+# Keep root ids and base_path identical in both configs.
+# Enable an optional capability here AND in config.toml when you need it.

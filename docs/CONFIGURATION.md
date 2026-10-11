@@ -1,288 +1,100 @@
-# TealDrive Configuration Reference
+# Configuration
 
-This guide provides a comprehensive reference for configuring TealDrive via `config.toml`, environment variables, CLI options, and runtime dynamic patches.
+Use [deployment/config.toml](../deployment/config.toml) and
+[deployment/helper.toml](../deployment/helper.toml) as tested examples. TOML and JSON
+are accepted. Omitted fields use defaults; unknown fields are rejected. Roots require
+all fields shown in the examples except optional `quota_bytes`.
 
----
+Lookup order: explicit `--config`, `TEALDRIVE_CONFIG`, `./tealdrive.toml`,
+`./config.toml`, `/etc/tealdrive/config.toml`, `/etc/tealdrive/tealdrive.toml`, then
+compiled defaults. An explicit missing/invalid file is an error. The selected path
+is retained for reload, file watching and UI persistence.
 
-## 1. Overview & Loading Mechanisms
-
-TealDrive is configured primarily using a TOML file. The configuration is parsed using Serde and can be hot-reloaded dynamically at runtime.
-
-### Specifying the Configuration File
-Start `tealdrive-server` with the `-c` or `--config` flag:
-
-```bash
-tealdrive-server -c /etc/tealdrive/config.toml
+```sh
+tealdrive-server --config deployment/config.toml --check-config
+tealdrive-server --config /var/lib/tealdrive/config.toml \
+  --helper-bin /usr/local/libexec/tealdrive-helper
 ```
 
-### Validating Configuration
-You can check your configuration file for syntax errors or invalid paths before launching the server:
-
-```bash
-tealdrive-server -c /etc/tealdrive/config.toml --check-config
-```
-
----
-
-## 2. Complete `config.toml` Reference
-
-Below is a complete, annotated configuration file displaying all available sections and default values.
-
-```toml
-# ==============================================================================
-# SERVER CONFIGURATION
-# ==============================================================================
-[server]
-# TCP address and port for the HTTP/WebSocket server.
-# Can be overridden via the CLI flag: -b <ADDR>
-listen_address = "0.0.0.0:3000"
-
-# Optional path to static web frontend directory.
-# If omitted or None, the embedded SPA frontend is served.
-# Can be overridden via: --static-dir <PATH>
-# static_dir = "/var/www/tealdrive-ui"
-
-# Path to the companion filesystem helper binary.
-# In production, this binary is typically owned by root with setuid (04755).
-helper_bin_path = "/usr/local/bin/tealdrive-helper"
-
-
-# ==============================================================================
-# SESSION & AUTHENTICATION COOKIES
-# ==============================================================================
-[session]
-# Name of the HTTP session cookie.
-cookie_name = "tdrv_session"
-
-# Set to true when serving behind HTTPS/TLS to enable the 'Secure' cookie attribute.
-cookie_secure = false
-
-# Cookie SameSite attribute: "Lax", "Strict", or "None".
-cookie_same_site = "Lax"
-
-# Inactivity timeout in seconds before a session expires (default: 24 hours).
-idle_timeout_seconds = 86400
-
-# Hard absolute session expiration in seconds regardless of activity (default: 7 days).
-absolute_timeout_seconds = 604800
-
-
-# ==============================================================================
-# RATE LIMITING & BRUTE-FORCE PROTECTION
-# ==============================================================================
-[rate_limit]
-# Maximum consecutive failed login attempts before an account is locked.
-max_login_failures = 5
-
-# Duration of temporary account lockout in seconds (default: 15 minutes).
-lockout_duration_seconds = 900
-
-
-# ==============================================================================
-# HELPER IPC SETTINGS
-# ==============================================================================
-[helper]
-# Timeout in seconds for IPC filesystem operations executed by the helper.
-timeout_seconds = 30
-
-
-# ==============================================================================
-# SEARCH CONFIGURATION
-# ==============================================================================
-[search]
-# Maximum directory recursion depth for safe file search.
-max_depth = 20
-
-# Default maximum number of results returned if unspecified by client.
-default_max_results = 100
-
-# Hard upper limit on maximum results returned in a single search query.
-max_results_limit = 1000
-
-
-# ==============================================================================
-# ADMINISTRATIVE & ACCESS POLICIES
-# ==============================================================================
-[account_policy]
-# Usernames allowed to access /api/admin/ endpoints and modify server settings.
-# If empty, defaults to ["admin"].
-admin_users = ["admin"]
-
-# Optional number of days to retain files in trash before automated cleanup.
-# Set to null or omit to disable automatic trash purging.
-trash_retention_days = 30
-
-# Allowed CORS origins for REST endpoints (empty allows all local/same-origin).
-cors_allowed_origins = []
-
-
-# ==============================================================================
-# FEATURE FLAGS (OPERATION GATING)
-# ==============================================================================
-[features]
-# Allow inline text file editing and saving via WebSocket.
-save_text_file = true
-
-# Allow creating new directories.
-create_folder = true
-
-# Allow renaming files and directories.
-rename = true
-
-# Allow moving files and directories.
-move_file = true
-
-# Allow copying files and directories.
-copy_file = true
-
-# Allow permanent deletion of files from trash.
-delete_permanently = true
-
-# Allow changing POSIX ownership (chown) via helper (typically false).
-chown = false
-
-
-# ==============================================================================
-# PROTOCOL & RESOURCE LIMITS
-# ==============================================================================
-[limits]
-# Maximum allowable size in bytes for a single WebSocket frame (1 MiB default).
-max_frame_payload = 1048576
-
-# Maximum size in bytes for MessagePack control payloads (256 KiB default).
-max_control_payload = 262144
-
-# Maximum decompressed payload size for compressed control messages (4 MiB).
-max_decompressed_control_payload = 4194304
-
-# Maximum size in bytes for an individual chunk transfer (256 KiB default).
-max_chunk_size = 262144
-
-# Maximum in-flight upload buffer size (aliases: max_upload_bytes) (1 MiB default).
-max_in_flight_upload = 1048576
-
-# Directory listing pagination limits.
-max_directory_page_size = 500
-default_directory_page_size = 200
-
-# Maximum file size permitted for inline text editing (5 MiB default).
-# (aliases: max_edit_text_bytes)
-max_text_edit_size = 5242880
-
-# Maximum file size permitted for inline media preview (50 MiB default).
-max_preview_size = 52428800
-
-
-# ==============================================================================
-# SENSITIVE FILE PROTECTION POLICIES
-# ==============================================================================
-[sensitive_policy]
-# File extensions blocked from text reading.
-blocked_read_extensions = ["pem", "key", "id_rsa", "pfx", "p12"]
-
-# File extensions blocked from creation/modification.
-blocked_write_extensions = ["exe", "so", "dll", "dylib"]
-
-# Relative path patterns blocked from any operation.
-blocked_patterns = [
-  "**/.*",
-  "**/.git/**",
-  "**/.env*",
-  "**/id_rsa*",
-  "**/shadow",
-  "**/passwd"
-]
-
-# Patterns explicitly exempted from block rules.
-allowed_patterns = []
-
-
-# ==============================================================================
-# STORAGE ROOTS (DIRECTORY JAILS)
-# ==============================================================================
-# Define one or more storage mounts accessible through TealDrive.
-
-[[roots]]
-# Unique root identifier referenced in API queries and WebSocket requests.
-root_id = "storage"
-
-# Absolute path on the host system. Must exist and be accessible.
-base_path = "/var/tealdrive/storage"
-
-# If true, modifications (upload, delete, rename, edit) are strictly forbidden.
-read_only = false
-
-# If false, file uploads to this root are rejected.
-uploads_allowed = true
-
-# If true, hidden files/directories (starting with '.') can be listed and accessed.
-hidden_files_allowed = false
-
-# If true, marks root as web-accessible; restricts executable file uploads.
-is_web_root = false
-
-# Optional storage quota in bytes (e.g., 10 GiB = 10737418240).
-# Omit or set to null for unlimited storage.
-quota_bytes = 10737418240
-
-[[roots]]
-root_id = "shared"
-base_path = "/var/tealdrive/shared"
-read_only = true
-uploads_allowed = false
-hidden_files_allowed = false
-is_web_root = false
-quota_bytes = null
-```
-
----
-
-## 3. Dynamic Runtime Configuration (Hot-Reloading)
-
-TealDrive supports dynamic hot-reloading without service restarts:
-
-### Automatic Filesystem Watcher
-When `tealdrive-server` is started with `-c <PATH>`, it attaches a filesystem watcher (`notify`) to the configuration file. Whenever you edit and save `config.toml`, the server:
-1. Re-parses and validates the updated file.
-2. Atomically replaces the active in-memory configuration using `arc-swap`.
-3. In-flight requests continue seamlessly with zero dropped packets or downtime.
-
-### Admin REST API Patching
-Parameters can also be updated via `PATCH /api/admin/config`:
-
-```bash
-curl -X PATCH http://127.0.0.1:3000/api/admin/config?save=true \
-  -H "Cookie: tdrv_session=$SESSION_ID" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "features": {
-      "delete_permanently": false
-    },
-    "rate_limit": {
-      "max_login_failures": 8
-    },
-    "trash_retention_days": 60
-  }'
-```
-
-Setting `save=true` automatically rewrites the persistent `config.toml` file with the updated values.
-
----
-
-## 4. Production Deployment Checklist
-
-1. **Reverse Proxy & HTTPS:**
-   - Always terminate TLS using Nginx, Caddy, or an AWS ALB in production.
-   - Set `session.cookie_secure = true`.
-   - Configure WebSocket forwarding (`Upgrade: $http_upgrade`, `Connection: "Upgrade"`).
-2. **Helper Privileges:**
-   - Compile `tealdrive-helper` with `cargo build --release`.
-   - Assign ownership and setuid:
-     ```bash
-     sudo chown root:root /usr/local/bin/tealdrive-helper
-     sudo chmod 4755 /usr/local/bin/tealdrive-helper
-     ```
-3. **Restrict Storage Roots:**
-   - Ensure `base_path` directories are dedicated to TealDrive data storage and do not overlap with critical system directories (`/etc`, `/root`, `/bin`).
-4. **Admin Accounts:**
-   - Restrict `account_policy.admin_users` to designated administrative logins.
+CLI options: `--config/-c`, `--bind/-b`, `--static-dir` (`--assets-dir` alias),
+`--helper-bin`, `--check-config`, `--version/-v`, `--help/-h`. CLI overrides are
+initial startup overrides; a subsequent file reload replaces them with file values.
+
+## Sections and defaults
+
+| Section | Fields / defaults |
+|---|---|
+| `server` | `bind_addr="127.0.0.1:3000"`, `behind_tls_proxy=true`, optional `static_dir` |
+| `session` | `cookie_name="tealdrive_session"`, idle 1800 s, absolute 43200 s, `secure_cookies=true`, `same_site="Strict"` (`Lax` also allowed) |
+| `security` | `production_wire_protocol="Tdrv1Binary"`, `allow_plain_ws_localhost_only=true`, `allowed_origins=[]` |
+| `account_policy` | `reject_root=true`, `reject_system_accounts=true`, `reject_disabled_shells=true`, `minimum_regular_uid=1000`, `admin_users=[]` |
+| `features` | `save_text_file`, `chmod_file`, `extract_archive`, `delete_permanently`, `chown`: all false |
+| `rate_limit` | `max_login_failures=5`, `lockout_duration_seconds=300` |
+| `helper` | `timeout_seconds=10` |
+| `search` | `max_depth=20`, `default_max_results=100`, `max_results_limit=1000` |
+| top-level | optional `trash_retention_days` (metadata setting; no scheduled automatic purge) |
+
+Verify exact defaults in `src/config.rs` when customizing. `chown` is reserved and
+unsupported in this version. There are no global `upload`, `download`, `rename` or
+`trash` feature toggles: uploads are controlled per root, and writes by read-only
+roots, Unix permissions and file policies.
+
+Each `[[roots]]` has `root_id`, absolute `base_path`, `read_only`, `uploads_allowed`,
+`hidden_files_allowed`, `is_web_root` and optional `quota_bytes`. IDs must be unique,
+nonempty ASCII alphanumeric/underscore/hyphen. Paths cannot contain `..`. Validation
+checks syntax, not mount availability or user permission. Defaults expose `/home`
+as root id `home`; deploy an explicit, dedicated data root instead. Hidden policy
+checks every path component, with internal trash handling exceptions.
+
+Origins must be exact `https://host[:port]` or `http://host[:port]` values; wildcards
+and path/query values are rejected. When no allow-list is set, browser Origin is
+compared with the request Host and the configured HTTP/HTTPS scheme. Native clients
+without Origin still require a session. Behind Caddy bind only to loopback; the
+backend trusts proxy headers and is not intended for direct public exposure.
+
+## Limits
+
+Values are bytes or counts, not MiB strings.
+
+| `limits` field | Default | Constraint |
+|---|---:|---|
+| `max_frame_payload` | 1048576 | 1..1048576 |
+| `max_control_payload` | 262144 | 1..frame limit |
+| `max_decompressed_control_payload` | 4194304 | decompression bound |
+| `max_chunk_size` | 262144 | <=262144; chunk + 32-byte subheader must fit frame |
+| `max_in_flight_upload` | 1048576 | 1..3145728; currently also whole-file upload limit |
+| `max_directory_page_size` | 500 | <=500 |
+| `default_directory_page_size` | 200 | <= maximum |
+| `max_text_edit_size` | 131072 | <= half control payload limit |
+| `max_preview_size` | 52428800 | preview-only size bound |
+
+`max_upload_bytes` and `max_edit_text_bytes` are accepted aliases on a complete
+configuration, but use canonical field names in partial patches. Configure a smaller
+text limit if filenames/policy metadata need unusually large payloads. Directory
+and search results can still hit control/IPC limits when metadata is unusually large.
+
+## File policies and helper ceiling
+
+`sensitive_policy.deny_edit_patterns` and `warn_read_patterns` use case-insensitive
+filename patterns (exact names, `*.suffix` and `prefix.*`). Defaults include `.env`,
+SSH keys, `*.pem`, `*.key`, SQL and dump files. Current managed-file reads deny
+sensitive matches; the names of the lists do not imply an interactive warning UI.
+`webroot_policy.block_executable_uploads=true` and `blocked_extensions` default to
+PHP/CGI/script extensions. Web-root extraction is refused.
+
+Elevated helpers always read `/etc/tealdrive/helper.toml`; server configuration is
+only a requested policy beneath that ceiling. Both files must name the same root
+ids and paths. To enable a feature, allow it in both files. To change roots or relax
+a ceiling, an OS administrator must edit the root-owned helper file. A server PATCH
+cannot update that file. Root-owned key/config/parent permissions are checked.
+
+Runtime updates: admin PATCH/reload, SIGHUP and parent-directory watching. Nested
+patches preserve omitted values; explicit JSON null clears `static_dir` or
+`trash_retention_days`. Persistence is atomic with mode 0600. Keep the server file
+in a service-owned directory, not the root-owned helper directory. A new session
+policy applies to existing session checks, but already-issued helper tickets retain
+their original expiry; login again if the trusted ticket lifetime was changed.
+
+Environment: `TEALDRIVE_CONFIG`, `TEALDRIVE_AUDIT_PATH`; helper binary lookup also
+accepts `TEALDRIVE_HELPER_PATH`. `TEALDRIVE_HELPER_ROOTS` is a non-elevated test utility
+and is ignored by the setuid boundary. Helper subprocesses clear inherited environment.

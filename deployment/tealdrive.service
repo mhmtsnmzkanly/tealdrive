@@ -1,0 +1,21 @@
+[Unit]
+Description=TealDrive file manager
+After=network.target
+
+[Service]
+Type=simple
+User=tealdrive
+Group=tealdrive
+WorkingDirectory=/var/lib/tealdrive
+Environment=TEALDRIVE_AUDIT_PATH=/var/lib/tealdrive/audit.jsonl
+ExecStart=/usr/local/bin/tealdrive-server --config /var/lib/tealdrive/config.toml --helper-bin /usr/local/libexec/tealdrive-helper
+Restart=on-failure
+RestartSec=3
+UMask=0077
+# Required for the dedicated setuid helper. The server itself refuses root.
+# Do not enable NoNewPrivileges, a nosuid filesystem, or a restrictive capability
+# bounding set: these would prevent PAM/UID switching in the helper.
+# The helper sets no_new_privs itself AFTER permanently dropping all three IDs.
+
+[Install]
+WantedBy=multi-user.target

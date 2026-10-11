@@ -299,6 +299,50 @@ where
     }
 }
 
+pub async fn get_users_handler<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    let authorization = get_config_handler(State(state.clone()), headers).await;
+    if authorization.status() != StatusCode::OK {
+        return authorization;
+    }
+    let minimum_uid = state.config.load().account_policy.minimum_regular_uid;
+    let Ok(permit) = state.operation_slots.clone().acquire_owned().await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let Some(activity) = state.shutdown.enter() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let _activity = activity;
+        crate::admin::users::discover(minimum_uid)
+    })
+    .await
+    {
+        Ok(Ok(users)) => {
+            let mut response = Json(users).into_response();
+            response.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                "no-store".parse().unwrap(),
+            );
+            response
+        }
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AdminErrorResponse {
+                error: "Unable to discover local users".into(),
+                code: "USER_DISCOVERY_UNAVAILABLE".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

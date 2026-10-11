@@ -829,3 +829,48 @@ async fn login_allowlist_denies_valid_passwords_and_removed_sessions() {
     assert!(events.contains("AccountNotAllowed"));
     assert!(!events.contains("secret123"));
 }
+
+#[tokio::test]
+async fn user_discovery_is_admin_only_and_excludes_service_accounts() {
+    let f = fixture(false);
+    assert_eq!(
+        call(&f.router, "GET", "/api/admin/users", None, None, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let (cookie, _) = login(&f.router).await;
+    assert_eq!(
+        call(
+            &f.router,
+            "GET",
+            "/api/admin/users",
+            Some(&cookie),
+            None,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let f = fixture(true);
+    let (cookie, _) = login(&f.router).await;
+    let response = call(
+        &f.router,
+        "GET",
+        "/api/admin/users",
+        Some(&cookie),
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let body = json(response).await;
+    for user in body["users"].as_array().unwrap() {
+        assert!(user["uid"].as_u64().unwrap() >= 1000);
+        assert!(!["root", "caddy", "www-data", "tealdrive", "nobody"]
+            .contains(&user["username"].as_str().unwrap()));
+        assert_eq!(user.as_object().unwrap().len(), 3);
+    }
+}

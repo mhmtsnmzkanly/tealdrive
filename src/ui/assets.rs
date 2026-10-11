@@ -301,7 +301,8 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
       <div class="modal-body settings-body">
         <div class="settings-section">
           <h4>Login access</h4>
-          <div class="settings-row"><label for="cfgAllowedUsers">Allowed Linux users (one per line):</label><textarea id="cfgAllowedUsers" class="form-input" rows="3"></textarea></div>
+          <p id="cfgUsersStatus" role="status">Loading local users...</p>
+          <div id="cfgAllowedUsers" class="user-picker" role="group" aria-label="Allowed Linux users"></div>
           <p>Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server's system administrator.</p>
         </div>
         <div class="settings-section">
@@ -1070,6 +1071,10 @@ body {
 .permission-preview { font-family:monospace; letter-spacing:2px; margin:8px 0; }
 .permission-error { color:var(--danger); font-size:13px; min-height:20px; }
 .permission-grid + .form-group { margin-top:16px; }
+.user-picker { display:flex; flex-direction:column; gap:.6rem; max-height:260px; overflow:auto; }
+.user-choice { display:flex; align-items:center; gap:.65rem; padding:.5rem; background:var(--slate-800); border-radius:var(--border-radius); cursor:pointer; min-width:0; }
+.user-choice input { width:20px; height:20px; flex-shrink:0; accent-color:var(--teal-500); }
+.user-choice span { min-width:0; overflow-wrap:anywhere; font-size:.85rem; }
 /* Responsive layout: keep every file action and metadata field available. */
 .app-layout, .content-container, .header-controls, .control-group,
 .user-info, .action-buttons, .breadcrumb-container { min-width: 0; }
@@ -1271,6 +1276,7 @@ pub const APP_JS: &str = r##"
     cfgFeatChmod: document.getElementById('cfgFeatChmod'),
     cfgFeatArchive: document.getElementById('cfgFeatArchive'),
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
+    cfgUsersStatus: document.getElementById('cfgUsersStatus'),
     cfgAllowedUsers: document.getElementById('cfgAllowedUsers'),
     cfgTrustedProxies: document.getElementById('cfgTrustedProxies'),
     cfgClientIpHeader: document.getElementById('cfgClientIpHeader'),
@@ -2040,6 +2046,34 @@ pub const APP_JS: &str = r##"
   // --- Admin Settings & Dynamic Config ---
   let currentAdminConfig = null;
 
+  let selectedLoginUsers = new Set();
+  let userChoicesReady = false;
+  async function loadUserChoices(configured) {
+    selectedLoginUsers = new Set(configured);
+    userChoicesReady = false;
+    el.cfgAllowedUsers.replaceChildren();
+    el.cfgUsersStatus.textContent='Loading local users...';
+    const response = await fetch('/api/admin/users', {credentials:'same-origin',cache:'no-store'});
+    if(!response.ok)throw new Error('Cannot load local user choices');
+    const data=await response.json();
+    const available=new Set(data.users.map(user=>user.username));
+    function addChoice(user,existingOnly=false) {
+      const label=document.createElement('label');label.className='user-choice';
+      const input=document.createElement('input');input.type='checkbox';input.value=user.username;
+      input.checked=selectedLoginUsers.has(user.username);
+      const text=document.createElement('span');text.textContent=existingOnly?user.username+' — existing entry outside filtered list (remove only)':user.username+' (UID '+user.uid+')';
+      input.addEventListener('change',()=>{
+        if(input.checked)selectedLoginUsers.add(user.username);
+        else {selectedLoginUsers.delete(user.username);if(existingOnly)input.disabled=true;}
+      });
+      label.append(input,text);el.cfgAllowedUsers.appendChild(label);
+    }
+    for(const user of data.users)addChoice(user);
+    for(const username of configured)if(!available.has(username))addChoice({username},true);
+    el.cfgUsersStatus.textContent=data.truncated?'Showing the first 1024 eligible local users. Existing selections are preserved.':data.users.length?'Select users who may sign in. System and service accounts are filtered.':'No eligible local users found. Existing selections are preserved.';
+    userChoicesReady=true;
+  }
+
   async function openSettingsModal() {
     try {
       const resp = await fetch('/api/admin/config', { credentials: 'same-origin' });
@@ -2056,7 +2090,7 @@ pub const APP_JS: &str = r##"
         el.cfgFeatChmod.checked = !!cfg.features.chmod_file;
         el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
-      el.cfgAllowedUsers.value=(cfg.account_policy?.allowed_users||[]).join('\n');
+      await loadUserChoices(cfg.account_policy?.allowed_users||[]);
       el.cfgTrustedProxies.value=(cfg.proxy?.trusted_proxies||[]).join('\n');
       el.cfgClientIpHeader.value=cfg.proxy?.client_ip_header||'XForwardedFor';
       el.cfgAuditPath.value=cfg.audit?.path||'';
@@ -2091,12 +2125,13 @@ pub const APP_JS: &str = r##"
   }
 
   async function saveSettings() {
+    if(!userChoicesReady){showToast('Load user choices before saving settings.','error');return;}
     const auditMB=Number(el.cfgAuditMaxMB.value);
     const archives=Number(el.cfgAuditArchives.value);
     const dayText=el.cfgAuditDays.value.trim();const days=dayText===''?null:Number(dayText);
     if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>36500))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
     const patch = {
-      allowed_users:el.cfgAllowedUsers.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),
+      allowed_users:[...selectedLoginUsers].sort(),
       proxy:{trusted_proxies:el.cfgTrustedProxies.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),client_ip_header:el.cfgClientIpHeader.value},
       audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_days:days},
       features: {

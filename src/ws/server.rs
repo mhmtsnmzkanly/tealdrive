@@ -266,6 +266,10 @@ where
             "/api/admin/config/reload",
             post(crate::admin::api::reload_config_handler::<H>),
         )
+        .route(
+            "/api/admin/users",
+            get(crate::admin::api::get_users_handler::<H>),
+        )
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .layer(axum::middleware::from_fn_with_state(

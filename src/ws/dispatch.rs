@@ -342,6 +342,8 @@ pub fn connection_status_frame(
     let payload = crate::protocol::payload::ConnectionStatusPayload {
         protocol_ready: context.protocol_ready,
         message: Some(message.to_owned()),
+        shutting_down: false,
+        grace_period_seconds: None,
     };
     let bytes = encode_msgpack(&payload)?;
     let mut header = TdrvHeader::new(MessageType::ConnectionStatus, RequestId::new(), 0);

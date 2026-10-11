@@ -386,6 +386,17 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
     </div>
   </div>
 
+  <div id="shutdownModal" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="shutdownTitle" aria-describedby="shutdownMessage">
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="shutdownTitle">Server is shutting down</h2></div>
+      <div class="modal-body"><p id="shutdownMessage"></p></div>
+      <div class="modal-footer"><div class="modal-actions">
+        <button type="button" id="shutdownDismissBtn" class="btn btn-secondary">Dismiss</button>
+        <button type="button" id="shutdownRetryBtn" class="btn btn-primary">Check availability</button>
+      </div></div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
@@ -800,6 +811,9 @@ body {
   padding: 1rem;
 }
 
+#shutdownModal { z-index: 200; }
+#shutdownMessage { line-height: 1.6; }
+
 .modal-card {
   background-color: var(--slate-800);
   border: 1px solid var(--slate-700);
@@ -1068,6 +1082,8 @@ pub const APP_JS: &str = r##"
     currentPath: '',
     ws: null,
     wsConnected: false,
+    serverShuttingDown: false,
+    shutdownPreviousFocus: null,
     requestId: 1,
     pendingRequests: new Map(),
     currentEditorFile: null,
@@ -1093,6 +1109,11 @@ pub const APP_JS: &str = r##"
     wsStatusText: document.getElementById('wsStatusText'),
     toastContainer: document.getElementById('toastContainer'),
     // Modals
+    shutdownModal: document.getElementById('shutdownModal'),
+    shutdownTitle: document.getElementById('shutdownTitle'),
+    shutdownMessage: document.getElementById('shutdownMessage'),
+    shutdownDismissBtn: document.getElementById('shutdownDismissBtn'),
+    shutdownRetryBtn: document.getElementById('shutdownRetryBtn'),
     loginModal: document.getElementById('loginModal'),
     loginForm: document.getElementById('loginForm'),
     usernameInput: document.getElementById('usernameInput'),
@@ -1186,23 +1207,32 @@ pub const APP_JS: &str = r##"
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     state.ws = ws;
+    state.serverShuttingDown = false;
 
-    ws.onopen = function() { el.wsStatusText.textContent='Negotiating protocol...'; };
+    ws.onopen = function() { if(state.ws===ws)el.wsStatusText.textContent='Negotiating protocol...'; };
 
     ws.onmessage = function(ev) {
+      if (state.ws !== ws) return;
       try { handleServerFrame(decodeFrame(ev.data)); } catch(error) {showToast(error.message,'error');ws.close();}
     };
 
-    ws.onclose = function() {
+    ws.onclose = function(ev) {
+      if (state.ws !== ws) return;
+      if (ev.code === 1001 && ev.reason === 'Server shutting down') showShutdownNotice();
       state.wsConnected = false;
       el.wsStatusDot.className = 'status-dot disconnected';
-      el.wsStatusText.textContent = 'Disconnected';
-      for(const pending of state.pendingRequests.values()){clearTimeout(pending.timer);pending.reject(new Error("Connection closed"));}
+      el.wsStatusText.textContent = state.serverShuttingDown ? 'Server stopped' : 'Disconnected';
+      if (state.serverShuttingDown) {
+        el.shutdownTitle.textContent = 'Server stopped';
+        el.shutdownMessage.textContent = 'The server connection has closed. Incomplete uploads must be retried. Keep a copy of any unsaved changes, then check availability and sign in again after the server restarts.';
+      }
+      for(const pending of state.pendingRequests.values()){clearTimeout(pending.timer);pending.reject(new Error(state.serverShuttingDown ? "Server stopped. Retry incomplete operations after signing in again." : "Connection closed"));}
       state.pendingRequests.clear();
-      setTimeout(checkSession, 3000);
+      if (!state.serverShuttingDown) setTimeout(checkSession, 3000);
     };
 
     ws.onerror = function() {
+      if (state.ws !== ws || state.serverShuttingDown) return;
       state.wsConnected = false;
       el.wsStatusDot.className = 'status-dot disconnected';
       el.wsStatusText.textContent = 'Connection error';
@@ -1227,8 +1257,13 @@ pub const APP_JS: &str = r##"
         },crypto.randomUUID()));
         break;
       case MT.ProtocolReady:
-        state.protocolLimits=payload.limits;state.wsConnected=true;
+        state.protocolLimits=payload.limits;
+        if(state.serverShuttingDown)break;
+        state.wsConnected=true;
         el.wsStatusDot.className='status-dot connected';el.wsStatusText.textContent='Connected';loadDirectory(state.currentPath);break;
+      case MT.ConnectionStatus:
+        if(payload.shutting_down)showShutdownNotice(payload.grace_period_seconds);
+        break;
       case MT.DirectoryList:renderDirectoryList(payload);break;
       case MT.SearchResults:renderSearchResults(payload);break;
       case MT.TrashList:renderTrashList(payload);break;
@@ -1239,6 +1274,7 @@ pub const APP_JS: &str = r##"
   }
   function requestWs(messageType,payload,raw=false){
     return new Promise((resolve,reject)=>{
+      if(state.serverShuttingDown){reject(new Error('Server is shutting down. New actions are paused.'));return;}
       if(!state.wsConnected||!state.ws||state.ws.readyState!==WebSocket.OPEN){reject(new Error('Connection is not ready'));return;}
       const id=crypto.randomUUID();const key=uuidKey(id);
       const timer=setTimeout(()=>{state.pendingRequests.delete(key);reject(new Error('Operation timed out'));},60000);
@@ -1251,8 +1287,45 @@ pub const APP_JS: &str = r##"
     requestWs(messageType,payload).then(()=>{if([MT.SaveTextFile,MT.CreateFolder,MT.RenameFile,MT.MoveToTrash,MT.RestoreFromTrash,MT.DeletePermanently,MT.ChmodFile].includes(messageType)){showToast('Operation completed','success');loadDirectory(state.currentPath);}}).catch(error=>showToast(error.message,'error'));
   }
 
+  function showShutdownNotice(graceSeconds = 30) {
+    const firstNotice = !state.serverShuttingDown;
+    state.serverShuttingDown = true;
+    state.wsConnected = false;
+    el.wsStatusDot.className = 'status-dot disconnected';
+    el.wsStatusText.textContent = 'Server shutting down';
+    el.shutdownTitle.textContent = 'Server is shutting down';
+    const grace = Number.isFinite(graceSeconds) && graceSeconds >= 0 ? graceSeconds : 30;
+    el.shutdownMessage.textContent = `New actions are paused. Running operations have up to ${grace} seconds to finish; incomplete uploads will need to be retried. Keep a copy of any unsaved changes. Sign in again after the server restarts.`;
+    if (firstNotice) {
+      state.shutdownPreviousFocus = document.activeElement;
+      el.shutdownModal.classList.remove('hidden');
+      el.shutdownDismissBtn.focus();
+    }
+  }
+
+  function dismissShutdownNotice() {
+    el.shutdownModal.classList.add('hidden');
+    state.shutdownPreviousFocus?.focus();
+  }
+
+  async function checkServerAvailability() {
+    el.shutdownRetryBtn.disabled = true;
+    try {
+      const response = await fetch('/api/health', {cache: 'no-store'});
+      if (!response.ok || (await response.text()).trim() !== 'ok') throw new Error('Server is still unavailable');
+      state.serverShuttingDown = false;
+      el.shutdownModal.classList.add('hidden');
+      await checkSession();
+    } catch(error) {
+      el.shutdownMessage.textContent = 'The server is still unavailable. Keep this page open to preserve unsaved changes and try again shortly.';
+    } finally {
+      el.shutdownRetryBtn.disabled = false;
+    }
+  }
+
   // --- Directory Listing & Navigation ---
   function loadDirectory(path, cursor = null) {
+    if (state.serverShuttingDown) return;
     state.currentPath = path || '';
     renderBreadcrumbs();
     el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading files...</td></tr>';
@@ -2018,6 +2091,9 @@ pub const APP_JS: &str = r##"
       }
     };
 
+    el.shutdownDismissBtn.onclick = dismissShutdownNotice;
+    el.shutdownRetryBtn.onclick = checkServerAvailability;
+
     // Editor modal
     el.editorCloseBtn.onclick = () => el.editorModal.classList.add('hidden');
     el.editorCancelBtn.onclick = () => el.editorModal.classList.add('hidden');
@@ -2070,6 +2146,16 @@ pub const APP_JS: &str = r##"
 
     // Global keyboard shortcuts (Escape to close modals)
     document.addEventListener('keydown', (e) => {
+      if (!el.shutdownModal.classList.contains('hidden')) {
+        if (e.key === 'Escape') { dismissShutdownNotice(); return; }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const next = document.activeElement === el.shutdownDismissBtn && !el.shutdownRetryBtn.disabled
+            ? el.shutdownRetryBtn : el.shutdownDismissBtn;
+          next.focus();
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         if (!el.lightboxModal.classList.contains('hidden')) {
           closeLightbox();

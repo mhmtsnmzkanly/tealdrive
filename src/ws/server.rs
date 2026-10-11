@@ -596,10 +596,14 @@ where
         shutdown.cancellation(),
     );
     let mut handshake_completed = false;
+    let mut shutdown_notified = false;
 
     loop {
         let message = tokio::select! {
-            _=shutdown.draining()=>break,
+            _=shutdown.draining()=> {
+                if !shutdown_notified { notify_shutdown(&mut sender, &shutdown).await; }
+                break;
+            },
             _=lease.cancellation.cancelled()=>break,
             message=receiver.next()=>match message { Some(message)=>message,None=>break },
         };
@@ -639,11 +643,17 @@ where
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
                 let permit = tokio::select! {
-                        _=shutdown.draining()=>break,
+                        _=shutdown.draining()=> {
+                            if !shutdown_notified { notify_shutdown(&mut sender, &shutdown).await; }
+                            break;
+                        },
                 _=lease.cancellation.cancelled()=>break,
                         permit=operation_slots.clone().acquire_owned()=>permit.map_err(|_|TealDriveError::Internal)?,
                     };
                 let Some(activity) = shutdown.enter() else {
+                    if !shutdown_notified {
+                        notify_shutdown(&mut sender, &shutdown).await;
+                    }
                     break;
                 };
                 let helper = helper_client.clone();
@@ -664,14 +674,25 @@ where
                     });
                     (context, result)
                 });
-                let (returned_context, result) = tokio::select! {
-                    result=&mut job=>result.map_err(|_|TealDriveError::Internal)?,
-                    _=lease.cancellation.cancelled()=> {
-                        let (returned_context,_)=job.await.map_err(|_|TealDriveError::Internal)?;
-                        context=returned_context;break;
+                let (returned_context, result) = loop {
+                    tokio::select! {
+                        biased;
+                        _=shutdown.draining(), if !shutdown_notified => {
+                            shutdown_notified = true;
+                            notify_shutdown(&mut sender, &shutdown).await;
+                        },
+                        result=&mut job => break result.map_err(|_|TealDriveError::Internal)?,
+                        _=lease.cancellation.cancelled()=> {
+                            let (returned_context,_)=job.await.map_err(|_|TealDriveError::Internal)?;
+                            context=returned_context;
+                            break (context, Err(TealDriveError::PermissionDenied));
+                        }
                     }
                 };
                 context = returned_context;
+                if lease.cancellation.is_cancelled() {
+                    break;
+                }
                 match result {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
@@ -751,8 +772,40 @@ where
         context.uid,
         context.gid,
     ));
-    let _ = tokio::time::timeout(Duration::from_secs(1), sender.send(Message::Close(None))).await;
+    let close = shutdown
+        .is_draining()
+        .then(|| axum::extract::ws::CloseFrame {
+            code: 1001,
+            reason: "Server shutting down".into(),
+        });
+    let _ = tokio::time::timeout(Duration::from_secs(1), sender.send(Message::Close(close))).await;
     Ok(())
+}
+
+fn shutdown_notification_frame() -> Result<TdrvFrame, TealDriveError> {
+    let payload = crate::protocol::payload::ConnectionStatusPayload {
+        protocol_ready: false,
+        message: Some("Server is shutting down. Sign in again after it restarts.".into()),
+        shutting_down: true,
+        grace_period_seconds: Some(crate::shutdown::DRAIN_TIMEOUT.as_secs()),
+    };
+    let header = crate::protocol::header::TdrvHeader::new(
+        MessageType::ConnectionStatus,
+        RequestId::new(),
+        0,
+    );
+    TdrvFrame::new(header, crate::protocol::codec::encode_msgpack(&payload)?)
+}
+
+async fn notify_shutdown(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    shutdown: &crate::shutdown::Shutdown,
+) {
+    if let Ok(frame) = shutdown_notification_frame() {
+        // A slow peer must not extend the shutdown deadline or abort its active job.
+        let _ = tokio::time::timeout(Duration::from_secs(1), send_frame(sender, shutdown, &frame))
+            .await;
+    }
 }
 
 async fn send_frame(
@@ -1445,5 +1498,24 @@ mod tests {
         assert_eq!(event["action"], "ServerShutdown");
         assert_eq!(event["status"], "Success");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn shutdown_notification_is_a_backward_compatible_connection_status() {
+        let frame = shutdown_notification_frame().unwrap();
+        assert_eq!(frame.header.message_type, MessageType::ConnectionStatus);
+        assert!(frame.header.message_type.validate_inbound_client().is_err());
+        let payload: crate::protocol::payload::ConnectionStatusPayload =
+            crate::protocol::codec::decode_msgpack(&frame.payload).unwrap();
+        assert!(payload.shutting_down);
+        assert!(!payload.protocol_ready);
+        assert_eq!(payload.grace_period_seconds, Some(30));
+        let legacy = crate::protocol::codec::encode_msgpack(&serde_json::json!({
+            "protocol_ready": true, "message": "connected"
+        }))
+        .unwrap();
+        let legacy: crate::protocol::payload::ConnectionStatusPayload =
+            crate::protocol::codec::decode_msgpack(&legacy).unwrap();
+        assert!(!legacy.shutting_down);
+        assert_eq!(legacy.grace_period_seconds, None);
     }
 }

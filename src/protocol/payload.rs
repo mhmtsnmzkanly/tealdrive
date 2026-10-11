@@ -61,6 +61,10 @@ pub struct ProtocolReadyPayload {
 pub struct ConnectionStatusPayload {
     pub protocol_ready: bool,
     pub message: Option<String>,
+    #[serde(default)]
+    pub shutting_down: bool,
+    #[serde(default)]
+    pub grace_period_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -55,6 +55,7 @@ pub fn compute_directory_size(root_path: &Path) -> u64 {
 
 /// Checks if writing `additional_bytes` to `root` would exceed its configured `quota_bytes`.
 pub fn check_quota(root: &AllowedRoot, additional_bytes: u64) -> Result<(), TealDriveError> {
+    if let Some(available)=crate::helper::quota::budget() { return if additional_bytes<=available { Ok(()) }else{Err(TealDriveError::DiskFull)}; }
     if let Some(quota) = root.quota_bytes {
         let current_usage = compute_directory_size(&root.base_path);
         if current_usage.saturating_add(additional_bytes) > quota {

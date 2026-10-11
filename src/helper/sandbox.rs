@@ -16,7 +16,7 @@ pub fn open(root:&AllowedRoot,path:&RelativePath,flags:i32,mode:u32)->io::Result
     let rootfd=unsafe { OwnedFd::from_raw_fd(rootfd) };
     open_at(rootfd.as_raw_fd(),if path.0.is_empty(){"."}else{&path.0},flags,mode)
 }
-fn open_at(fd:i32,path:&str,flags:i32,mode:u32)->io::Result<File> {
+pub(crate) fn open_at(fd:i32,path:&str,flags:i32,mode:u32)->io::Result<File> {
     let name=CString::new(path).map_err(io::Error::other)?;
     let how=OpenHow { flags:(flags|libc::O_CLOEXEC|libc::O_NOFOLLOW) as u64, mode:mode as u64, resolve:0x08|0x04 }; // BENEATH | NO_SYMLINKS
     let fd=unsafe { libc::syscall(libc::SYS_openat2,fd,name.as_ptr(),&how,std::mem::size_of::<OpenHow>()) };

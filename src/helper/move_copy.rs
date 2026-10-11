@@ -212,12 +212,22 @@ pub fn copy_file_with_roots(
         );
     }
 
-    let target_path = match resolve_safe_target_path(&source.root.canonical_base, &target_validated.0, request) {
+    let _target_path = match resolve_safe_target_path(&source.root.canonical_base, &target_validated.0, request) {
         Ok(p) => p,
         Err(resp) => return resp,
     };
 
-    match fs::copy(&source.resolved_path, &target_path) {
+    let copy=(||->io::Result<u64>{
+        use std::io::Read;
+        let source=crate::helper::sandbox::open(root,&request.relative_path,libc::O_RDONLY,0)?;
+        let available=crate::helper::quota::budget().unwrap_or(u64::MAX-1);
+        if source.metadata()?.len()>available{return Err(io::Error::from_raw_os_error(libc::ENOSPC));}
+        let mut source=source.take(available.saturating_add(1));
+        let mut target=crate::helper::sandbox::open(root,&target_validated,libc::O_WRONLY|libc::O_CREAT|libc::O_EXCL,0o600)?;
+        let count=io::copy(&mut source,&mut target)?;
+        if count>available{return Err(io::Error::from_raw_os_error(libc::ENOSPC));}target.sync_all()?;Ok(count)
+    })();
+    match copy {
         Ok(_) => HelperResponse::operation_done(request, "Copied."),
         Err(e) => helper_error_from_copy_io(request, e),
     }

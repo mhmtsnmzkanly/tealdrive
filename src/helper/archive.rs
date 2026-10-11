@@ -153,7 +153,7 @@ pub fn compress_zip_with_roots(
         Err(err) => return helper_error_from_io(request, err),
     };
 
-    let mut zip = zip::ZipWriter::new(out_file);
+    let mut zip = zip::ZipWriter::new(crate::helper::quota::BudgetWriter::new(out_file));
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
@@ -380,7 +380,7 @@ pub fn compress_targz_with_roots(
         Err(err) => return helper_error_from_io(request, err),
     };
 
-    let enc = flate2::write::GzEncoder::new(out_file, flate2::Compression::default());
+    let enc = flate2::write::GzEncoder::new(crate::helper::quota::BudgetWriter::new(out_file), flate2::Compression::default());
     let mut tar = tar::Builder::new(enc);
 
     for (rel_path, res_path) in validated_sources {
@@ -667,14 +667,14 @@ fn extract_zip(
                 Err(err) => return helper_error_from_io(request, err),
             };
 
-            let remaining_budget = MAX_ARCHIVE_EXTRACT_BYTES.saturating_sub(total_extracted);
+            let remaining_budget = MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)).saturating_sub(total_extracted);
             let mut limited = (&mut file).take(remaining_budget + 1);
             let written = match std::io::copy(&mut limited, &mut outfile) {
                 Ok(n) => n,
                 Err(err) => return helper_error_from_io(request, err),
             };
             total_extracted += written;
-            if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES {
+            if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)) {
                 return helper_error(
                     request,
                     ErrorKind::FileTooLarge,
@@ -819,7 +819,7 @@ fn extract_tar(
 
         let entry_size = entry.header().size().unwrap_or(0);
         total_extracted += entry_size;
-        if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES {
+        if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)) {
             return helper_error(
                 request,
                 ErrorKind::FileTooLarge,

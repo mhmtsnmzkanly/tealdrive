@@ -479,6 +479,11 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             request.limits.max_chunk_size=request.limits.max_chunk_size.min(config.limits.max_chunk_size);
             request.limits.max_text_edit_size=request.limits.max_text_edit_size.min(config.limits.max_text_edit_size);
             request.limits.max_directory_page_size=request.limits.max_directory_page_size.min(config.limits.max_directory_page_size);
+            let root=config.roots.iter().find(|r|r.root_id==request.root_id).ok_or(TealDriveError::InvalidRootId)?;
+            // Validate first; privileged accounting never reads an untrusted root.
+            crate::helper::policy::authorize(&request,&config)?;
+            let reservation=if matches!(request.command,HelperCommand::ListDirectory|HelperCommand::FileMetadata|HelperCommand::ReadTextFile|HelperCommand::ReadFileRange|HelperCommand::DownloadFile|HelperCommand::ListTrash|HelperCommand::SearchFiles) { None }
+                else { Some(crate::helper::quota::Reservation::acquire(root).map_err(|_|TealDriveError::PermissionDenied)?) };
             if crate::helper::security::enter_identity(&user).is_err() {
                 return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Identity verification failed."));
             }
@@ -486,7 +491,7 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             if crate::helper::sandbox::confine(root).is_err() {
                 return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Kernel filesystem confinement is unavailable."));
             }
-            let mut response=handle_helper_request_with_config(&request,&config);
+            let mut response=crate::helper::quota::with_budget(reservation.as_ref().and_then(|r|r.available),||crate::helper::transaction::execute(&request,&config));
             response.policy_revision=policy.map(|p|p.revision);
             write_helper_response(writer,&response)
         }

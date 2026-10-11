@@ -28,6 +28,7 @@ use crate::fs::trash::{MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
 use crate::session::store::{InMemorySessionStore, SessionId, SessionStore};
+use crate::upload::transfer::UploadHelper;
 use crate::ws::connection::WsConnectionContext;
 use crate::ws::dispatch::{
     error_frame, handle_decoded_frame_with_service, operation_failed_frame, DispatchDecision,
@@ -46,6 +47,7 @@ pub trait WsHelperBackend:
     + CopyHelper
     + MoveToTrashHelper
     + RestoreFromTrashHelper
+    + UploadHelper
     + Send
     + Sync
 {
@@ -62,6 +64,7 @@ impl<T> WsHelperBackend for T where
         + CopyHelper
         + MoveToTrashHelper
         + RestoreFromTrashHelper
+        + UploadHelper
         + Send
         + Sync
 {
@@ -671,6 +674,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::restore_file_from_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl UploadHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::upload::write_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

@@ -12,6 +12,7 @@ use crate::fs::trash::{
 };
 use crate::policy::decision::PolicyEngine;
 use crate::policy::feature_gate::{FeatureGate, FeatureGateResult};
+use crate::protocol::chunk::RawChunk;
 use crate::protocol::codec::{decode_msgpack, encode_msgpack};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
@@ -20,6 +21,11 @@ use crate::protocol::payload::{
     ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DownloadBeginRequest,
     FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
     OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
+    UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
+};
+use crate::upload::transfer::{
+    upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
+    UploadHelper,
 };
 use crate::ws::connection::{classify_message, InboundFrameKind, WsConnectionContext};
 use crate::ws::handshake::{
@@ -78,7 +84,8 @@ where
         + MoveHelper
         + CopyHelper
         + MoveToTrashHelper
-        + RestoreFromTrashHelper,
+        + RestoreFromTrashHelper
+        + UploadHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
     handle_decoded_frame_with_service(context, frame, config, helper_client)
@@ -100,7 +107,8 @@ where
         + MoveHelper
         + CopyHelper
         + MoveToTrashHelper
-        + RestoreFromTrashHelper,
+        + RestoreFromTrashHelper
+        + UploadHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
 
@@ -158,7 +166,7 @@ fn placeholder_dispatch(
 }
 
 fn handle_operation_with_service<H>(
-    context: &WsConnectionContext,
+    context: &mut WsConnectionContext,
     frame: TdrvFrame,
     message_type: MessageType,
     config: &AppConfig,
@@ -174,7 +182,8 @@ where
         + MoveHelper
         + CopyHelper
         + MoveToTrashHelper
-        + RestoreFromTrashHelper,
+        + RestoreFromTrashHelper
+        + UploadHelper,
 {
     match message_type {
         MessageType::ListDirectory => Ok(DispatchDecision::Outbound(vec![
@@ -206,6 +215,18 @@ where
         ])),
         MessageType::RestoreFromTrash => Ok(DispatchDecision::Outbound(vec![
             handle_restore_from_trash_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::UploadBegin => Ok(DispatchDecision::Outbound(vec![
+            handle_upload_begin_frame_with_service(context, &frame, config)?,
+        ])),
+        MessageType::UploadChunk => Ok(DispatchDecision::Outbound(vec![
+            handle_upload_chunk_frame_with_service(context, &frame, config)?,
+        ])),
+        MessageType::UploadEnd => Ok(DispatchDecision::Outbound(vec![
+            handle_upload_end_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::UploadAbort => Ok(DispatchDecision::Outbound(vec![
+            handle_upload_abort_frame_with_service(context, &frame, config)?,
         ])),
         _ => placeholder_dispatch(context, frame, message_type),
     }
@@ -575,6 +596,130 @@ pub fn handle_restore_from_trash_frame_with_service<H: RestoreFromTrashHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_upload_begin_frame_with_service(
+    context: &mut WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::UploadBegin {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: UploadBeginRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let (active_upload, response) = upload_begin_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+    )?;
+    context
+        .active_uploads
+        .insert(active_upload.transfer_id, active_upload);
+
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationStarted, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_upload_chunk_frame_with_service(
+    context: &mut WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::UploadChunk {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::RawBinary {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let chunk = RawChunk::decode(&frame.payload)?;
+    let active_upload = context
+        .active_uploads
+        .get_mut(&chunk.transfer_id)
+        .ok_or(TealDriveError::NotFound)?;
+
+    let response = upload_chunk_request(active_upload, chunk, config)?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationProgress, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_upload_end_frame_with_service<H: UploadHelper>(
+    context: &mut WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::UploadEnd {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: UploadEndRequest = decode_msgpack(&frame.payload)?;
+    let active_upload = context
+        .active_uploads
+        .remove(&request.transfer_id)
+        .ok_or(TealDriveError::NotFound)?;
+
+    let response = upload_end_request(
+        &context.user_context(),
+        &active_upload,
+        request,
+        config,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_upload_abort_frame_with_service(
+    context: &mut WsConnectionContext,
+    frame: &TdrvFrame,
+    _config: &AppConfig,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::UploadAbort {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: UploadAbortRequest = decode_msgpack(&frame.payload)?;
+    let active_upload = context
+        .active_uploads
+        .remove(&request.transfer_id)
+        .ok_or(TealDriveError::NotFound)?;
+
+    let response = upload_abort_request(&active_upload, request)?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,6 +735,7 @@ mod tests {
     use crate::limits::Limits;
     use crate::protocol::compression::Compression;
     use crate::protocol::flags::FLAG_COMPRESSED;
+    use crate::protocol::frame::TransferId;
     use crate::protocol::header::{TDRV_MAGIC, TDRV_VERSION};
     use crate::protocol::schema::{FileFilter, FilterMode, SortMode};
     use crate::{config::RelativePath, config::RootId};
@@ -730,9 +876,28 @@ mod tests {
         }
     }
 
+    impl UploadHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::upload::write_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
     fn client_frame(message_type: MessageType, payload: Vec<u8>) -> TdrvFrame {
         let mut header = TdrvHeader::new(message_type, RequestId::new(), 0);
         header.encoding = Encoding::MessagePack;
+        TdrvFrame::new(header, payload).expect("frame")
+    }
+
+    fn raw_client_frame(message_type: MessageType, payload: Vec<u8>) -> TdrvFrame {
+        let mut header = TdrvHeader::new(message_type, RequestId::new(), 0);
+        header.encoding = Encoding::RawBinary;
         TdrvFrame::new(header, payload).expect("frame")
     }
 
@@ -1421,6 +1586,308 @@ mod tests {
 
         assert_eq!(restore_resp.header.message_type, MessageType::OperationDone);
         assert!(base.join("restore_me.txt").exists());
+    }
+
+    fn upload_begin_request_payload(
+        filename: &str,
+        size: u64,
+        sha256: Option<String>,
+    ) -> UploadBeginRequest {
+        UploadBeginRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(""),
+            filename: filename.to_owned(),
+            total_size: size,
+            chunk_size: 1024,
+            sha256,
+        }
+    }
+
+    #[test]
+    fn upload_begin_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::UploadBegin,
+            encode_msgpack(&upload_begin_request_payload("file.txt", 10, None)).expect("payload"),
+        );
+        let config = AppConfig::default();
+
+        assert_eq!(
+            handle_upload_begin_frame_with_service(&mut context, &frame, &config),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn upload_chunk_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let chunk = RawChunk {
+            transfer_id: TransferId::new(),
+            chunk_index: 0,
+            offset: 0,
+            chunk_bytes: b"test".to_vec(),
+        };
+        let frame = raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
+        let config = AppConfig::default();
+
+        assert_eq!(
+            handle_upload_chunk_frame_with_service(&mut context, &frame, &config),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn upload_end_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::UploadEnd,
+            encode_msgpack(&UploadEndRequest {
+                transfer_id: TransferId::new(),
+                total_size: 0,
+                sha256: None,
+            })
+            .expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_upload_end_frame_with_service(&mut context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn upload_abort_before_protocol_ready_rejected() {
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::UploadAbort,
+            encode_msgpack(&UploadAbortRequest {
+                transfer_id: TransferId::new(),
+                reason: None,
+            })
+            .expect("payload"),
+        );
+        let config = AppConfig::default();
+
+        assert_eq!(
+            handle_upload_abort_frame_with_service(&mut context, &frame, &config),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn upload_lifecycle_after_ready_success() {
+        use sha2::{Digest, Sha256};
+        let base = temp_root();
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let content = b"hello upload world";
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let sha256_hex = format!("{:x}", hasher.finalize());
+
+        // 1. UploadBegin via handle_decoded_frame_with_service
+        let begin_frame = client_frame(
+            MessageType::UploadBegin,
+            encode_msgpack(&upload_begin_request_payload(
+                "uploaded.txt",
+                content.len() as u64,
+                Some(sha256_hex.clone()),
+            ))
+            .expect("payload"),
+        );
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            begin_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload begin ok");
+
+        let begin_resp = match decision {
+            DispatchDecision::Outbound(frames) => {
+                assert_eq!(frames.len(), 1);
+                frames.into_iter().next().unwrap()
+            }
+            _ => panic!("unexpected decision"),
+        };
+        assert_eq!(begin_resp.header.message_type, MessageType::OperationStarted);
+        let begin_payload: crate::protocol::payload::UploadBeginResponse =
+            decode_msgpack(&begin_resp.payload).expect("payload");
+        let transfer_id = begin_payload.transfer_id;
+        assert!(context.active_uploads.contains_key(&transfer_id));
+
+        // 2. UploadChunk via handle_decoded_frame_with_service
+        let chunk = RawChunk {
+            transfer_id,
+            chunk_index: 0,
+            offset: 0,
+            chunk_bytes: content.to_vec(),
+        };
+        let chunk_frame = raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            chunk_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload chunk ok");
+
+        let chunk_resp = match decision {
+            DispatchDecision::Outbound(frames) => {
+                assert_eq!(frames.len(), 1);
+                frames.into_iter().next().unwrap()
+            }
+            _ => panic!("unexpected decision"),
+        };
+        assert_eq!(chunk_resp.header.message_type, MessageType::OperationProgress);
+        let progress_payload: crate::protocol::payload::OperationProgressPayload =
+            decode_msgpack(&chunk_resp.payload).expect("payload");
+        assert_eq!(progress_payload.bytes_done, Some(content.len() as u64));
+
+        // 3. UploadEnd via handle_decoded_frame_with_service
+        let end_frame = client_frame(
+            MessageType::UploadEnd,
+            encode_msgpack(&UploadEndRequest {
+                transfer_id,
+                total_size: content.len() as u64,
+                sha256: Some(sha256_hex),
+            })
+            .expect("payload"),
+        );
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            end_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload end ok");
+
+        let end_resp = match decision {
+            DispatchDecision::Outbound(frames) => {
+                assert_eq!(frames.len(), 1);
+                frames.into_iter().next().unwrap()
+            }
+            _ => panic!("unexpected decision"),
+        };
+        assert_eq!(end_resp.header.message_type, MessageType::OperationDone);
+        let end_payload: crate::protocol::payload::UploadEndResponse =
+            decode_msgpack(&end_resp.payload).expect("payload");
+        assert_eq!(end_payload.bytes_written, content.len() as u64);
+        assert_eq!(end_payload.sha256_verified, Some(true));
+
+        // Verify file written and active_upload removed
+        assert!(base.join("uploaded.txt").is_file());
+        assert_eq!(fs::read(base.join("uploaded.txt")).expect("read"), content);
+        assert!(!context.active_uploads.contains_key(&transfer_id));
+    }
+
+    #[test]
+    fn upload_abort_after_ready_success() {
+        let base = temp_root();
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let content = b"cancelled content";
+
+        // 1. Begin
+        let begin_frame = client_frame(
+            MessageType::UploadBegin,
+            encode_msgpack(&upload_begin_request_payload(
+                "aborted.txt",
+                content.len() as u64,
+                None,
+            ))
+            .expect("payload"),
+        );
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            begin_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload begin ok");
+
+        let begin_resp = match decision {
+            DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),
+            _ => panic!("unexpected decision"),
+        };
+        let begin_payload: crate::protocol::payload::UploadBeginResponse =
+            decode_msgpack(&begin_resp.payload).expect("payload");
+        let transfer_id = begin_payload.transfer_id;
+
+        // 2. Chunk
+        let chunk = RawChunk {
+            transfer_id,
+            chunk_index: 0,
+            offset: 0,
+            chunk_bytes: content.to_vec(),
+        };
+        let chunk_frame = raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
+        handle_decoded_frame_with_service(
+            &mut context,
+            chunk_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload chunk ok");
+
+        // 3. Abort
+        let abort_frame = client_frame(
+            MessageType::UploadAbort,
+            encode_msgpack(&UploadAbortRequest {
+                transfer_id,
+                reason: Some("client cancel".into()),
+            })
+            .expect("payload"),
+        );
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            abort_frame,
+            &config,
+            &helper,
+        )
+        .expect("upload abort ok");
+
+        let abort_resp = match decision {
+            DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),
+            _ => panic!("unexpected decision"),
+        };
+        assert_eq!(abort_resp.header.message_type, MessageType::OperationDone);
+
+        // Verify file was never committed to destination
+        assert!(!base.join("aborted.txt").exists());
+        assert!(!context.active_uploads.contains_key(&transfer_id));
     }
 
     #[test]

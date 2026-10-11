@@ -1333,6 +1333,11 @@ pub const APP_JS: &str = r##"
       const itemRelPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
 
       if (!item.is_dir) {
+        const dlBtn = createActionButton('Download', () => {
+          const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(itemRelPath)}`;
+          window.location.href = url;
+        });
+        tdAct.appendChild(dlBtn);
         const editBtn = createActionButton('Edit', () => viewOrEditFile(itemRelPath));
         tdAct.appendChild(editBtn);
       }

@@ -174,6 +174,8 @@ where
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))
         .route("/api/session", get(session_handler::<H>))
+        .route("/api/download", get(crate::download::api::download_handler::<H>))
+        .route("/api/preview", get(crate::download::api::preview_handler::<H>))
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .with_state(state)

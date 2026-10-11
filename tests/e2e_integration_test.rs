@@ -349,3 +349,137 @@ async fn test_e2e_web_ui_and_static_assets_serving() {
     assert!(api_404_resp.contains("HTTP/1.1 404 Not Found"));
     assert!(api_404_resp.contains(r#"{"error":"not_found"}"#));
 }
+
+#[tokio::test]
+async fn test_e2e_http_streaming_download_and_range_requests() {
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use tealdrive::audit::sink::JsonlAuditSink;
+    use tealdrive::auth::account::{MockAuthenticator, MockUser};
+    use tealdrive::config::AccountPolicyConfig;
+    use tealdrive::rate_limit::login::InMemoryLoginRateLimiter;
+    use tealdrive::session::store::InMemorySessionStore;
+    use tealdrive::ws::server::{build_router, WsServerState};
+
+    let helper_binary = PathBuf::from(env!("CARGO_BIN_EXE_tealdrive-helper"));
+    let client = HelperProcessClient::new(helper_binary, Duration::from_secs(5));
+
+    let auth = MockAuthenticator::new(AccountPolicyConfig::default())
+        .with_user(MockUser::regular("alice", "secret123"));
+
+    let base_dir = temp_dir();
+    let file_content = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    fs::write(base_dir.join("sample.txt"), file_content).expect("write sample");
+
+    let config = AppConfig {
+        roots: vec![AllowedRoot {
+            root_id: RootId::new("home"),
+            base_path: base_dir.clone(),
+            read_only: false,
+            uploads_allowed: true,
+            hidden_files_allowed: false,
+            is_web_root: false,
+        }],
+        ..AppConfig::default()
+    };
+
+    let session_store = InMemorySessionStore::new(config.session.clone());
+    let audit_sink = JsonlAuditSink::open_default().expect("sink");
+    let state = WsServerState::with_authenticator(
+        config,
+        session_store,
+        client,
+        audit_sink,
+        Arc::new(auth),
+        InMemoryLoginRateLimiter::new(5),
+    );
+
+    let router = build_router(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind port");
+    let addr = listener.local_addr().expect("local addr");
+
+    tokio::spawn(async move {
+        axum::serve(listener, router.into_make_service())
+            .await
+            .expect("server run");
+    });
+
+    // 1. Login to get cookie
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let body = r#"{"username":"alice","password":"secret123"}"#;
+    let login_req = format!(
+        "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(login_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let login_resp = String::from_utf8_lossy(&buf);
+    let cookie = login_resp
+        .lines()
+        .find(|l| l.to_lowercase().starts_with("set-cookie:"))
+        .expect("cookie line")
+        .split(';')
+        .next()
+        .unwrap()
+        .split_once(':')
+        .unwrap()
+        .1
+        .trim();
+
+    // 2. Full Download: GET /api/download?root_id=home&path=sample.txt
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let dl_req = format!(
+        "GET /api/download?root_id=home&path=sample.txt HTTP/1.1\r\nHost: localhost\r\nCookie: {}\r\nConnection: close\r\n\r\n",
+        cookie
+    );
+    stream.write_all(dl_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let dl_resp = String::from_utf8_lossy(&buf);
+    assert!(dl_resp.contains("HTTP/1.1 200 OK"));
+    assert!(dl_resp.contains("content-disposition: attachment; filename=\"sample.txt\""));
+    assert!(dl_resp.contains("accept-ranges: bytes"));
+    assert!(dl_resp.contains("0123456789abcdefghijklmnopqrstuvwxyz"));
+
+    // 3. Range Download: GET with Range: bytes=10-19 (10 bytes: "abcdefghij")
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let range_req = format!(
+        "GET /api/download?root_id=home&path=sample.txt HTTP/1.1\r\nHost: localhost\r\nCookie: {}\r\nRange: bytes=10-19\r\nConnection: close\r\n\r\n",
+        cookie
+    );
+    stream.write_all(range_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let range_resp = String::from_utf8_lossy(&buf);
+    assert!(range_resp.contains("HTTP/1.1 206 Partial Content"));
+    assert!(range_resp.contains("content-range: bytes 10-19/36"));
+    assert!(range_resp.contains("content-length: 10"));
+    assert!(range_resp.contains("abcdefghij"));
+
+    // 4. Unauthenticated download rejected
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let no_auth_req = "GET /api/download?root_id=home&path=sample.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    stream.write_all(no_auth_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let no_auth_resp = String::from_utf8_lossy(&buf);
+    assert!(no_auth_resp.contains("HTTP/1.1 401 Unauthorized"));
+
+    // 5. Path traversal download rejected
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let traversal_req = format!(
+        "GET /api/download?root_id=home&path=../../etc/passwd HTTP/1.1\r\nHost: localhost\r\nCookie: {}\r\nConnection: close\r\n\r\n",
+        cookie
+    );
+    stream.write_all(traversal_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let traversal_resp = String::from_utf8_lossy(&buf);
+    assert!(traversal_resp.contains("HTTP/1.1 400 Bad Request"));
+
+    let _ = fs::remove_dir_all(base_dir);
+}

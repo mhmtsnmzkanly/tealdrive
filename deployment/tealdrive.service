@@ -12,6 +12,10 @@ ExecStart=/usr/local/bin/tealdrive-server --config /var/lib/tealdrive/config.tom
 Restart=on-failure
 RestartSec=3
 UMask=0077
+# SIGTERM goes to the server first so helper operations can drain.
+# systemd still kills the entire control group if shutdown exceeds this deadline.
+KillMode=mixed
+TimeoutStopSec=45s
 # Required for the dedicated setuid helper. The server itself refuses root.
 # Do not enable NoNewPrivileges, a nosuid filesystem, or a restrictive capability
 # bounding set: these would prevent PAM/UID switching in the helper.

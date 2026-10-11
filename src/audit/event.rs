@@ -678,6 +678,7 @@ pub enum AuditAction {
     FeatureDisabledAttempt,
     ConfigReload,
     ConfigPatch,
+    ServerShutdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

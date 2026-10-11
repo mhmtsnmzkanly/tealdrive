@@ -193,6 +193,14 @@ impl JsonlAuditSink {
         writer.path = prepared.path;
         writer.last_prune = None;
     }
+    /// Persist completed shutdown records before exiting.
+    pub fn sync(&self) -> io::Result<()> {
+        self.writer
+            .lock()
+            .map_err(|_| io::Error::other("audit lock poisoned"))?
+            .file
+            .sync_all()
+    }
     pub fn emit(&self, event: &AuditEvent) -> io::Result<()> {
         let mut line = to_jsonl(event).map_err(io::Error::other)?;
         line.push('\n');

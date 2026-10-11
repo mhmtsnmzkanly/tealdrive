@@ -96,6 +96,7 @@ impl<T> WsHelperBackend for T where
 
 pub struct WsServerState<H> {
     pub config: DynamicConfig,
+    pub shutdown: crate::shutdown::Shutdown,
     pub operation_slots: Arc<tokio::sync::Semaphore>,
     pub session_store: Arc<Mutex<InMemorySessionStore>>,
     pub helper_client: Arc<H>,
@@ -201,6 +202,7 @@ impl<H> WsServerState<H> {
         }
         Self {
             config: DynamicConfig::new(config, config_path).with_audit_sink(audit_sink.clone()),
+            shutdown: crate::shutdown::Shutdown::default(),
             operation_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
@@ -216,6 +218,7 @@ impl<H> Clone for WsServerState<H> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
+            shutdown: self.shutdown.clone(),
             operation_slots: self.operation_slots.clone(),
             session_store: self.session_store.clone(),
             helper_client: self.helper_client.clone(),
@@ -265,6 +268,10 @@ where
         )
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
+        .layer(axum::middleware::from_fn_with_state(
+            state.shutdown.clone(),
+            shutdown_admission,
+        ))
         .with_state(state)
 }
 
@@ -278,10 +285,95 @@ where
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .map_err(|_| TealDriveError::Internal)?;
-    let app = build_router(state);
-    axum::serve(listener, app.into_make_service())
-        .await
-        .map_err(|_| TealDriveError::Internal)
+    run_server_with_shutdown(
+        listener,
+        state,
+        crate::shutdown::signal(),
+        crate::shutdown::DRAIN_TIMEOUT,
+    )
+    .await
+}
+
+/// Injectable signal and listener for real connection shutdown tests.
+pub async fn run_server_with_shutdown<H, F>(
+    listener: tokio::net::TcpListener,
+    state: WsServerState<H>,
+    signal: F,
+    drain_timeout: Duration,
+) -> Result<(), TealDriveError>
+where
+    H: WsHelperBackend + Clone + 'static,
+    F: std::future::Future<Output = ()>,
+{
+    let shutdown = state.shutdown.clone();
+    let audit = state.audit_sink.clone();
+    let stop_accepting = shutdown.clone();
+    let server = axum::serve(listener, build_router(state).into_make_service())
+        .with_graceful_shutdown(async move {
+            stop_accepting.draining().await;
+        });
+    let server = std::future::IntoFuture::into_future(server);
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => return result.map_err(|_| TealDriveError::Internal),
+        _ = signal => {},
+    }
+    eprintln!("Shutdown requested; rejecting new work and draining active operations.");
+    let clean = shutdown
+        .finish(drain_timeout, crate::shutdown::CANCEL_TIMEOUT)
+        .await;
+    // Hyper may still have idle/slow peers; it must not hold shutdown indefinitely.
+    let _ = tokio::time::timeout(Duration::from_secs(2), &mut server).await;
+    let event = AuditEvent::new(
+        RequestId::new(),
+        "server",
+        unsafe { libc::geteuid() },
+        unsafe { libc::getegid() },
+        crate::audit::event::AuditAction::ServerShutdown,
+        if clean {
+            AuditStatus::Success
+        } else {
+            AuditStatus::Failed
+        },
+    );
+    if let Err(error) = audit.emit(&event).and_then(|()| audit.sync()) {
+        eprintln!("Failed to persist shutdown audit record: {error}");
+        return Err(TealDriveError::Internal);
+    }
+    if clean {
+        eprintln!("Shutdown complete; active connections and helper jobs released.");
+        Ok(())
+    } else {
+        eprintln!("Shutdown incomplete: work did not stop within the cancellation deadline.");
+        Err(TealDriveError::Internal)
+    }
+}
+
+async fn shutdown_admission(
+    State(shutdown): State<crate::shutdown::Shutdown>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Some(activity) = shutdown.enter() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "server shutting down").into_response();
+    };
+    let cancellation = shutdown.cancellation();
+    let response = tokio::select! {
+        response = next.run(request) => response,
+        _ = cancellation.cancelled() => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let (parts, body) = response.into_parts();
+    let stream = futures_util::stream::unfold(
+        (body.into_data_stream(), activity, cancellation),
+        |(mut body, activity, cancellation)| async move {
+            tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => None,
+                item = body.next() => item.map(|item| (item, (body, activity, cancellation))),
+            }
+        },
+    );
+    Response::from_parts(parts, axum::body::Body::from_stream(stream))
 }
 
 async fn health_check() -> &'static str {
@@ -337,22 +429,12 @@ where
         let _ = store.touch_session(&context.session_id, now);
     }
 
-    let audit_sink = state.audit_sink.clone();
-    let config = state.config.clone();
-    let helper_client = state.helper_client.clone();
-    let session_store = state.session_store.clone();
-    let operation_slots = state.operation_slots.clone();
+    let Some(activity) = state.shutdown.enter() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     ws.on_upgrade(move |socket| async move {
-        let _ = handle_socket_connection(
-            socket,
-            config,
-            session_store,
-            helper_client,
-            audit_sink,
-            context,
-            operation_slots,
-        )
-        .await;
+        let _activity = activity;
+        let _ = handle_socket_connection(socket, state, context).await;
     })
     .into_response()
 }
@@ -458,22 +540,48 @@ fn audit_reason_for_upgrade_error(error: &TealDriveError) -> AuditReason {
     }
 }
 
+struct UploadCleanup(WsConnectionContext);
+impl std::ops::Deref for UploadCleanup {
+    type Target = WsConnectionContext;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for UploadCleanup {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Drop for UploadCleanup {
+    fn drop(&mut self) {
+        for upload in self.0.active_uploads.values() {
+            let _ = std::fs::remove_file(&upload.staging_path);
+        }
+    }
+}
+
 async fn handle_socket_connection<H>(
     socket: WebSocket,
-    config: DynamicConfig,
-    session_store: Arc<Mutex<InMemorySessionStore>>,
-    helper_client: Arc<H>,
-    audit_sink: Arc<JsonlAuditSink>,
-    mut context: WsConnectionContext,
-    operation_slots: Arc<tokio::sync::Semaphore>,
+    state: WsServerState<H>,
+    context: WsConnectionContext,
 ) -> Result<(), TealDriveError>
 where
     H: WsHelperBackend + 'static,
 {
+    let WsServerState {
+        config,
+        session_store,
+        helper_client,
+        audit_sink,
+        operation_slots,
+        shutdown,
+        ..
+    } = state;
+    let mut context = UploadCleanup(context);
     let initial_config = config.load_full();
     let (mut sender, mut receiver) = socket.split();
     let server_hello = create_server_hello_frame(&initial_config)?;
-    send_frame(&mut sender, &server_hello).await?;
+    send_frame(&mut sender, &shutdown, &server_hello).await?;
 
     let _ = audit_sink.emit(&AuditEvent::websocket_connect(
         RequestId::new(),
@@ -482,11 +590,16 @@ where
         context.gid,
     ));
 
-    let lease = crate::session::lease::SessionLease::new(session_store.clone(), context.session_id);
+    let lease = crate::session::lease::SessionLease::with_shutdown(
+        session_store.clone(),
+        context.session_id,
+        shutdown.cancellation(),
+    );
     let mut handshake_completed = false;
 
     loop {
         let message = tokio::select! {
+            _=shutdown.draining()=>break,
             _=lease.cancellation.cancelled()=>break,
             message=receiver.next()=>match message { Some(message)=>message,None=>break },
         };
@@ -517,7 +630,7 @@ where
                     Ok(frame) => frame,
                     Err(_) => {
                         let error = error_frame(RequestId::new(), "Malformed websocket frame.")?;
-                        send_frame(&mut sender, &error).await?;
+                        send_frame(&mut sender, &shutdown, &error).await?;
                         break;
                     }
                 };
@@ -526,13 +639,18 @@ where
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
                 let permit = tokio::select! {
-                    _=lease.cancellation.cancelled()=>break,
-                    permit=operation_slots.clone().acquire_owned()=>permit.map_err(|_|TealDriveError::Internal)?,
+                        _=shutdown.draining()=>break,
+                _=lease.cancellation.cancelled()=>break,
+                        permit=operation_slots.clone().acquire_owned()=>permit.map_err(|_|TealDriveError::Internal)?,
+                    };
+                let Some(activity) = shutdown.enter() else {
+                    break;
                 };
                 let helper = helper_client.clone();
                 let token = lease.cancellation.clone();
                 let inbound = frame.clone();
                 let mut job = tokio::task::spawn_blocking(move || {
+                    let _activity = activity;
                     let _permit = permit;
                     let result = crate::session::lease::with_cancellation(token, || {
                         crate::helper::policy::with_snapshot(&current_config, || {
@@ -557,7 +675,7 @@ where
                 match result {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
-                            send_frame(&mut sender, &outbound).await?;
+                            send_frame(&mut sender, &shutdown, &outbound).await?;
                         }
                         if context.protocol_ready && !handshake_completed {
                             handshake_completed = true;
@@ -572,11 +690,11 @@ where
                         let _ = store.touch_session(&context.session_id, now);
                     }
                     Ok(DispatchDecision::DispatchPlaceholder(frame)) => {
-                        send_frame(&mut sender, &frame).await?;
+                        send_frame(&mut sender, &shutdown, &frame).await?;
                     }
                     Err(error) if is_protocol_error(&error) => {
                         let response = error_frame(request_id, protocol_error_message(&error))?;
-                        send_frame(&mut sender, &response).await?;
+                        send_frame(&mut sender, &shutdown, &response).await?;
                         let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
                             RequestId::new(),
                             context.username.clone(),
@@ -592,7 +710,7 @@ where
                             frame.header.message_type,
                             &error,
                         )?;
-                        send_frame(&mut sender, &response).await?;
+                        send_frame(&mut sender, &shutdown, &response).await?;
                         let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
                             RequestId::new(),
                             context.username.clone(),
@@ -618,7 +736,7 @@ where
             }
             Message::Text(_) => {
                 let response = error_frame(RequestId::new(), "Binary TDRV/1 frames are required.")?;
-                send_frame(&mut sender, &response).await?;
+                send_frame(&mut sender, &shutdown, &response).await?;
                 break;
             }
         }
@@ -629,23 +747,25 @@ where
     }
     let _ = audit_sink.emit(&AuditEvent::websocket_disconnect(
         RequestId::new(),
-        context.username,
+        context.username.clone(),
         context.uid,
         context.gid,
     ));
-    let _ = sender.send(Message::Close(None)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(1), sender.send(Message::Close(None))).await;
     Ok(())
 }
 
 async fn send_frame(
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    shutdown: &crate::shutdown::Shutdown,
     frame: &TdrvFrame,
 ) -> Result<(), TealDriveError> {
     let bytes = frame.encode()?;
-    sender
-        .send(Message::Binary(bytes))
-        .await
-        .map_err(|_| TealDriveError::Internal)
+    let cancellation = shutdown.cancellation();
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(TealDriveError::Internal),
+        result = sender.send(Message::Binary(bytes)) => result.map_err(|_| TealDriveError::Internal),
+    }
 }
 
 fn is_protocol_error(error: &TealDriveError) -> bool {
@@ -880,6 +1000,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    #[derive(Clone)]
     struct InProcessHelper {
         roots: Vec<AllowedRoot>,
     }
@@ -1231,5 +1352,98 @@ mod tests {
             build_upgrade_request(&state, &headers, 1),
             Err(TealDriveError::PermissionDenied)
         ));
+    }
+    #[test]
+    fn upload_cleanup_runs_on_early_error_and_unwind() {
+        let root = temp_root();
+        let config = config_for(root.clone());
+        let policy = crate::policy::decision::PolicyEngine::new(&config);
+        let mut context = valid_context();
+        let (upload, _) = crate::upload::transfer::upload_begin_request(
+            &context.user_context(),
+            crate::protocol::payload::UploadBeginRequest {
+                root_id: RootId::new("home"),
+                relative_path: RelativePath::new(""),
+                filename: "incomplete.txt".into(),
+                total_size: 10,
+                chunk_size: 10,
+                sha256: None,
+            },
+            &config,
+            &policy,
+        )
+        .unwrap();
+        let staging = upload.staging_path.clone();
+        context.active_uploads.insert(upload.transfer_id, upload);
+        assert!(staging.exists());
+        let result = std::panic::catch_unwind(move || {
+            let _context = UploadCleanup(context);
+            panic!("dispatch error");
+        });
+        assert!(result.is_err());
+        assert!(!staging.exists());
+        assert!(!root.join("incomplete.txt").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn real_listener_drains_and_persists_shutdown_completion() {
+        let root = temp_root();
+        let config = config_for(root.clone());
+        let state = WsServerState::new(
+            config.clone(),
+            InMemorySessionStore::new(config.session.clone()),
+            InProcessHelper {
+                roots: config.roots.clone(),
+            },
+            JsonlAuditSink::open(root.join("audit.jsonl")).unwrap(),
+        );
+        let shutdown = state.shutdown.clone();
+        let work = shutdown.enter().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(run_server_with_shutdown(
+            listener,
+            state,
+            async move {
+                rx.await.unwrap();
+            },
+            Duration::from_millis(10),
+        ));
+        let response = tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Write};
+            let mut socket = std::net::TcpStream::connect(address).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            socket
+                .write_all(
+                    b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            let mut response = String::new();
+            socket.read_to_string(&mut response).unwrap();
+            response
+        })
+        .await
+        .unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), shutdown.cancellation().cancelled())
+            .await
+            .unwrap();
+        assert!(shutdown.enter().is_none());
+        drop(work);
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let events = fs::read_to_string(root.join("audit.jsonl")).unwrap();
+        let event: serde_json::Value =
+            serde_json::from_str(events.lines().last().unwrap()).unwrap();
+        assert_eq!(event["action"], "ServerShutdown");
+        assert_eq!(event["status"], "Success");
+        fs::remove_dir_all(root).unwrap();
     }
 }

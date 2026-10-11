@@ -123,6 +123,12 @@ pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
             crate::helper::ipc::handle_helper_request_with_config(&staged, &stage_config)
         })
     });
+    if response.success && crate::helper::cancellation::check().is_err() {
+        return HelperResponse::permission_denied(
+            request,
+            "Operation cancelled before publication.",
+        );
+    }
     if response.success {
         if let Err(error) = rename(root, &staging, &clean, request.command == WriteFile) {
             response = crate::helper::listing::helper_error_from_io(request, error);

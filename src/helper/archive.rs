@@ -813,7 +813,10 @@ fn extract_zip(
                 .min(crate::helper::quota::budget().unwrap_or(u64::MAX))
                 .saturating_sub(total_extracted);
             let mut limited = (&mut file).take(remaining_budget + 1);
-            let written = match std::io::copy(&mut limited, &mut outfile) {
+            let written = match std::io::copy(
+                &mut limited,
+                &mut crate::helper::quota::BudgetWriter::new(&mut outfile),
+            ) {
                 Ok(n) => n,
                 Err(err) => return helper_error_from_io(request, err),
             };
@@ -872,6 +875,9 @@ fn extract_tar(
     let mut total_extracted: u64 = 0;
 
     for entry in entries {
+        if crate::helper::cancellation::check().is_err() {
+            return HelperResponse::permission_denied(request, "Operation cancelled.");
+        }
         let mut entry = match entry {
             Ok(e) => e,
             Err(_) => {

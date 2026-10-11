@@ -146,6 +146,7 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
     let helper = state.helper_client.clone();
     let store = state.session_store.clone();
     let slots = state.operation_slots.clone();
+    let shutdown = state.shutdown.clone();
     let stream = futures_util::stream::unfold(
         (
             helper,
@@ -156,8 +157,9 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
             store,
             session_id,
             slots,
+            shutdown,
         ),
-        |(helper, mut request, remaining, policy, lease, store, session_id, slots)| async move {
+        |(helper, mut request, remaining, policy, lease, store, session_id, slots, shutdown)| async move {
             if remaining == 0 {
                 return None;
             }
@@ -171,7 +173,9 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
                 lease.cancellation.cancel();
                 return Some((
                     Err(std::io::Error::other("session revoked or expired")),
-                    (helper, request, 0, policy, lease, store, session_id, slots),
+                    (
+                        helper, request, 0, policy, lease, store, session_id, slots, shutdown,
+                    ),
                 ));
             }
             request.limits.max_chunk_size = (STREAM_CHUNK_SIZE as u64).min(remaining) as usize;
@@ -183,7 +187,14 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
                 Ok(p) => p,
                 Err(_) => return None,
             };
+            if lease.cancellation.is_cancelled() {
+                return None;
+            }
+            // An admitted stream may keep reading during the drain period. Its body
+            // guard remains tracked; the helper job owns another guard if available.
+            let activity = shutdown.enter_existing();
             let result = tokio::task::spawn_blocking(move || {
+                let _activity = activity;
                 let _permit = permit;
                 crate::session::lease::with_cancellation(token, || {
                     crate::helper::policy::with_snapshot(&snapshot, || {
@@ -207,12 +218,15 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
                             store,
                             session_id,
                             slots,
+                            shutdown,
                         ),
                     ))
                 }
                 _ => Some((
                     Err(std::io::Error::other("helper stream failed")),
-                    (helper, request, 0, policy, lease, store, session_id, slots),
+                    (
+                        helper, request, 0, policy, lease, store, session_id, slots, shutdown,
+                    ),
                 )),
             }
         },
@@ -322,7 +336,11 @@ where
         }
     }
 
-    let lease = crate::session::lease::SessionLease::new(state.session_store.clone(), session_id);
+    let lease = crate::session::lease::SessionLease::with_shutdown(
+        state.session_store.clone(),
+        session_id,
+        state.shutdown.cancellation(),
+    );
     let probe = range_request(&user_context, &root_id, &relative_path, 0, 0);
     let helper = state.helper_client.clone();
     let policy = cfg.as_ref().clone();
@@ -330,9 +348,16 @@ where
         Ok(p) => p,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let Some(activity) = state.shutdown.enter() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let token = lease.cancellation.clone();
     let file_size = match tokio::task::spawn_blocking(move || {
+        let _activity = activity;
         let _permit = permit;
-        crate::helper::policy::with_snapshot(&policy, || read_range(helper.as_ref(), &probe))
+        crate::session::lease::with_cancellation(token, || {
+            crate::helper::policy::with_snapshot(&policy, || read_range(helper.as_ref(), &probe))
+        })
     })
     .await
     {

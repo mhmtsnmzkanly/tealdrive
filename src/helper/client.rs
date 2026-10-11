@@ -116,6 +116,7 @@ impl HelperProcessClient {
         }
         let mut command = Command::new(&self.helper_path);
         command
+            .arg("--watch-stdin")
             .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -139,23 +140,24 @@ impl HelperProcessClient {
             let (read_tx, read_rx) = std::sync::mpsc::channel();
             scope.spawn(move || {
                 let mut stdin = stdin;
-                let _ = write_tx.send(
-                    stdin
-                        .write_all(&bytes)
-                        .map_err(|_| TealDriveError::HelperStdinFailed),
-                );
+                let result = stdin
+                    .write_all(&bytes)
+                    .map_err(|_| TealDriveError::HelperStdinFailed);
+                // Keep the pipe open until completion; closing it cancels the helper.
+                let _ = write_tx.send(result.map(|()| stdin));
             });
             scope.spawn(move || {
                 let mut stdout = stdout;
                 let _ = read_tx.send(crate::helper::ipc::read_wire_payload(&mut stdout));
             });
+            let mut input = None;
             let result = (|| {
                 let mut output = None;
                 let mut written = false;
                 loop {
                     if !written {
                         if let Ok(result) = write_rx.try_recv() {
-                            result?;
+                            input = Some(result?);
                             written = true;
                         }
                     }
@@ -184,7 +186,17 @@ impl HelperProcessClient {
                     thread::sleep(Duration::from_millis(2));
                 }
             })();
+            // EOF cancellation works even when kill(2) is denied after UID switching.
+            drop(input);
+            drop(write_rx);
             if result.is_err() {
+                let cleanup_deadline = Instant::now() + Duration::from_millis(1200);
+                while Instant::now() < cleanup_deadline {
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
                 let _ = child.kill();
             }
             let _ = child.wait();
@@ -259,7 +271,7 @@ mod pipe_tests {
     }
     #[test]
     fn drains_large_output_while_writing_large_input() {
-        let path=script("import sys,struct\nsys.stdout.buffer.write(struct.pack('>I',1048576)+b'x'*1048576)\nsys.stdout.buffer.flush()\nsys.stdin.buffer.read()");
+        let path=script("import sys,struct\nsys.stdout.buffer.write(struct.pack('>I',1048576)+b'x'*1048576)\nsys.stdout.buffer.flush()\nsys.stdin.buffer.read(2*1024*1024)");
         let client = HelperProcessClient::new(&path, Duration::from_secs(3));
         assert_eq!(
             client.communicate(vec![1; 2 * 1024 * 1024]).unwrap().len(),

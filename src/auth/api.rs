@@ -120,10 +120,17 @@ where
         Ok(p) => p,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let Some(activity) = state.shutdown.enter() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let cancellation = state.shutdown.cancellation();
     let authenticator = state.authenticator.clone();
     let auth_result = tokio::task::spawn_blocking(move || {
+        let _activity = activity;
         let _permit = permit;
-        authenticator.authenticate(&auth_req)
+        crate::session::lease::with_cancellation(cancellation, || {
+            authenticator.authenticate(&auth_req)
+        })
     })
     .await;
     let auth_success = match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {

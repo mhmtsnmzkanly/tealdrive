@@ -233,7 +233,10 @@ pub fn copy_file_with_roots(
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
             0o600,
         )?;
-        let count = io::copy(&mut source, &mut target)?;
+        let count = io::copy(
+            &mut source,
+            &mut crate::helper::quota::BudgetWriter::new(&mut target),
+        )?;
         if count > available {
             return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }

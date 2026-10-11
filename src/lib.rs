@@ -12,6 +12,7 @@ pub mod policy;
 pub mod protocol;
 pub mod rate_limit;
 pub mod session;
+pub mod shutdown;
 pub mod trash;
 pub mod ui;
 pub mod upload;

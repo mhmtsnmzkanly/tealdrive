@@ -239,6 +239,7 @@ use axum::{
 };
 use tower::ServiceExt;
 struct Fixture {
+    shutdown: tealdrive::shutdown::Shutdown,
     root: PathBuf,
     router: Router,
 }
@@ -272,6 +273,7 @@ fn fixture(admin: bool) -> Fixture {
         tealdrive::rate_limit::login::InMemoryLoginRateLimiter::new(5),
     );
     Fixture {
+        shutdown: state.shutdown.clone(),
         root,
         router: build_router(state),
     }
@@ -591,4 +593,119 @@ async fn http_download_streams_large_files_ranges_and_safe_previews() {
         .to_str()
         .unwrap()
         .contains("sandbox"));
+}
+
+#[tokio::test]
+async fn shutdown_rejects_new_requests_but_drains_admitted_downloads() {
+    let f = fixture(false);
+    let (cookie, _) = login(&f.router).await;
+    let content = vec![b'x'; 256 * 1024];
+    fs::write(f.root.join("download.txt"), &content).unwrap();
+    let response = call(
+        &f.router,
+        "GET",
+        "/api/download?root_id=home&path=download.txt",
+        Some(&cookie),
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    f.shutdown.begin();
+    assert_eq!(
+        call(&f.router, "GET", "/api/health", None, None, "")
+            .await
+            .status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .as_ref(),
+        content
+    );
+    assert!(
+        f.shutdown
+            .finish(Duration::from_secs(1), Duration::from_secs(1))
+            .await
+    );
+    assert!(!f.shutdown.cancellation().is_cancelled());
+}
+
+#[tokio::test]
+async fn forced_shutdown_stops_a_partially_read_http_download() {
+    use futures_util::StreamExt;
+    let f = fixture(false);
+    let (cookie, _) = login(&f.router).await;
+    fs::write(f.root.join("download.txt"), vec![b'x'; 256 * 1024]).unwrap();
+    let response = call(
+        &f.router,
+        "GET",
+        "/api/download?root_id=home&path=download.txt",
+        Some(&cookie),
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    assert!(stream.next().await.unwrap().is_ok());
+    let shutdown = f.shutdown.clone();
+    let finish = tokio::spawn(async move {
+        shutdown
+            .finish(Duration::from_millis(10), Duration::from_secs(1))
+            .await
+    });
+    f.shutdown.cancellation().cancelled().await;
+    assert!(stream.next().await.is_none());
+    drop(stream);
+    assert!(finish.await.unwrap());
+}
+
+#[test]
+#[ignore = "requires root with CAP_SETUID/CAP_SETGID"]
+fn real_helper_cancellation_interrupts_a_blocked_quota_lock() {
+    use std::os::fd::AsRawFd;
+    use tealdrive::session::lease::{with_cancellation, Cancellation};
+    let base = temp_dir();
+    let directory = fs::File::open(&base).unwrap();
+    assert_eq!(
+        unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX) },
+        0
+    );
+    let config = AppConfig {
+        roots: vec![AllowedRoot {
+            base_path: base.clone(),
+            ..AllowedRoot::default()
+        }],
+        ..AppConfig::default()
+    };
+    let client = HelperProcessClient::new(
+        env!("CARGO_BIN_EXE_tealdrive-helper"),
+        Duration::from_secs(30),
+    );
+    let token = Cancellation::default();
+    let worker_token = token.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let request = sample_request(
+            HelperCommand::CreateFolder,
+            "",
+            Some("cancelled"),
+            None,
+            None,
+        );
+        let result = with_cancellation(worker_token, || {
+            tealdrive::helper::policy::with_snapshot(&config, || client.execute(&request))
+        });
+        tx.send(result).unwrap();
+    });
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+    token.cancel();
+    assert!(rx.recv_timeout(Duration::from_secs(3)).unwrap().is_err());
+    worker.join().unwrap();
+    assert!(!base.join("cancelled").exists());
+    drop(directory);
+    fs::remove_dir_all(base).unwrap();
 }

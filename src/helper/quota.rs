@@ -49,6 +49,7 @@ fn size(directory: &File, depth: usize) -> io::Result<u64> {
         return Err(io::Error::other("quota traversal depth exceeded"));
     }
     let mut total = 0u64;
+    crate::helper::cancellation::check()?;
     for entry in std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))? {
         let entry = entry?;
         let name = entry.file_name();
@@ -96,6 +97,7 @@ impl<W> BudgetWriter<W> {
 }
 impl<W: Write> Write for BudgetWriter<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        crate::helper::cancellation::check()?;
         if bytes.len() as u64 > self.limit.saturating_sub(self.position) {
             return Err(io::Error::from_raw_os_error(libc::ENOSPC));
         }

@@ -53,6 +53,13 @@ pub struct SessionLease {
 }
 impl SessionLease {
     pub fn new(store: Arc<Mutex<InMemorySessionStore>>, id: SessionId) -> Self {
+        Self::with_shutdown(store, id, Cancellation::default())
+    }
+    pub fn with_shutdown(
+        store: Arc<Mutex<InMemorySessionStore>>,
+        id: SessionId,
+        shutdown: Cancellation,
+    ) -> Self {
         let cancellation = Cancellation::default();
         let token = cancellation.clone();
         let task = tokio::spawn(async move {
@@ -68,7 +75,10 @@ impl SessionLease {
                     token.cancel();
                     break;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                tokio::select! {
+                    _ = shutdown.cancelled() => { token.cancel(); break; },
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {},
+                }
             }
         });
         Self { cancellation, task }

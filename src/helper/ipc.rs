@@ -18,8 +18,8 @@ use crate::helper::trash::{
 use crate::helper::types::{command_disabled_in_v1, HelperCommand, HelperRequest, HelperResponse};
 use crate::helper::upload::write_file_with_roots;
 
-pub const MAX_HELPER_REQUEST_SIZE: usize = 1024 * 1024;
-pub const MAX_HELPER_RESPONSE_SIZE: usize = 1024 * 1024;
+pub const MAX_HELPER_REQUEST_SIZE: usize = 8 * 1024 * 1024;
+pub const MAX_HELPER_RESPONSE_SIZE: usize = 8 * 1024 * 1024;
 pub const HELPER_LEN_PREFIX_SIZE: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -491,4 +491,8 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             write_helper_response(writer,&response)
         }
     }
+}
+
+pub fn read_wire_payload<R:Read>(reader:&mut R)->Result<Vec<u8>,TealDriveError> {
+    read_length_prefixed(reader,MAX_HELPER_RESPONSE_SIZE,TealDriveError::HelperResponseTooLarge)
 }

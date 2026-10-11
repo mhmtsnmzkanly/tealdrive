@@ -114,7 +114,10 @@ where
         ip: client_ip.clone(),
     };
 
-    let auth_success = match state.authenticator.authenticate(&auth_req) {
+    let permit=match state.operation_slots.clone().acquire_owned().await { Ok(p)=>p,Err(_)=>return StatusCode::SERVICE_UNAVAILABLE.into_response() };
+    let authenticator=state.authenticator.clone();
+    let auth_result=tokio::task::spawn_blocking(move|| { let _permit=permit; authenticator.authenticate(&auth_req) }).await;
+    let auth_success = match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {
         Ok(success) => success,
         Err(err) => {
             let mut limiter = state.rate_limiter.lock().await;

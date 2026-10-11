@@ -96,6 +96,7 @@ impl<T> WsHelperBackend for T where
 
 pub struct WsServerState<H> {
     pub config: DynamicConfig,
+    pub operation_slots: Arc<tokio::sync::Semaphore>,
     pub session_store: Arc<Mutex<InMemorySessionStore>>,
     pub helper_client: Arc<H>,
     pub audit_sink: Arc<JsonlAuditSink>,
@@ -184,6 +185,7 @@ impl<H> WsServerState<H> {
     ) -> Self {
         Self {
             config: DynamicConfig::new(config, config_path),
+            operation_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
             audit_sink: Arc::new(audit_sink),
@@ -198,6 +200,7 @@ impl<H> Clone for WsServerState<H> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
+            operation_slots: self.operation_slots.clone(),
             session_store: self.session_store.clone(),
             helper_client: self.helper_client.clone(),
             audit_sink: self.audit_sink.clone(),
@@ -312,6 +315,7 @@ where
     let config = state.config.clone();
     let helper_client = state.helper_client.clone();
     let session_store = state.session_store.clone();
+    let operation_slots=state.operation_slots.clone();
     ws.on_upgrade(move |socket| async move {
         let _ = handle_socket_connection(
             socket,
@@ -320,6 +324,7 @@ where
             helper_client,
             audit_sink,
             context,
+            operation_slots,
         )
         .await;
     })
@@ -411,6 +416,7 @@ async fn handle_socket_connection<H>(
     helper_client: Arc<H>,
     audit_sink: Arc<JsonlAuditSink>,
     mut context: WsConnectionContext,
+    operation_slots: Arc<tokio::sync::Semaphore>,
 ) -> Result<(), TealDriveError>
 where
     H: WsHelperBackend + 'static,
@@ -462,12 +468,26 @@ where
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
-                match crate::session::lease::with_cancellation(lease.cancellation.clone(),|| crate::helper::policy::with_snapshot(&current_config, || handle_decoded_frame_with_service(
-                    &mut context,
-                    frame.clone(),
-                    &current_config,
-                    helper_client.as_ref(),
-                ))) {
+                let permit=tokio::select! {
+                    _=lease.cancellation.cancelled()=>break,
+                    permit=operation_slots.clone().acquire_owned()=>permit.map_err(|_|TealDriveError::Internal)?,
+                };
+                let helper=helper_client.clone();let token=lease.cancellation.clone();let inbound=frame.clone();
+                let mut job=tokio::task::spawn_blocking(move|| {
+                    let _permit=permit;
+                    let result=crate::session::lease::with_cancellation(token,||crate::helper::policy::with_snapshot(&current_config,||
+                        handle_decoded_frame_with_service(&mut context,inbound,&current_config,helper.as_ref())));
+                    (context,result)
+                });
+                let (returned_context,result)=tokio::select! {
+                    result=&mut job=>result.map_err(|_|TealDriveError::Internal)?,
+                    _=lease.cancellation.cancelled()=> {
+                        let (returned_context,_)=job.await.map_err(|_|TealDriveError::Internal)?;
+                        context=returned_context;break;
+                    }
+                };
+                context=returned_context;
+                match result {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
                             send_frame(&mut sender, &outbound).await?;

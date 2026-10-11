@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::errors::TealDriveError;
-use crate::helper::ipc::{encode_invocation, read_helper_response, HelperInvocation};
+use crate::helper::ipc::{encode_invocation, HelperInvocation};
 use crate::helper::types::{HelperRequest, HelperResponse};
 
 #[derive(Debug, Clone)]
@@ -56,74 +56,58 @@ impl HelperProcessClient {
     pub fn authenticate(&self, request: &crate::auth::account::AuthRequest) -> Result<crate::auth::account::AuthSuccess, crate::auth::account::AuthError> {
         use crate::auth::account::AuthError;
         let bytes=encode_invocation(&HelperInvocation::Authenticate(request.clone())).map_err(|_|AuthError::AuthBackendUnavailable)?;
-        let mut child=Command::new(&self.helper_path).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
-            .spawn().map_err(|_|AuthError::AuthBackendUnavailable)?;
-        child.stdin.take().ok_or(AuthError::AuthBackendUnavailable)?.write_all(&bytes).map_err(|_|AuthError::AuthBackendUnavailable)?;
-        let output=child.wait_with_output().map_err(|_|AuthError::AuthBackendUnavailable)?;
-        let response=crate::helper::ipc::read_authentication(&mut output.stdout.as_slice()).map_err(|_|AuthError::AuthBackendUnavailable)?;
+        let output=self.communicate(bytes).map_err(|_|AuthError::AuthBackendUnavailable)?;
+        let response:crate::helper::ipc::HelperAuthentication=rmp_serde::from_slice(&output).map_err(|_|AuthError::AuthBackendUnavailable)?;
         match response.result {
             Ok((success,ticket))=> { self.tickets.lock().map_err(|_|AuthError::AuthBackendUnavailable)?.insert(success.username.clone(),ticket); Ok(success) }
             Err(crate::auth::account::AuthFailure::AuthBackendUnavailable)=>Err(AuthError::AuthBackendUnavailable),
             Err(_)=>Err(AuthError::InvalidCredentials),
         }
     }
-
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
-        let ticket = self.tickets.lock().map_err(|_|TealDriveError::Internal)?.get(&request.username).cloned();
-        let revision=crate::helper::policy::current().map(|p|p.revision);
-        let request_bytes = encode_invocation(&HelperInvocation::Operation { request: Box::new(request.clone()), ticket, policy: crate::helper::policy::current() })?;
-        let mut cmd = Command::new(&self.helper_path);
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        for (key, val) in &self.env_vars {
-            cmd.env(key, val);
-        }
-        let mut child = cmd.spawn()
-            .map_err(|_| TealDriveError::HelperSpawnFailed)?;
-
-        {
-            let stdin = child
-                .stdin
-                .as_mut()
-                .ok_or(TealDriveError::HelperStdinFailed)?;
-            stdin
-                .write_all(&request_bytes)
-                .map_err(|_| TealDriveError::HelperStdinFailed)?;
-        }
-        drop(child.stdin.take());
-
-        let cancellation=crate::session::lease::current_cancellation();
-        let timeout = self.timeout();
-        let start = Instant::now();
-        loop {
-            if let Some(status) = child
-                .try_wait()
-                .map_err(|_| TealDriveError::HelperNonZeroExit)?
-            {
-                if !status.success() {
-                    return Err(TealDriveError::HelperNonZeroExit);
-                }
-                let mut stdout = child
-                    .stdout
-                    .take()
-                    .ok_or(TealDriveError::HelperStdoutFailed)?;
-                let response=read_helper_response(&mut stdout).map_err(|_|TealDriveError::HelperMalformedResponse)?;
-                if response.success && response.policy_revision!=revision { return Err(TealDriveError::HelperMalformedResponse); }
-                return Ok(response);
-            }
-
-            if cancellation.as_ref().is_some_and(|c|c.is_cancelled()) {
-                let _=child.kill(); let _=child.wait(); return Err(TealDriveError::PermissionDenied);
-            }
-            if start.elapsed() >= timeout {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(TealDriveError::HelperTimeout);
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
+        let ticket=self.tickets.lock().map_err(|_|TealDriveError::Internal)?.get(&request.username).cloned();
+        let policy=crate::helper::policy::current();let revision=policy.as_ref().map(|p|p.revision);
+        let bytes=encode_invocation(&HelperInvocation::Operation { request:Box::new(request.clone()),ticket,policy })?;
+        let output=self.communicate(bytes)?;
+        let response:HelperResponse=rmp_serde::from_slice(&output).map_err(|_|TealDriveError::HelperMalformedResponse)?;
+        if response.success && response.policy_revision!=revision { return Err(TealDriveError::HelperMalformedResponse); }
+        Ok(response)
     }
+    /// Read and write both pipes while the child runs. All exits kill/reap the child
+    /// and join pipe workers; timeout includes input writes, authentication and output.
+    fn communicate(&self, bytes:Vec<u8>)->Result<Vec<u8>,TealDriveError> {
+        let start=Instant::now();let timeout=self.timeout();
+        let cancellation=crate::session::lease::current_cancellation();
+        if cancellation.as_ref().is_some_and(|c|c.is_cancelled()) { return Err(TealDriveError::PermissionDenied); }
+        let mut command=Command::new(&self.helper_path);
+        command.env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        for (key,value) in &self.env_vars { command.env(key,value); }
+        let mut child=command.spawn().map_err(|_|TealDriveError::HelperSpawnFailed)?;
+        let stdin=child.stdin.take().ok_or(TealDriveError::HelperStdinFailed)?;
+        let stdout=child.stdout.take().ok_or(TealDriveError::HelperStdoutFailed)?;
+        thread::scope(|scope| {
+            let (write_tx,write_rx)=std::sync::mpsc::channel();
+            let (read_tx,read_rx)=std::sync::mpsc::channel();
+            scope.spawn(move|| { let mut stdin=stdin; let _=write_tx.send(stdin.write_all(&bytes).map_err(|_|TealDriveError::HelperStdinFailed)); });
+            scope.spawn(move|| { let mut stdout=stdout; let _=read_tx.send(crate::helper::ipc::read_wire_payload(&mut stdout)); });
+            let result=(|| {
+                let mut output=None;let mut written=false;
+                loop {
+                    if !written { if let Ok(result)=write_rx.try_recv(){result?;written=true;} }
+                    if output.is_none(){if let Ok(result)=read_rx.try_recv(){output=Some(result?);}}
+                    if let Some(status)=child.try_wait().map_err(|_|TealDriveError::HelperNonZeroExit)? {
+                        if !status.success(){return Err(TealDriveError::HelperNonZeroExit);}
+                        if written && output.is_some(){return Ok(output.take().unwrap());}
+                    }
+                    if cancellation.as_ref().is_some_and(|c|c.is_cancelled()){return Err(TealDriveError::PermissionDenied);}
+                    if start.elapsed()>=timeout{return Err(TealDriveError::HelperTimeout);}
+                    thread::sleep(Duration::from_millis(2));
+                }
+            })();
+            if result.is_err(){let _=child.kill();} let _=child.wait(); result
+        })
+    }
+
 }
 
 pub fn default_helper_binary_path() -> PathBuf {
@@ -180,5 +164,27 @@ mod tests {
 
         assert_eq!(client.timeout(), Duration::from_secs(25));
         assert_eq!(client_clone.timeout(), Duration::from_secs(25));
+    }
+}
+
+#[cfg(test)] mod pipe_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    fn script(code:&str)->PathBuf {
+        let path=std::env::temp_dir().join(format!("tdrv-pipe-test-{}",uuid::Uuid::new_v4()));
+        std::fs::write(&path,format!("#!/usr/bin/python3\n{code}\n")).unwrap();
+        std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();path
+    }
+    #[test] fn drains_large_output_while_writing_large_input() {
+        let path=script("import sys,struct\nsys.stdout.buffer.write(struct.pack('>I',1048576)+b'x'*1048576)\nsys.stdout.buffer.flush()\nsys.stdin.buffer.read()");
+        let client=HelperProcessClient::new(&path,Duration::from_secs(3));
+        assert_eq!(client.communicate(vec![1;2*1024*1024]).unwrap().len(),1024*1024);
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test] fn timeout_also_covers_blocked_input_pipe() {
+        let path=script("import time\ntime.sleep(60)");
+        let client=HelperProcessClient::new(&path,Duration::from_millis(100));
+        assert_eq!(client.communicate(vec![1;1024*1024]),Err(TealDriveError::HelperTimeout));
+        std::fs::remove_file(path).unwrap();
     }
 }

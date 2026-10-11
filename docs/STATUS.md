@@ -184,3 +184,27 @@ gerçek helper üzerinden mevcut dosyanın indirilmesi doğrulandı. Canlı admi
 ile 1 KiB/iki arşiv sınırı, eski arşiv silme, null yaş sınırının save/reload sonrası
 korunması ve geçersiz hedefin reddedilmesi test edildi. Test sonunda canlı ayarlar
 `/var/lib/tealdrive-test/audit.jsonl`, 10 MiB, beş arşiv, 30 gün olarak geri yüklendi.
+
+## Kontrollü servis kapanışı
+
+SIGTERM ve SIGINT/Ctrl+C kapanış akışı eklendi: admission kapatılır, aktif işlemler
+30 saniyeye kadar tamamlanabilir; kalan işler iptal edilir ve beş saniye temizlik
+beklenir. HTTP kapanışına son iki saniye tanınır. WebSocket/upload sahipliği erken
+hata/panic dahil geçici dosyaları temizler. HTTP indirmeleri ve blocking helper
+işleri ayrıca takip edilir. Helper stdin EOF iptali UID geçişinden sonra da çalışır;
+zorunlu çıkış ve SIGKILL durumundaki sınırlar DEPLOYMENT.md'de açıklanmıştır.
+
+Systemd örneği ve canlı unit `KillMode=mixed`, `TimeoutStopSec=45s` kullanır.
+Server/helper birlikte canlıya kuruldu. Gerçek HTTPS/WSS üzerinden SIGTERM ve
+SIGINT testlerinde bağlantı kapanışı, yarım upload temizliği ve sağlıklı restart
+doğrulandı. Kapanış başladıktan sonra kilidi bırakılan gerçek helper işlemi
+başarıyla tamamlandı, kullanıcıya sonucu iletti ve doğru UID ile yayınlandı.
+Ayrı testte helper timeout'u yalnızca bellekte 60 saniyeye yükseltildi; kilitli
+helper 30 saniyelik kapanış süresinden sonra iptal/reap edildi, servis yaklaşık
+31 saniyede temiz durdu. Restart sonrası normal helper timeout'u geri yüklendi.
+`ServerShutdown` / `Success` kayıtları aktif audit dosyasında doğrulandı.
+
+512 test (ignored helper/kernel testleri dahil), Clippy ve release build başarılı.
+Sekiz yeni regression testi admission kapanışını, grace sonrası iptal/üst sınırı,
+HTTP stream tamamlama/iptalini, gerçek TCP listener kapanışını, upload unwind
+temizliğini ve gerçek helper'ın kilitte beklerken iptalini kapsar.

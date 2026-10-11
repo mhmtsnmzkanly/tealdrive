@@ -132,3 +132,59 @@ sudo -E "$(command -v cargo)" test --locked --test e2e_integration_test \
 Bu test `nobody`/65534 test kimliği ve geçici veri kökü kullanır. Root'un zaten sahip
 olduğu yetkiyle helper çalıştırır; PAM bileti/setuid servis akışının yerine geçmez.
 Tam üretim akışının kanıtı normal servis kullanıcısı üzerinden gerçek PAM girişidir.
+
+## Kontrollü başlatma ve kapanış
+
+```bash
+sudo systemctl start tealdrive
+sudo systemctl stop tealdrive
+sudo systemctl restart tealdrive
+sudo systemctl status tealdrive
+sudo journalctl -u tealdrive -f
+```
+
+Server SIGTERM ve Ctrl+C/SIGINT yakalar. Kapanışta dinleyici kapatılır; mevcut
+HTTP bağlantılarından gelen yeni istekler 503 alır. WebSocket yeni komut okumayı
+bırakır, o anda çalışan komutunu tamamlayabilir. Başlamış HTTP indirmelerine ve
+helper işlerine 30 saniye süre tanınır. Süre dolarsa oturum/iş iptal mekanizmaları
+çalışır; iptal ve temizlik için ayrıca beş saniye beklenir. HTTP sunucusunun son
+bağlantıları bırakması için en fazla iki saniye daha tanınır.
+
+Servis dosyasında `KillMode=mixed` önemlidir: ilk SIGTERM yalnızca server'a gider,
+helper'lar tamamlanma süresinde çalışabilir. `TimeoutStopSec=45s` üst sınırdır;
+servis bu sürede durmazsa systemd bütün kontrol grubunu SIGKILL ile sonlandırır.
+Varsayılan `KillMode=control-group` kullanılırsa helper'lar da ilk sinyalle kesilir
+ve tamamlama süresi anlamını kaybeder. Unit değişikliğinden sonra
+`sudo systemctl daemon-reload` çalıştırılmalıdır.
+
+Kapanan bağlantının tamamlanmamış upload staging dosyaları temizlenir. Aynı
+koruma erken hata ve dispatch panic durumlarında da çalışır. Tamamlanmamış
+yüklemeler restart sonrası devam ettirilmez; oturumlar RAM'de olduğu için tekrar
+giriş gerekir. Başarıyla tamamlanmış/publish edilmiş işlemler geri alınmaz.
+
+Server helper çalışırken stdin borusunu açık tutar. İptalde borunun kapanması,
+UID değiştirmiş helper'a sinyal gönderme yetkisi olmadan da iptal bildirir.
+Helper yazma/kopyalama/arşivleme kontrol noktalarında işlemi bırakır ve transaction
+çıktısını temizler. Bildirimden sonra bir saniyede dönmeyen helper kendi watchdog'u
+ile çıkar; parent süreci helper'ı bekleyerek reap eder. Server/helper binary'lerini
+bu IPC davranışı için birlikte güncelleyin.
+
+Kapanış sonucu audit'e `ServerShutdown` / `Success` veya `Failed` olarak yazılır;
+aktif audit dosyasına `fsync` uygulanır. Ayrıntılar journal'da da görünür. SIGKILL,
+güç kesintisi ve çekirdekte kesilemeyen I/O için kontrollü temizlik garantisi yoktur.
+Watchdog ile zorla çıkan helper'ın `.tdrv-transaction-*` çıktısı kalabilir;
+server eski/geçmiş staging dosyalarını topluca tarayıp silmez. Bu kapanış akışı
+çok adımlı işlemleri bir veritabanı transaction'ına dönüştürmez.
+
+Doğrulama:
+
+```bash
+cargo test --locked --offline -- --include-ignored
+cargo clippy --locked --offline --all-targets -- -D warnings
+cargo build --release --locked --offline
+```
+
+Ignored helper/kernel testleri uygun Linux izinleri ve kernel desteği gerektirir.
+Kapanış regression testleri admission/drain/iptal sınırını, gerçek TCP dinleyicisini,
+HTTP stream kapanışını, upload temizliğini ve gerçek helper'ın kilitte beklerken
+iptalini kapsar. Canlı systemd/SIGTERM/SIGINT testlerinin sonuçları STATUS.md'dedir.

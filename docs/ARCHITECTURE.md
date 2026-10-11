@@ -99,3 +99,28 @@ reopens the active descriptor and prunes numeric archives by count and age under
 the writer mutex. Target changes are prepared before config persistence/publication;
 failed preparation/persistence preserves the live sink. Cleanup occurs during writes.
 A complete event is retained even if it alone exceeds the configured size.
+
+## Server shutdown lifecycle
+
+`Shutdown` serializes admission with draining and counts HTTP response bodies,
+upgraded WebSocket connections and blocking helper jobs independently. A streaming
+response remains counted until consumed/dropped; dropping an HTTP handler does
+not hide its outstanding blocking job. Existing HTTP streams may acquire job
+tracking during draining; new requests and new WebSocket commands are rejected.
+
+SIGTERM/SIGINT triggers Axum graceful shutdown and connection draining. After
+30 seconds a shared cancellation signal reaches session leases and helper jobs;
+five seconds are reserved for cleanup. WebSocket context ownership includes an
+RAII upload guard, including while dispatch runs on a blocking thread. Outbound
+WebSocket sends can be interrupted by forced cancellation. A final bounded HTTP
+wait and shutdown audit fsync precede process exit. See DEPLOYMENT.md for systemd
+settings and forced-termination limitations.
+
+The helper client keeps stdin open beyond the request write, until completion.
+The helper watchdog observes pipe hangup without consuming protocol bytes. This
+provides cancellation across the permanent UID switch, where the server may lack
+permission to signal the child. Growing-output writers check cancellation and
+transaction publication checks it again. The watchdog exits a stuck helper after
+one second; the client waits/reaps the child and joins its pipe worker threads.
+The watchdog performs no managed filesystem operations; filesystem operations
+remain in the kernel-confined helper execution thread.

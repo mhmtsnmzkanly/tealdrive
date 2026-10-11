@@ -233,3 +233,29 @@ bildirimi iki saniyeden önce ulaştı; kilidi bırakınca işlem başarıyla ta
 cevabı iletildi ve bildirim tekrarlanmadı. Ayrı 30 saniyelik zorunlu iptal testinde
 bildirim önceden ulaştı, helper iptal/reap edildi ve normal timeout restart sonrası
 geri yüklendi. Sürümlü HTTPS HTML/JavaScript'te popup kodu ve canlı health doğrulandı.
+
+## Audit kapsamı ve güvenilen proxy IP ayarı
+
+Kod/test commit: `d931b78`.
+
+Dosya komutlarının tamamı merkezi başlangıç/sonuç audit kaydından geçiyor.
+HTTP ve WebSocket indirmelerinde hazırlık, tamamlanma ve kesilme ayrılıyor.
+Upload iptali/kapanış temizliği, malformed protokol mesajları, HTTP/CSRF/yönetici
+reddi ve süresi dolan oturumlar da kaydediliyor. Audit yazma hataları journal'a
+bildiriliyor; HTTP başlığı ve yönetici ayarları hata sayacını gösteriyor.
+Ayrıntılar ve kapsam sınırları: [AUDIT.md](AUDIT.md).
+
+Settings → Client IP / Trusted proxies altında IP/CIDR listesi ve başlık seçimi
+eklendi. Varsayılan liste boş; doğrudan bağlantıda başlıkla IP taklidi yapılamıyor.
+Canlı kurulum yalnızca loopback Caddy bağlantısını ve `X-Real-IP` başlığını kabul
+ediyor. Caddy Cloudflare'dan doğruladığı istemci IP'sini bu başlığın üzerine yazıyor.
+Başlıkları taklit ederek doğrudan Caddy'ye bağlanma testi gerçek bağlantı IP'sini
+korudu. Sunucu/helper güncellendi; kullanıcı dosyaları korunarak kabul testi yapıldı.
+
+Doğrulama: ignored gerçek-helper testleri dahil 520 test, Clippy uyarısız,
+release build; HTTPS/WSS gerçek PAM/setuid helper üzerinden dosya işlemleri,
+aktarımlar, yetki reddi, CSRF, IP taklidi, yapılandırma doğrulaması ve logda
+parola/cookie/CSRF/dosya içeriği bulunmaması. Tarayıcı görsel testi yapılmadı;
+SPA shutdown davranışı Node DOM/socket testleriyle doğrulandı. Canlı sunucuda
+kapanış bildirimi, yarım upload temizliği ve aktif helper işleminin tamamlanması
+yeniden doğrulandı. Son sağlık kontrolünde audit yazma hata sayacı 0.

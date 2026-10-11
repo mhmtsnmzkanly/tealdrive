@@ -208,3 +208,15 @@ Bildirim yalnızca bağlı kullanıcılara ulaştırılabilir. Ağ kesintisi/SIG
 bildirimi olarak etiketlenmez. Bildirim gönderimi en fazla bir saniye bekler; yavaş
 istemci aktif helper'ın tamamlanmasını veya servis kapanışını durdurmaz. Güncel
 arayüz kodunu almak için deploy sırasında açık olan sayfayı bir kez yenileyin.
+
+
+### Proxy visitor IP and audit verification
+
+The example Caddy route overwrites `X-Real-IP` with `{client_ip}`; the example
+server config trusts loopback only. For Cloudflare in front of Caddy, configure
+Caddy's global trusted proxy ranges and strict client-IP parsing as described in
+CONFIGURATION.md. Reload Caddy after validation. Never expose a trusted backend
+to untrusted peers. Audit `ip` is the resolved visitor; `peer_ip` is the socket peer.
+Use Settings → Audit Logs or the `X-Tealdrive-Audit-Write-Failures` health response
+header to check writer failures, and inspect `journalctl -u tealdrive` for details.
+See AUDIT.md for event coverage, byte-count semantics and recovery limits.

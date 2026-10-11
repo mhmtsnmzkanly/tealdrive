@@ -91,9 +91,11 @@ than silently ignored. File watching observes the parent directory so atomic
 replacement remains visible. Watcher, admin reload and SIGHUP synchronize session
 settings, helper timeout and login limiter.
 
-The audit sink is a synchronous mutex-protected JSONL file. Login, session/WebSocket
-and administrative lifecycle events are emitted; a complete per-file-operation
-audit trail and asynchronous log delivery are not provided. Errors are safe client
+The audit sink is a synchronous mutex-protected JSONL file. Login, session/WebSocket,
+administrative lifecycle and all dispatched file commands are recorded. Command
+start and outcome are separate events; HTTP and WebSocket downloads also report
+transfer completion or interruption. See AUDIT.md for coverage and limits.
+Asynchronous log delivery is not provided. Errors are safe client
 messages, not OS path dumps. Configurable in-process rotation renames whole files,
 reopens the active descriptor and prunes numeric archives by count and age under
 the writer mutex. Target changes are prepared before config persistence/publication;

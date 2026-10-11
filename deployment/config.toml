@@ -4,6 +4,11 @@
 bind_addr = "127.0.0.1:3000"
 behind_tls_proxy = true
 
+# Trust only the immediate proxy; configure it to overwrite X-Real-IP.
+[proxy]
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+client_ip_header = "XRealIp"
+
 [audit]
 path = "/var/lib/tealdrive/audit.jsonl"
 max_file_bytes = 10485760

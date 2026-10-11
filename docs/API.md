@@ -47,3 +47,13 @@ The browser UI is embedded at `/`, `/index.html`, `/style.css`, `/app.js` and
 404. An optional static directory overrides those assets and must provide its own
 compatible application bundle. The shipped bundle includes generated protocol
 constants; an override is not automatically rewritten.
+
+
+## Audit correlation and proxy settings
+
+API responses expose `X-Tealdrive-Audit-Write-Failures`, the number of audit write
+failures since process start. Successful health polling is not audited.
+Administrators can PATCH `proxy.trusted_proxies` (IP/CIDR strings) and
+`proxy.client_ip_header` (`XForwardedFor`, `XRealIp`, `CfConnectingIp`), with normal
+session/CSRF checks. Invalid proxy ranges reject the configuration transaction.
+See CONFIGURATION.md and AUDIT.md for trust rules, event phases and limitations.

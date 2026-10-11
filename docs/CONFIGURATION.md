@@ -136,6 +136,46 @@ at the new location; previous logs are left intact and are not automatically mov
 or deleted. File watching, SIGHUP, admin reload and PATCH apply settings live.
 Failed target opening or persistence leaves the live sink/config unchanged.
 
-The audit remains synchronous and its event coverage is unchanged. These settings
+The audit remains synchronous. See AUDIT.md for current event coverage. These settings
 control storage, not which file operations are audited. Do not additionally rotate
 the same file with an external tool while application rotation is enabled.
+
+
+## Trusted proxies and visitor IP
+
+```toml
+[proxy]
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+client_ip_header = "XRealIp"
+```
+
+The default trust list is empty: the actual TCP peer is used. Supported header
+selectors are `XForwardedFor`, `XRealIp`, and `CfConnectingIp`. Only an immediate
+peer in the configured IP/CIDR list may supply the selected header. Unknown peers,
+missing, malformed or duplicate single-value headers fall back to the TCP peer.
+X-Forwarded-For is parsed from right to left, stopping at the first untrusted hop;
+all tokens must be valid IPs. Limits: 128 trusted ranges, 32 forwarded hops and
+8192 header bytes. IPv4 and IPv6 are supported. No DNS names are accepted.
+
+Administrators may change this under Settings → Client IP / Trusted proxies or
+PATCH `/api/admin/config` with `proxy`. Changes apply live and persist in TOML.
+The IP is used consistently for audit records, sessions and login rate limiting.
+`peer_ip` preserves the immediate TCP peer in request and command audit records.
+
+For Cloudflare → Caddy → TealDrive, Caddy must trust only Cloudflare ranges and
+resolve the visitor IP before overwriting the backend header:
+
+```caddyfile
+reverse_proxy 127.0.0.1:3000 {
+    header_up X-Real-IP {client_ip}
+}
+```
+
+Use Caddy's `trusted_proxies`, `trusted_proxies_strict`, and `client_ip_headers`
+settings for the Cloudflare-facing hop. TealDrive trusts Caddy's loopback address,
+not arbitrary Internet clients. Trusted local processes can supply this header
+when connecting directly to the backend; keep the backend bound to loopback.
+If directly behind Cloudflare, select `CfConnectingIp` and trust only its official
+ranges. Keep those ranges current. Do not use `0.0.0.0/0` or `::/0` as trust lists.
+See [Cloudflare HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
+and [Caddy reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).

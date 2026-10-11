@@ -263,11 +263,15 @@ fn fixture_with_proxy(admin: bool, proxy: tealdrive::client_ip::ProxyConfig) -> 
         ..AppConfig::default()
     };
     config.proxy = proxy;
+    config.account_policy.allowed_users = vec!["alice".into()];
     if admin {
         config.account_policy.admin_users = vec!["alice".into()];
     }
-    let auth = MockAuthenticator::new(config.account_policy.clone())
-        .with_user(MockUser::regular("alice", "secret123"));
+    let mut backend_policy = config.account_policy.clone();
+    backend_policy.allowed_users.push("bob".into());
+    let auth = MockAuthenticator::new(backend_policy)
+        .with_user(MockUser::regular("alice", "secret123"))
+        .with_user(MockUser::regular("bob", "secret123"));
     let state = WsServerState::with_authenticator(
         config.clone(),
         tealdrive::session::store::InMemorySessionStore::new(config.session.clone()),
@@ -774,4 +778,54 @@ async fn proxy_identity_is_verified_and_sensitive_values_are_not_audited() {
         assert_eq!(login.user_agent.as_deref(), Some("audit-test"));
         assert_eq!(login.session_id_hash.len(), 64);
     }
+}
+
+#[tokio::test]
+async fn login_allowlist_denies_valid_passwords_and_removed_sessions() {
+    let f = fixture(true);
+    let rejected = call(
+        &f.router,
+        "POST",
+        "/api/login",
+        None,
+        None,
+        r#"{"username":"bob","password":"secret123"}"#,
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json(rejected).await["code"], "INVALID_CREDENTIALS");
+    let (cookie, csrf) = login(&f.router).await;
+    let changed = call(
+        &f.router,
+        "PATCH",
+        "/api/admin/config",
+        Some(&cookie),
+        Some(&csrf),
+        r#"{"allowed_users":[]}"#,
+    )
+    .await;
+    assert_eq!(changed.status(), StatusCode::OK);
+    let _ = json(changed).await;
+    assert_eq!(
+        call(&f.router, "GET", "/api/session", Some(&cookie), None, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &f.router,
+            "POST",
+            "/api/login",
+            None,
+            None,
+            r#"{"username":"alice","password":"secret123"}"#
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let events = fs::read_to_string(f.root.join("audit.jsonl")).unwrap();
+    assert!(events.contains("AccountNotAllowed"));
+    assert!(!events.contains("secret123"));
 }

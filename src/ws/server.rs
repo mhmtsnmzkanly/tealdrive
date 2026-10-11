@@ -307,6 +307,7 @@ where
 {
     let shutdown = state.shutdown.clone();
     let audit = state.audit_sink.clone();
+    let expiry_config = state.config.clone();
     let expiry_store = state.session_store.clone();
     let expiry_audit = audit.clone();
     let expiry_shutdown = shutdown.clone();
@@ -322,6 +323,14 @@ where
             tokio::select! {
                 _ = expiry_shutdown.draining() => break,
                 _ = timer.tick() => {
+                    let disallowed = expiry_store.lock().await.take_disallowed(&expiry_config.load().account_policy);
+                    for session in disallowed {
+                        let mut event = AuditEvent::new(RequestId::new(), session.username, session.uid, session.gid, crate::audit::event::AuditAction::SessionRevoked, AuditStatus::Denied);
+                        event.reason = Some(AuditReason::AccountNotAllowed);
+                        event.session_id_hash = crate::audit::context::session_hash(session.session_id);
+                        event.ip = session.ip;
+                        let _ = expiry_audit.emit(&event);
+                    }
                     let expired = expiry_store.lock().await.take_expired(InMemorySessionStore::now_epoch_seconds());
                     for session in expired {
                         let mut event = AuditEvent::session_expired(RequestId::new(), session.username, session.uid, session.gid);
@@ -434,6 +443,16 @@ where
         context.clone(),
         state.audit_sink.clone(),
     );
+    if session
+        .as_ref()
+        .is_some_and(|s| !cfg.account_policy.allows_login(&s.username))
+        && (request.uri().path().starts_with("/api/") || request.uri().path() == "/ws")
+        && request.uri().path() != "/api/login"
+    {
+        audit.rejected(AuditReason::AccountNotAllowed);
+        audit.response(StatusCode::UNAUTHORIZED, &HeaderMap::new());
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
     let csrf_invalid = session
         .as_ref()
         .is_some_and(|s| !crate::session::csrf::validate_header(s, request.headers()))
@@ -850,6 +869,21 @@ where
 
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
+                if !current_config
+                    .account_policy
+                    .allows_login(&context.username)
+                {
+                    let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
+                        request_id,
+                        context.username.clone(),
+                        context.uid,
+                        context.gid,
+                        AuditReason::AccountNotAllowed,
+                    ));
+                    let response = error_frame(request_id, "Session is no longer authorized.")?;
+                    send_frame(&mut sender, &shutdown, &response).await?;
+                    break;
+                }
                 context.features = current_config.features.clone();
                 let permit = tokio::select! {
                         _=shutdown.draining()=> {

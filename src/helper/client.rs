@@ -77,6 +77,9 @@ impl HelperProcessClient {
                     .insert(success.username.clone(), ticket);
                 Ok(success)
             }
+            Err(crate::auth::account::AuthFailure::AccountNotAllowed) => {
+                Err(AuthError::AccountNotAllowed)
+            }
             Err(crate::auth::account::AuthFailure::AuthBackendUnavailable) => {
                 Err(AuthError::AuthBackendUnavailable)
             }

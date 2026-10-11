@@ -728,6 +728,7 @@ pub enum AuditAction {
     ConfigReload,
     ConfigPatch,
     ServerShutdown,
+    SessionRevoked,
     HttpRequest,
     SearchFiles,
     ListTrash,
@@ -735,6 +736,7 @@ pub enum AuditAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditReason {
+    AccountNotAllowed,
     ProtocolError,
     Cancelled,
     Shutdown,

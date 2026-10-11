@@ -139,7 +139,10 @@ pub fn issue(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicket), Aut
     Ok((success, ticket))
 }
 pub fn verify(ticket: &IdentityTicket, user: &UserContext) -> io::Result<()> {
-    if ticket.identity != *user
+    if !trusted_config()?
+        .account_policy
+        .allows_login(&user.username)
+        || ticket.identity != *user
         || ticket.caller_uid != unsafe { libc::getuid() }
         || ticket.expires_at <= InMemorySessionStore::now_epoch_seconds()
         || !equal(&ticket.mac, &hmac(&key()?, &payload(ticket)))

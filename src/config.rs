@@ -179,7 +179,7 @@ impl AppConfig {
         {
             return Err(TealDriveError::Validation);
         }
-        if !self.proxy.validate() {
+        if !self.proxy.validate() || !self.account_policy.validate() {
             return Err(TealDriveError::Validation);
         }
         let l = &self.limits;
@@ -437,6 +437,7 @@ impl Default for WebRootPolicyConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountPolicyConfig {
+    pub allowed_users: Vec<String>,
     pub reject_root: bool,
     pub reject_system_accounts: bool,
     pub reject_disabled_shells: bool,
@@ -448,6 +449,7 @@ pub struct AccountPolicyConfig {
 impl Default for AccountPolicyConfig {
     fn default() -> Self {
         Self {
+            allowed_users: Vec::new(),
             reject_root: true,
             reject_system_accounts: true,
             reject_disabled_shells: true,
@@ -458,6 +460,22 @@ impl Default for AccountPolicyConfig {
 }
 
 impl AccountPolicyConfig {
+    pub fn allows_login(&self, username: &str) -> bool {
+        self.allowed_users.iter().any(|user| user == username)
+    }
+    pub fn validate(&self) -> bool {
+        self.allowed_users.len() <= 1024
+            && self.allowed_users.iter().all(|name| {
+                !name.is_empty()
+                    && name.len() <= 256
+                    && !name.chars().any(|c| {
+                        c.is_control()
+                            || c.is_whitespace()
+                            || matches!(c, ':' | '/' | '*' | '?' | ',' | '\\')
+                    })
+            })
+    }
+
     pub fn is_admin(&self, username: &str) -> bool {
         self.admin_users.iter().any(|user| user == username)
     }
@@ -546,10 +564,15 @@ pub struct ConfigPatch {
     pub search: Option<crate::config_patch::SearchPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_users: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_users: Option<Vec<String>>,
 }
 
 impl ConfigPatch {
     pub fn apply_to(&self, config: &mut AppConfig) {
+        if let Some(users) = &self.allowed_users {
+            config.account_policy.allowed_users = users.clone();
+        }
         if let Some(proxy) = &self.proxy {
             proxy.apply_to(&mut config.proxy);
         }
@@ -924,5 +947,27 @@ mod regression_tests {
         config = AppConfig::default();
         config.roots.push(config.roots[0].clone());
         assert!(config.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod login_access_tests {
+    use super::*;
+    #[test]
+    fn allowlist_is_exact_validated_and_persisted() {
+        let mut cfg = AppConfig::default();
+        assert!(!cfg.account_policy.allows_login("alice"));
+        let patch: ConfigPatch = serde_json::from_str(r#"{"allowed_users":["alice"]}"#).unwrap();
+        patch.apply_to(&mut cfg);
+        cfg.validate().unwrap();
+        assert!(cfg.account_policy.allows_login("alice"));
+        assert!(!cfg.account_policy.allows_login("Alice"));
+        let saved = toml::to_string(&cfg).unwrap();
+        let loaded: AppConfig = toml::from_str(&saved).unwrap();
+        assert_eq!(loaded.account_policy.allowed_users, vec!["alice"]);
+        for invalid in ["", "*", "alice,bob", "foo:bar", " alice", "a/b"] {
+            cfg.account_policy.allowed_users = vec![invalid.into()];
+            assert!(cfg.validate().is_err(), "{invalid}");
+        }
     }
 }

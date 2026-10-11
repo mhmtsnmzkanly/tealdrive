@@ -110,6 +110,26 @@ where
         }
     }
 
+    if !cfg.account_policy.allows_login(&payload.username) {
+        state
+            .rate_limiter
+            .lock()
+            .await
+            .record_failure_at(rate_key, lockout_secs, now);
+        let _ = state.audit_sink.emit(&AuditEvent::login_failure(
+            RequestId::new(),
+            &payload.username,
+            AuditReason::AccountNotAllowed,
+        ));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(AuthErrorResponse {
+                error: "Invalid username or password.".into(),
+                code: "INVALID_CREDENTIALS".into(),
+            }),
+        )
+            .into_response();
+    }
     let auth_req = AuthRequest {
         username: payload.username.clone(),
         password: payload.password,
@@ -146,6 +166,7 @@ where
                 AuthError::DisabledShell => AuditReason::DisabledShell,
                 AuthError::RootLoginDisabled => AuditReason::RootLoginDisabled,
                 AuthError::SystemAccountDisabled => AuditReason::SystemAccountDisabled,
+                AuthError::AccountNotAllowed => AuditReason::AccountNotAllowed,
                 _ => AuditReason::InvalidCredentials,
             };
             let request_id = RequestId::new();
@@ -179,6 +200,16 @@ where
         crate::auth::account::evaluate_account_policy(&candidate, &state.config().account_policy),
         crate::auth::account::AccountPolicyResult::Allowed
     ) {
+        state
+            .rate_limiter
+            .lock()
+            .await
+            .record_failure_at(rate_key, lockout_secs, now);
+        let _ = state.audit_sink.emit(&AuditEvent::login_failure(
+            RequestId::new(),
+            &payload.username,
+            AuditReason::AccountNotAllowed,
+        ));
         return (
             StatusCode::UNAUTHORIZED,
             Json(AuthErrorResponse {
@@ -446,8 +477,11 @@ mod tests {
     impl_dummy_helper!(SearchFilesHelper);
 
     fn test_state(max_failures: u32) -> WsServerState<DummyHelper> {
-        let auth = MockAuthenticator::new(AccountPolicyConfig::default())
-            .with_user(MockUser::regular("alice", "secret123"));
+        let auth = MockAuthenticator::new(AccountPolicyConfig {
+            allowed_users: vec!["alice".into()],
+            ..Default::default()
+        })
+        .with_user(MockUser::regular("alice", "secret123"));
         let mut config = AppConfig {
             roots: vec![AllowedRoot {
                 root_id: RootId::new("home"),
@@ -460,6 +494,7 @@ mod tests {
             }],
             ..AppConfig::default()
         };
+        config.account_policy.allowed_users = vec!["alice".into()];
         config.rate_limit.max_login_failures = max_failures;
         let session_store = InMemorySessionStore::new(config.session.clone());
         let audit_sink = JsonlAuditSink::open_default().expect("sink");

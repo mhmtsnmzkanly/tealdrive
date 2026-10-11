@@ -300,6 +300,11 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
       </div>
       <div class="modal-body settings-body">
         <div class="settings-section">
+          <h4>Login access</h4>
+          <div class="settings-row"><label for="cfgAllowedUsers">Allowed Linux users (one per line):</label><textarea id="cfgAllowedUsers" class="form-input" rows="3"></textarea></div>
+          <p>Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server's system administrator.</p>
+        </div>
+        <div class="settings-section">
           <h4>Feature Gates</h4>
           <div class="settings-grid">
             <label><input type="checkbox" id="cfgFeatEdit"> Allow File Editing</label>
@@ -1266,6 +1271,7 @@ pub const APP_JS: &str = r##"
     cfgFeatChmod: document.getElementById('cfgFeatChmod'),
     cfgFeatArchive: document.getElementById('cfgFeatArchive'),
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
+    cfgAllowedUsers: document.getElementById('cfgAllowedUsers'),
     cfgTrustedProxies: document.getElementById('cfgTrustedProxies'),
     cfgClientIpHeader: document.getElementById('cfgClientIpHeader'),
     cfgAuditHealth: document.getElementById('cfgAuditHealth'),
@@ -2050,6 +2056,7 @@ pub const APP_JS: &str = r##"
         el.cfgFeatChmod.checked = !!cfg.features.chmod_file;
         el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
+      el.cfgAllowedUsers.value=(cfg.account_policy?.allowed_users||[]).join('\n');
       el.cfgTrustedProxies.value=(cfg.proxy?.trusted_proxies||[]).join('\n');
       el.cfgClientIpHeader.value=cfg.proxy?.client_ip_header||'XForwardedFor';
       el.cfgAuditPath.value=cfg.audit?.path||'';
@@ -2089,6 +2096,7 @@ pub const APP_JS: &str = r##"
     const dayText=el.cfgAuditDays.value.trim();const days=dayText===''?null:Number(dayText);
     if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>36500))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
     const patch = {
+      allowed_users:el.cfgAllowedUsers.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),
       proxy:{trusted_proxies:el.cfgTrustedProxies.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),client_ip_header:el.cfgClientIpHeader.value},
       audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_days:days},
       features: {

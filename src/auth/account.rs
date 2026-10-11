@@ -56,6 +56,7 @@ pub enum AuthFailure {
     DisabledShell,
     RootLoginDisabled,
     SystemAccountDisabled,
+    AccountNotAllowed,
     AuthBackendUnavailable,
 }
 
@@ -73,6 +74,8 @@ pub enum AuthError {
     RootLoginDisabled,
     #[error("system account disabled")]
     SystemAccountDisabled,
+    #[error("account not allowed")]
+    AccountNotAllowed,
     #[error("auth backend unavailable")]
     AuthBackendUnavailable,
 }
@@ -86,6 +89,7 @@ impl AuthError {
             Self::DisabledShell => AuthFailure::DisabledShell,
             Self::RootLoginDisabled => AuthFailure::RootLoginDisabled,
             Self::SystemAccountDisabled => AuthFailure::SystemAccountDisabled,
+            Self::AccountNotAllowed => AuthFailure::AccountNotAllowed,
             Self::AuthBackendUnavailable => AuthFailure::AuthBackendUnavailable,
         }
     }
@@ -197,6 +201,9 @@ pub fn evaluate_account_policy(
         return AccountPolicyResult::Rejected(AuthFailure::DisabledShell);
     }
 
+    if !policy.allows_login(&user.username) {
+        return AccountPolicyResult::Rejected(AuthFailure::AccountNotAllowed);
+    }
     AccountPolicyResult::Allowed
 }
 
@@ -215,6 +222,7 @@ fn auth_failure_to_error(failure: AuthFailure) -> AuthError {
         AuthFailure::DisabledShell => AuthError::DisabledShell,
         AuthFailure::RootLoginDisabled => AuthError::RootLoginDisabled,
         AuthFailure::SystemAccountDisabled => AuthError::SystemAccountDisabled,
+        AuthFailure::AccountNotAllowed => AuthError::AccountNotAllowed,
         AuthFailure::AuthBackendUnavailable => AuthError::AuthBackendUnavailable,
     }
 }
@@ -224,7 +232,66 @@ mod tests {
     use super::*;
 
     fn auth_with(user: MockUser) -> MockAuthenticator {
-        MockAuthenticator::new(AccountPolicyConfig::default()).with_user(user)
+        MockAuthenticator::new(AccountPolicyConfig {
+            allowed_users: vec![user.username.clone()],
+            ..Default::default()
+        })
+        .with_user(user)
+    }
+
+    #[test]
+    fn only_explicit_regular_users_can_login() {
+        let empty = AccountPolicyConfig::default();
+        assert_eq!(
+            evaluate_account_policy(&MockUser::regular("alice", "secret"), &empty),
+            AccountPolicyResult::Rejected(AuthFailure::AccountNotAllowed)
+        );
+        let policy = AccountPolicyConfig {
+            allowed_users: vec![
+                "alice".into(),
+                "www-data".into(),
+                "caddy".into(),
+                "root".into(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            evaluate_account_policy(&MockUser::regular("alice", "secret"), &policy),
+            AccountPolicyResult::Allowed
+        );
+        assert_eq!(
+            evaluate_account_policy(&MockUser::regular("bob", "secret"), &policy),
+            AccountPolicyResult::Rejected(AuthFailure::AccountNotAllowed)
+        );
+        let mut service = MockUser::regular("www-data", "secret");
+        service.uid = 33;
+        assert_eq!(
+            evaluate_account_policy(&service, &policy),
+            AccountPolicyResult::Rejected(AuthFailure::SystemAccountDisabled)
+        );
+        service.username = "caddy".into();
+        service.uid = 1001;
+        service.shell = Some("/usr/sbin/nologin".into());
+        assert_eq!(
+            evaluate_account_policy(&service, &policy),
+            AccountPolicyResult::Rejected(AuthFailure::DisabledShell)
+        );
+        service.username = "root".into();
+        service.uid = 0;
+        assert_eq!(
+            evaluate_account_policy(&service, &policy),
+            AccountPolicyResult::Rejected(AuthFailure::RootLoginDisabled)
+        );
+    }
+    #[test]
+    fn pam_rejects_unlisted_accounts_before_backend_work() {
+        assert_eq!(
+            crate::auth::pam::authenticate_local(
+                &AuthRequest::new("alice", "correct-password"),
+                &AccountPolicyConfig::default()
+            ),
+            Err(AuthError::AccountNotAllowed)
+        );
     }
 
     #[test]

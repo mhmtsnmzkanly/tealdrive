@@ -366,8 +366,11 @@ mod tests {
     async fn test_state_with_session(
         config_path: Option<std::path::PathBuf>,
     ) -> (WsServerState<DummyHelper>, HeaderMap) {
-        let auth = MockAuthenticator::new(AccountPolicyConfig::default())
-            .with_user(MockUser::regular("admin", "secret123"));
+        let auth = MockAuthenticator::new(AccountPolicyConfig {
+            allowed_users: vec!["admin".into()],
+            ..Default::default()
+        })
+        .with_user(MockUser::regular("admin", "secret123"));
         let config = AppConfig {
             roots: vec![AllowedRoot {
                 root_id: RootId::new("home"),
@@ -380,6 +383,7 @@ mod tests {
             }],
             account_policy: AccountPolicyConfig {
                 admin_users: vec!["admin".into()],
+                allowed_users: vec!["admin".into()],
                 ..Default::default()
             },
             ..AppConfig::default()

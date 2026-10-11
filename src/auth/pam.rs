@@ -106,6 +106,9 @@ pub fn authenticate_local(
     request: &AuthRequest,
     policy: &AccountPolicyConfig,
 ) -> Result<AuthSuccess, AuthError> {
+    if !policy.allows_login(&request.username) {
+        return Err(AuthError::AccountNotAllowed);
+    }
     if request.password.is_empty() {
         return Err(AuthError::InvalidCredentials);
     }

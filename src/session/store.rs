@@ -77,6 +77,24 @@ impl InMemorySessionStore {
         }
     }
 
+    pub fn take_disallowed(&mut self, policy: &crate::config::AccountPolicyConfig) -> Vec<Session> {
+        let removed: Vec<_> = self
+            .sessions
+            .values()
+            .filter(|s| {
+                !s.revoked
+                    && (!policy.allows_login(&s.username)
+                        || (policy.reject_root && s.uid == 0)
+                        || (policy.reject_system_accounts && s.uid < policy.minimum_regular_uid))
+            })
+            .cloned()
+            .collect();
+        for session in &removed {
+            self.sessions.remove(&session.session_id);
+        }
+        removed
+    }
+
     pub fn take_expired(&mut self, now: u64) -> Vec<Session> {
         let expired: Vec<_> = self
             .sessions
@@ -291,6 +309,29 @@ mod tests {
             store.get_session(&bob.session_id, 100),
             SessionLookupResult::Found(_)
         ));
+    }
+
+    #[test]
+    fn removing_access_invalidates_sessions_once() {
+        let mut store = store();
+        let alice = store.create_session(input("alice"), 100);
+        let bob = store.create_session(input("bob"), 100);
+        let policy = crate::config::AccountPolicyConfig {
+            allowed_users: vec!["alice".into()],
+            ..Default::default()
+        };
+        let removed = store.take_disallowed(&policy);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].session_id, bob.session_id);
+        assert_eq!(
+            store.get_session(&bob.session_id, 101),
+            SessionLookupResult::NotFound
+        );
+        assert!(matches!(
+            store.get_session(&alice.session_id, 101),
+            SessionLookupResult::Found(_)
+        ));
+        assert!(store.take_disallowed(&policy).is_empty());
     }
 
     #[test]

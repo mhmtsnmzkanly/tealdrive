@@ -11,6 +11,14 @@ use crate::protocol::message_type::MessageType;
 pub const TDRV_MAGIC: [u8; 4] = *b"TDRV";
 pub const TDRV_VERSION: u8 = 1;
 pub const HEADER_LEN: usize = 32;
+pub const VERSION_OFFSET: usize = 4;
+pub const FLAGS_OFFSET: usize = 5;
+pub const MESSAGE_TYPE_OFFSET: usize = 7;
+pub const COMPRESSION_OFFSET: usize = 9;
+pub const ENCODING_OFFSET: usize = 10;
+pub const RESERVED_OFFSET: usize = 11;
+pub const REQUEST_ID_OFFSET: usize = 12;
+pub const PAYLOAD_LENGTH_OFFSET: usize = 28;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TdrvHeader {
@@ -69,14 +77,14 @@ impl TdrvHeader {
     pub fn encode(&self) -> [u8; HEADER_LEN] {
         let mut out = [0_u8; HEADER_LEN];
         out[0..4].copy_from_slice(&self.magic);
-        out[4] = self.version;
-        out[5..7].copy_from_slice(&self.flags.bits().to_be_bytes());
-        out[7..9].copy_from_slice(&u16::from(self.message_type).to_be_bytes());
-        out[9] = u8::from(self.compression);
-        out[10] = u8::from(self.encoding);
-        out[11] = self.reserved;
-        out[12..28].copy_from_slice(self.request_id.as_bytes());
-        out[28..32].copy_from_slice(&self.payload_len.to_be_bytes());
+        out[VERSION_OFFSET] = self.version;
+        out[FLAGS_OFFSET..MESSAGE_TYPE_OFFSET].copy_from_slice(&self.flags.bits().to_be_bytes());
+        out[MESSAGE_TYPE_OFFSET..COMPRESSION_OFFSET].copy_from_slice(&u16::from(self.message_type).to_be_bytes());
+        out[COMPRESSION_OFFSET] = u8::from(self.compression);
+        out[ENCODING_OFFSET] = u8::from(self.encoding);
+        out[RESERVED_OFFSET] = self.reserved;
+        out[REQUEST_ID_OFFSET..PAYLOAD_LENGTH_OFFSET].copy_from_slice(self.request_id.as_bytes());
+        out[PAYLOAD_LENGTH_OFFSET..HEADER_LEN].copy_from_slice(&self.payload_len.to_be_bytes());
         out
     }
 

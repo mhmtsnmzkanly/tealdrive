@@ -126,7 +126,7 @@ where
         }
     }
 
-    let mut response = APP_JS.into_response();
+    let mut response = format!("{}\n{}\n{}",crate::protocol::JAVASCRIPT_CONTRACT,include_str!("protocol.js"),APP_JS).into_response();
     apply_security_headers(response.headers_mut(), "application/javascript; charset=utf-8");
     response
 }
@@ -238,7 +238,8 @@ mod tests {
         assert!(STYLE_CSS.contains("--teal-500"));
         assert!(STYLE_CSS.contains("modal-lightbox"));
         assert!(STYLE_CSS.contains("settings-body"));
-        assert!(APP_JS.contains("TDRV"));
+        assert!(APP_JS.contains("TealDriveWire"));
+        assert!(crate::protocol::JAVASCRIPT_CONTRACT.contains("ListDirectory"));
         assert!(APP_JS.contains("/api/preview"));
         assert!(APP_JS.contains("openLightbox"));
         assert!(APP_JS.contains("/api/admin/config"));

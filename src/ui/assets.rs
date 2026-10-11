@@ -1143,254 +1143,8 @@ pub const APP_JS: &str = r##"
     cfgPersistDisk: document.getElementById('cfgPersistDisk'),
   };
 
-  // --- MessagePack Pure JS Minimal Codec ---
-  const MsgPack = {
-    encode(val) {
-      const parts = [];
-      function push(u8) { parts.push(u8); }
-      function pushBytes(arr) { parts.push(new Uint8Array(arr)); }
-      function enc(v) {
-        if (v === null || v === undefined) {
-          push(new Uint8Array([0xc0]));
-        } else if (typeof v === 'boolean') {
-          push(new Uint8Array([v ? 0xc3 : 0xc2]));
-        } else if (typeof v === 'number') {
-          if (Number.isInteger(v)) {
-            if (v >= 0 && v <= 0x7f) {
-              push(new Uint8Array([v]));
-            } else if (v >= -32 && v < 0) {
-              push(new Uint8Array([v & 0xff]));
-            } else if (v >= 0 && v <= 0xffff) {
-              push(new Uint8Array([0xcd, (v >> 8) & 0xff, v & 0xff]));
-            } else if (v >= 0 && v <= 0xffffffff) {
-              const b = new Uint8Array(5);
-              b[0] = 0xce;
-              new DataView(b.buffer).setUint32(1, v, false);
-              push(b);
-            } else {
-              const b = new Uint8Array(5);
-              b[0] = 0xd2;
-              new DataView(b.buffer).setInt32(1, v, false);
-              push(b);
-            }
-          } else {
-            const b = new Uint8Array(9);
-            b[0] = 0xcb;
-            new DataView(b.buffer).setFloat64(1, v, false);
-            push(b);
-          }
-        } else if (typeof v === 'string') {
-          const strBytes = new TextEncoder().encode(v);
-          const len = strBytes.length;
-          if (len <= 31) {
-            push(new Uint8Array([0xa0 | len]));
-          } else if (len <= 0xff) {
-            push(new Uint8Array([0xd9, len]));
-          } else if (len <= 0xffff) {
-            push(new Uint8Array([0xda, (len >> 8) & 0xff, len & 0xff]));
-          } else {
-            const b = new Uint8Array(5);
-            b[0] = 0xdb;
-            new DataView(b.buffer).setUint32(1, len, false);
-            push(b);
-          }
-          push(strBytes);
-        } else if (v instanceof Uint8Array) {
-          const len = v.length;
-          if (len <= 0xff) {
-            push(new Uint8Array([0xc4, len]));
-          } else if (len <= 0xffff) {
-            push(new Uint8Array([0xc5, (len >> 8) & 0xff, len & 0xff]));
-          } else {
-            const b = new Uint8Array(5);
-            b[0] = 0xc6;
-            new DataView(b.buffer).setUint32(1, len, false);
-            push(b);
-          }
-          push(v);
-        } else if (Array.isArray(v)) {
-          const len = v.length;
-          if (len <= 15) {
-            push(new Uint8Array([0x90 | len]));
-          } else if (len <= 0xffff) {
-            push(new Uint8Array([0xdc, (len >> 8) & 0xff, len & 0xff]));
-          } else {
-            const b = new Uint8Array(5);
-            b[0] = 0xdd;
-            new DataView(b.buffer).setUint32(1, len, false);
-            push(b);
-          }
-          for (let i = 0; i < len; i++) enc(v[i]);
-        } else if (typeof v === 'object') {
-          const keys = Object.keys(v);
-          const len = keys.length;
-          if (len <= 15) {
-            push(new Uint8Array([0x80 | len]));
-          } else if (len <= 0xffff) {
-            push(new Uint8Array([0xde, (len >> 8) & 0xff, len & 0xff]));
-          } else {
-            const b = new Uint8Array(5);
-            b[0] = 0xdf;
-            new DataView(b.buffer).setUint32(1, len, false);
-            push(b);
-          }
-          for (const k of keys) {
-            enc(k);
-            enc(v[k]);
-          }
-        }
-      }
-      enc(val);
-      const totalLen = parts.reduce((acc, p) => acc + p.length, 0);
-      const res = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const p of parts) {
-        res.set(p, offset);
-        offset += p.length;
-      }
-      return res;
-    },
-
-    decode(bytes) {
-      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      let pos = 0;
-      function read() {
-        if (pos >= bytes.length) return null;
-        const b = bytes[pos++];
-        if (b <= 0x7f) return b;
-        if (b >= 0xe0) return b - 0x100;
-        if ((b & 0xe0) === 0xa0) {
-          const len = b & 0x1f;
-          const s = new TextDecoder().decode(bytes.subarray(pos, pos + len));
-          pos += len;
-          return s;
-        }
-        if ((b & 0xf0) === 0x90) {
-          const len = b & 0x0f;
-          const arr = [];
-          for (let i = 0; i < len; i++) arr.push(read());
-          return arr;
-        }
-        if ((b & 0xf0) === 0x80) {
-          const len = b & 0x0f;
-          const obj = {};
-          for (let i = 0; i < len; i++) {
-            const k = read();
-            obj[k] = read();
-          }
-          return obj;
-        }
-        if (b === 0xc0) return null;
-        if (b === 0xc2) return false;
-        if (b === 0xc3) return true;
-        if (b === 0xc4) {
-          const len = bytes[pos++];
-          const bin = bytes.subarray(pos, pos + len);
-          pos += len;
-          return bin;
-        }
-        if (b === 0xc5) {
-          const len = view.getUint16(pos, false);
-          pos += 2;
-          const bin = bytes.subarray(pos, pos + len);
-          pos += len;
-          return bin;
-        }
-        if (b === 0xcc) return bytes[pos++];
-        if (b === 0xcd) {
-          const v = view.getUint16(pos, false);
-          pos += 2;
-          return v;
-        }
-        if (b === 0xce) {
-          const v = view.getUint32(pos, false);
-          pos += 4;
-          return v;
-        }
-        if (b === 0xd0) return view.getInt8(pos++);
-        if (b === 0xd1) {
-          const v = view.getInt16(pos, false);
-          pos += 2;
-          return v;
-        }
-        if (b === 0xd2) {
-          const v = view.getInt32(pos, false);
-          pos += 4;
-          return v;
-        }
-        if (b === 0xd9) {
-          const len = bytes[pos++];
-          const s = new TextDecoder().decode(bytes.subarray(pos, pos + len));
-          pos += len;
-          return s;
-        }
-        if (b === 0xda) {
-          const len = view.getUint16(pos, false);
-          pos += 2;
-          const s = new TextDecoder().decode(bytes.subarray(pos, pos + len));
-          pos += len;
-          return s;
-        }
-        if (b === 0xdc) {
-          const len = view.getUint16(pos, false);
-          pos += 2;
-          const arr = [];
-          for (let i = 0; i < len; i++) arr.push(read());
-          return arr;
-        }
-        if (b === 0xde) {
-          const len = view.getUint16(pos, false);
-          pos += 2;
-          const obj = {};
-          for (let i = 0; i < len; i++) {
-            const k = read();
-            obj[k] = read();
-          }
-          return obj;
-        }
-        return null;
-      }
-      return read();
-    }
-  };
-
-  // --- TdrvFrame Binary Protocol ---
-  // Header: Magic(4: 'TDRV') + Version(2: 1) + MessageType(2) + Flags(1: 0) + Reserved(1: 0) + HeaderLen(2: 16) + PayloadLen(4)
-  const MAGIC = 0x54445256; // "TDRV"
-
-  function encodeFrame(messageType, payloadObj) {
-    const payloadBytes = MsgPack.encode(payloadObj);
-    const header = new Uint8Array(16);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, MAGIC, false);
-    view.setUint16(4, 1, false); // version 1
-    view.setUint16(6, messageType, false);
-    view.setUint8(8, 0); // flags
-    view.setUint8(9, 0); // reserved
-    view.setUint16(10, 16, false); // header length
-    view.setUint32(12, payloadBytes.length, false);
-
-    const frame = new Uint8Array(16 + payloadBytes.length);
-    frame.set(header, 0);
-    frame.set(payloadBytes, 16);
-    return frame;
-  }
-
-  function decodeFrame(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 16) return null;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, 16);
-    const magic = view.getUint32(0, false);
-    if (magic !== MAGIC) return null;
-    const version = view.getUint16(4, false);
-    const messageType = view.getUint16(6, false);
-    const headerLen = view.getUint16(10, false);
-    const payloadLen = view.getUint32(12, false);
-    const payloadBytes = bytes.subarray(headerLen, headerLen + payloadLen);
-    const payload = MsgPack.decode(payloadBytes);
-    return { version, messageType, payload };
-  }
-
+  const {MsgPack,encodeFrame,decodeFrame,encodeChunk,uuidBytes,uuidKey}=TealDriveWire;
+  const MT=TdrvContract.messages;
   // --- WebSocket Connection ---
   function connectWebSocket() {
     if (state.ws) {
@@ -1406,31 +1160,19 @@ pub const APP_JS: &str = r##"
     ws.binaryType = 'arraybuffer';
     state.ws = ws;
 
-    ws.onopen = function() {
-      // Send ClientHello (0x0100)
-      const hello = {
-        client_version: 1,
-        limits: {
-          max_directory_page_size: 500,
-          max_text_edit_size: 2 * 1024 * 1024,
-          max_chunk_size: 1024 * 1024,
-          max_download_helper_bytes: 50 * 1024 * 1024,
-        }
-      };
-      ws.send(encodeFrame(0x0100, hello));
-    };
+    ws.onopen = function() { el.wsStatusText.textContent='Negotiating protocol...'; };
 
     ws.onmessage = function(ev) {
-      const frame = decodeFrame(ev.data);
-      if (!frame) return;
-      handleServerFrame(frame);
+      try { handleServerFrame(decodeFrame(ev.data)); } catch(error) {showToast(error.message,'error');ws.close();}
     };
 
     ws.onclose = function() {
       state.wsConnected = false;
       el.wsStatusDot.className = 'status-dot disconnected';
       el.wsStatusText.textContent = 'Disconnected';
-      setTimeout(connectWebSocket, 3000);
+      for(const pending of state.pendingRequests.values()){clearTimeout(pending.timer);pending.reject(new Error("Connection closed"));}
+      state.pendingRequests.clear();
+      setTimeout(checkSession, 3000);
     };
 
     ws.onerror = function() {
@@ -1441,47 +1183,45 @@ pub const APP_JS: &str = r##"
   }
 
   function handleServerFrame(frame) {
-    const { messageType, payload } = frame;
-    switch(messageType) {
-      case 0x0101: // ServerHello
-        state.wsConnected = true;
-        el.wsStatusDot.className = 'status-dot connected';
-        el.wsStatusText.textContent = 'Connected (Secure IPC)';
-        loadDirectory(state.currentPath);
+    const {messageType,payload,requestId}=frame;
+    const pending=state.pendingRequests.get(requestId);
+    const failed=[MT.Error,MT.OperationFailed,MT.PermissionDenied,MT.PolicyDenied,MT.ValidationError].includes(messageType);
+    if(pending){clearTimeout(pending.timer);state.pendingRequests.delete(requestId);
+      if(failed)pending.reject(new Error(payload.error?.safe_message||payload.safe_message||'Operation failed'));
+      else pending.resolve(payload);
+    }
+    switch(messageType){
+      case MT.ServerHello:
+        state.serverHello=payload;
+        state.ws.send(encodeFrame(MT.ClientHello,{
+          protocol_version:1,supported_encodings:['MessagePack','RawBinary'],supported_compressions:['None'],
+          max_frame_size:payload.max_frame_size,max_control_payload_size:payload.max_control_payload_size,max_chunk_size:payload.max_chunk_size,
+          feature_flags:payload.feature_flags
+        },crypto.randomUUID()));
         break;
-      case 0x0280: // DirectoryList
-        renderDirectoryList(payload);
-        break;
-      case 0x0108: // SearchResults
-        renderSearchResults(payload);
-        break;
-      case 0x010A: // TrashList
-        renderTrashList(payload);
-        break;
-      case 0x0282: // TextFileContent
-        openEditor(payload);
-        break;
-      case 0x0001: // OperationDone
-        showToast(payload.message || 'Operation succeeded', 'success');
-        loadDirectory(state.currentPath);
-        break;
-      case 0x0002: // OperationFailed
-        showToast(payload.reason || 'Operation failed', 'error');
-        break;
-      case 0x0003: // Error
-        showToast(payload.safe_message || 'Server error', 'error');
-        break;
-      default:
-        console.log('Frame received:', messageType, payload);
+      case MT.ProtocolReady:
+        state.protocolLimits=payload.limits;state.wsConnected=true;
+        el.wsStatusDot.className='status-dot connected';el.wsStatusText.textContent='Connected';loadDirectory(state.currentPath);break;
+      case MT.DirectoryList:renderDirectoryList(payload);break;
+      case MT.SearchResults:renderSearchResults(payload);break;
+      case MT.TrashList:renderTrashList(payload);break;
+      case MT.TextFileContent:openEditor(payload);break;
+      case MT.OperationDone:if(!pending){showToast(payload.safe_message||'Operation succeeded','success');loadDirectory(state.currentPath);}break;
+      default:if(failed&&!pending)showToast(payload.error?.safe_message||payload.safe_message||'Server error','error');
     }
   }
-
-  function sendWsRequest(messageType, payload) {
-    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      showToast('WebSocket is not connected', 'error');
-      return;
-    }
-    state.ws.send(encodeFrame(messageType, payload));
+  function requestWs(messageType,payload,raw=false){
+    return new Promise((resolve,reject)=>{
+      if(!state.wsConnected||!state.ws||state.ws.readyState!==WebSocket.OPEN){reject(new Error('Connection is not ready'));return;}
+      const id=crypto.randomUUID();const key=uuidKey(id);
+      const timer=setTimeout(()=>{state.pendingRequests.delete(key);reject(new Error('Operation timed out'));},60000);
+      state.pendingRequests.set(key,{resolve,reject,timer});
+      try{state.ws.send(encodeFrame(messageType,payload,id,raw));}
+      catch(error){clearTimeout(timer);state.pendingRequests.delete(key);reject(error);}
+    });
+  }
+  function sendWsRequest(messageType,payload){
+    requestWs(messageType,payload).then(()=>{if([MT.SaveTextFile,MT.CreateFolder,MT.RenameFile,MT.MoveToTrash,MT.RestoreFromTrash,MT.DeletePermanently,MT.ChmodFile].includes(messageType)){showToast('Operation completed','success');loadDirectory(state.currentPath);}}).catch(error=>showToast(error.message,'error'));
   }
 
   // --- Directory Listing & Navigation ---
@@ -1489,9 +1229,9 @@ pub const APP_JS: &str = r##"
     state.currentPath = path || '';
     renderBreadcrumbs();
     el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading files...</td></tr>';
-    sendWsRequest(0x0200, {
+    sendWsRequest(MT.ListDirectory, {
       root_id: state.currentRoot,
-      relative_path: state.currentPath,
+      relative_path: state.currentPath,cursor:null,limit:state.protocolLimits.default_directory_page_size,include_hidden:false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
     });
   }
 
@@ -1525,7 +1265,7 @@ pub const APP_JS: &str = r##"
 
   function renderDirectoryList(data) {
     el.fileTableBody.innerHTML = '';
-    const entries = data.entries || [];
+    const entries = (data.entries || []).map(item=>({...item,is_dir:item.file_type==='Directory'}));
 
     if (entries.length === 0) {
       el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Empty directory</td></tr>';
@@ -1777,7 +1517,7 @@ pub const APP_JS: &str = r##"
     el.editorTitle.textContent = `Loading ${relPath}...`;
     el.editorTextarea.value = '';
     el.editorModal.classList.remove('hidden');
-    sendWsRequest(0x0202, {
+    sendWsRequest(MT.ReadTextFile, {
       root_id: state.currentRoot,
       relative_path: relPath,
       max_bytes: 1024 * 1024,
@@ -1789,7 +1529,7 @@ pub const APP_JS: &str = r##"
     el.editorTextarea.value = payload.content || '';
     el.editorMetaHint.textContent = `${payload.content ? payload.content.length : 0} bytes | Modified: ${formatDate(payload.modified)}`;
     el.editorSaveBtn.onclick = () => {
-      sendWsRequest(0x0203, {
+      sendWsRequest(MT.SaveTextFile, {
         root_id: state.currentRoot,
         relative_path: state.currentEditorFile,
         content: el.editorTextarea.value,
@@ -1802,7 +1542,7 @@ pub const APP_JS: &str = r##"
   // --- File Operations ---
   function moveToTrash(relPath) {
     if (!confirm(`Move "${relPath}" to trash?`)) return;
-    sendWsRequest(0x0304, {
+    sendWsRequest(MT.MoveToTrash, {
       root_id: state.currentRoot,
       relative_path: relPath,
     });
@@ -1811,7 +1551,7 @@ pub const APP_JS: &str = r##"
   function openTrashModal() {
     el.trashTableBody.innerHTML = '<tr class="empty-row"><td colspan="4">Loading trash...</td></tr>';
     el.trashModal.classList.remove('hidden');
-    sendWsRequest(0x0109, {
+    sendWsRequest(MT.ListTrash, {
       root_id: state.currentRoot,
     });
   }
@@ -1854,7 +1594,7 @@ pub const APP_JS: &str = r##"
   }
 
   function restoreFromTrash(trashId) {
-    sendWsRequest(0x0305, {
+    sendWsRequest(MT.RestoreFromTrash, {
       trash_id: trashId,
       target_root_id: state.currentRoot,
       target_relative_path: null,
@@ -1864,7 +1604,7 @@ pub const APP_JS: &str = r##"
 
   function deletePermanentlyFromTrash(trashId) {
     if (!confirm('Are you sure you want to permanently delete this item? This action cannot be undone.')) return;
-    sendWsRequest(0x0306, {
+    sendWsRequest(MT.DeletePermanently, {
       root_id: state.currentRoot,
       relative_path: `.tealdrive-trash/files/${trashId}`,
     });
@@ -1875,10 +1615,10 @@ pub const APP_JS: &str = r##"
     openPrompt('Rename Item', 'New Name', oldName, (newName) => {
       if (!newName || newName === oldName) return;
       const targetRel = state.currentPath ? `${state.currentPath}/${newName}` : newName;
-      sendWsRequest(0x0301, {
+      sendWsRequest(MT.RenameFile, {
         root_id: state.currentRoot,
         relative_path: relPath,
-        target_relative_path: targetRel,
+        new_name: newName,
       });
     });
   }
@@ -1903,57 +1643,24 @@ pub const APP_JS: &str = r##"
 
   // --- Upload Flow ---
   async function handleFileUpload(file) {
-    if (!file) return;
-    const chunkSize = 512 * 1024;
-    const totalBytes = file.size;
-    const relPath = state.currentPath ? `${state.currentPath}/${file.name}` : file.name;
-
-    el.uploadProgressContainer.classList.remove('hidden');
-    el.uploadFileName.textContent = `Uploading ${file.name}...`;
-    el.uploadProgressBar.style.width = '0%';
-    el.uploadPercent.textContent = '0%';
-
-    // Read full file for SHA-256
-    const buffer = await file.arrayBuffer();
-    const digest = await crypto.subtle.digest('SHA-256', buffer);
-    const sha256 = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-    // 1. UploadBegin
-    sendWsRequest(0x0400, {
-      root_id: state.currentRoot,
-      relative_path: relPath,
-      total_bytes: totalBytes,
-      chunk_size: chunkSize,
-      sha256: sha256,
-      expected_mode: 0o644,
-    });
-
-    // 2. UploadChunk stream
-    let offset = 0;
-    while (offset < totalBytes) {
-      const slice = buffer.slice(offset, Math.min(offset + chunkSize, totalBytes));
-      sendWsRequest(0x0401, {
-        root_id: state.currentRoot,
-        relative_path: relPath,
-        offset: offset,
-        data: new Uint8Array(slice),
-      });
-      offset += slice.byteLength;
-      const pct = Math.min(100, Math.round((offset / totalBytes) * 100));
-      el.uploadProgressBar.style.width = `${pct}%`;
-      el.uploadPercent.textContent = `${pct}%`;
-    }
-
-    // 3. UploadEnd
-    sendWsRequest(0x0402, {
-      root_id: state.currentRoot,
-      relative_path: relPath,
-    });
-
-    setTimeout(() => {
-      el.uploadProgressContainer.classList.add('hidden');
-      loadDirectory(state.currentPath);
-    }, 500);
+    if(!file||state.uploading)return;
+    const limit=state.protocolLimits?.max_in_flight_upload||0;
+    if(file.size>limit){showToast(`File exceeds server upload limit (${formatBytes(limit)})`,'error');return;}
+    state.uploading=true;let transfer=null;
+    el.uploadProgressContainer.classList.remove('hidden');el.uploadFileName.textContent=file.name;
+    try{
+      const begin=await requestWs(MT.UploadBegin,{root_id:state.currentRoot,relative_path:state.currentPath,filename:file.name,total_size:file.size,
+        chunk_size:state.protocolLimits.max_chunk_size,sha256:null});transfer=begin.transfer_id;
+      let offset=0,index=0;
+      while(offset<file.size){
+        const bytes=new Uint8Array(await file.slice(offset,offset+begin.chunk_size).arrayBuffer());
+        await requestWs(MT.UploadChunk,encodeChunk(transfer,index++,offset,bytes),true);
+        offset+=bytes.length;const pct=Math.round(100*offset/file.size);el.uploadProgressBar.style.width=`${pct}%`;el.uploadPercent.textContent=`${pct}%`;
+      }
+      await requestWs(MT.UploadEnd,{transfer_id:transfer,total_size:file.size,sha256:null});transfer=null;
+      showToast('Upload completed','success');loadDirectory(state.currentPath);
+    }catch(error){showToast(error.message,'error');if(transfer&&state.wsConnected){try{await requestWs(MT.UploadAbort,{transfer_id:transfer,reason:'client error'});}catch{}}}
+    finally{state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value='';}
   }
 
   // --- Session & HTTP Auth ---
@@ -1962,6 +1669,7 @@ pub const APP_JS: &str = r##"
       const resp = await fetch('/api/session', { credentials: 'same-origin' });
       if (resp.ok) {
         const data = await resp.json();
+        if(data.authenticated===false){showLoginModal();return;}
         state.session = data;
         state.csrfToken = data.csrf_token || '';
         state.roots = data.roots || [];
@@ -2225,10 +1933,10 @@ pub const APP_JS: &str = r##"
     el.newFolderBtn.onclick = () => {
       openPrompt('Create New Folder', 'Folder Name', '', (name) => {
         if (!name) return;
-        sendWsRequest(0x0300, {
+        sendWsRequest(MT.CreateFolder, {
           root_id: state.currentRoot,
-          relative_path: state.currentPath,
-          name: name,
+          parent_relative_path: state.currentPath,
+          folder_name: name,
         });
       });
     };
@@ -2237,7 +1945,7 @@ pub const APP_JS: &str = r##"
       openPrompt('Create New File', 'File Name (e.g. notes.txt)', '', (name) => {
         if (!name) return;
         const targetPath = state.currentPath ? `${state.currentPath}/${name}` : name;
-        sendWsRequest(0x0203, {
+        sendWsRequest(MT.SaveTextFile, {
           root_id: state.currentRoot,
           relative_path: targetPath,
           content: '',
@@ -2272,7 +1980,7 @@ pub const APP_JS: &str = r##"
       e.preventDefault();
       const mode = parseInt(el.chmodOctalInput.value.trim(), 8);
       if (!isNaN(mode)) {
-        sendWsRequest(0x0307, {
+        sendWsRequest(MT.ChmodFile, {
           root_id: state.currentRoot,
           relative_path: state.chmodTarget,
           mode: mode,
@@ -2334,7 +2042,7 @@ pub const APP_JS: &str = r##"
       }
       searchDebounceTimer = setTimeout(() => {
         el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Searching...</td></tr>';
-        sendWsRequest(0x0107, {
+        sendWsRequest(MT.SearchFiles, {
           root_id: state.currentRoot,
           base_path: state.currentPath || '',
           query: q,

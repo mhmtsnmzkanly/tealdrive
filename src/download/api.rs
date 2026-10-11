@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use axum::body::Bytes;
@@ -14,7 +12,8 @@ use serde::Deserialize;
 
 use crate::audit::event::{AuditEvent, AuditReason, AuditStatus};
 use crate::config::{RelativePath, RootId, UserContext};
-use crate::fs::path::{resolve_existing_path, validate_relative_path};
+use crate::fs::path::validate_relative_path;
+use crate::errors::TealDriveError;
 use crate::policy::decision::{FileOperation, PolicyDecision, PolicyEngine};
 use crate::policy::roots::require_allowed_root;
 use crate::protocol::frame::RequestId;
@@ -81,39 +80,37 @@ pub fn parse_range_header(header: &str, file_size: u64) -> Option<Result<ByteRan
     }
 }
 
-struct FileStreamState {
-    file: File,
-    remaining: u64,
+fn range_request(user: &UserContext, root_id: &RootId, path: &RelativePath, offset: u64, length: usize) -> crate::helper::types::HelperRequest {
+    use crate::helper::types::*;
+    HelperRequest { request_id:RequestId::new(),username:user.username.clone(),uid:user.uid,gid:user.gid,command:HelperCommand::ReadFileRange,
+        root_id:root_id.clone(),relative_path:path.clone(),target_relative_path:None,
+        policy_context:HelperPolicyContext{read_only_root:true,is_web_root:false},
+        limits:HelperLimits{max_directory_page_size:1,max_text_edit_size:1,max_chunk_size:length,max_download_helper_bytes:length},
+        list_options:None,write_options:Some(HelperWriteOptions{data:Vec::new(),offset,truncate:false}),chmod_mode:None,archive_source_paths:None,search_options:None }
 }
-
-pub fn create_stream_body(file: File, remaining: u64) -> axum::body::Body {
-    let state = FileStreamState { file, remaining };
-    let stream = futures_util::stream::unfold(state, |mut s| async move {
-        if s.remaining == 0 {
-            return None;
-        }
-        let to_read = (STREAM_CHUNK_SIZE as u64).min(s.remaining) as usize;
-        let res = tokio::task::spawn_blocking(move || {
-            let mut buf = vec![0u8; to_read];
-            match s.file.read(&mut buf) {
-                Ok(0) => Ok((buf, s, 0)),
-                Ok(n) => {
-                    buf.truncate(n);
-                    Ok((buf, s, n))
-                }
-                Err(e) => Err((e, s)),
+fn read_range<H: WsHelperBackend>(helper: &H, request: &crate::helper::types::HelperRequest) -> Result<(u64,Vec<u8>),TealDriveError> {
+    let response=crate::download::transfer::DownloadHelper::execute_helper(helper,request)?;
+    if !response.success { return Err(crate::download::transfer::helper_response_to_error(&response)); }
+    match response.payload {
+        crate::helper::types::HelperResponsePayload::FileRange{total_size,data,..}=>Ok((total_size,data)),
+        _=>Err(TealDriveError::HelperMalformedResponse),
+    }
+}
+fn create_helper_stream<H: WsHelperBackend + 'static>(helper: std::sync::Arc<H>, mut request: crate::helper::types::HelperRequest, length: u64) -> axum::body::Body {
+    let stream=futures_util::stream::unfold((helper,request.clone(),length), |(helper,mut request,remaining)|async move {
+        if remaining==0 { return None; }
+        request.limits.max_chunk_size=(STREAM_CHUNK_SIZE as u64).min(remaining) as usize;
+        let req=request.clone(); let client=helper.clone();
+        let result=tokio::task::spawn_blocking(move||read_range(client.as_ref(),&req)).await;
+        match result {
+            Ok(Ok((_,data))) if !data.is_empty()=> {
+                let count=data.len() as u64; request.write_options.as_mut().unwrap().offset+=count;
+                Some((Ok::<_,std::io::Error>(Bytes::from(data)),(helper,request,remaining-count)))
             }
-        })
-        .await;
-
-        match res {
-            Ok(Ok((buf, mut s, n))) if n > 0 => {
-                s.remaining -= n as u64;
-                Some((Ok::<_, std::io::Error>(Bytes::from(buf)), s))
-            }
-            _ => None,
+            _=>Some((Err(std::io::Error::other("helper stream failed")),(helper,request,0))),
         }
     });
+    request.limits.max_chunk_size=STREAM_CHUNK_SIZE;
     axum::body::Body::from_stream(stream)
 }
 
@@ -219,38 +216,24 @@ where
         }
     }
 
-    let resolution = match resolve_existing_path(root, &relative_path, false) {
-        Ok(res) => res,
-        Err(_) => {
-            return (StatusCode::NOT_FOUND, r#"{"error":"file_not_found"}"#).into_response();
-        }
+    let probe=range_request(&user_context,&root_id,&relative_path,0,0);
+    let helper=state.helper_client.clone();
+    let file_size=match tokio::task::spawn_blocking(move||read_range(helper.as_ref(),&probe)).await {
+        Ok(Ok((size,_)))=>size,
+        Ok(Err(TealDriveError::PermissionDenied | TealDriveError::PolicyDenied))=>return StatusCode::FORBIDDEN.into_response(),
+        _=>return StatusCode::NOT_FOUND.into_response(),
     };
-
-    let metadata = match resolution.resolved_path.metadata() {
-        Ok(meta) if meta.is_file() => meta,
-        _ => {
-            return (StatusCode::BAD_REQUEST, r#"{"error":"not_a_file"}"#).into_response();
-        }
-    };
-
-    let file_size = metadata.len();
-    if disposition_type == "inline" && file_size > cfg.limits.max_preview_size as u64 {
-        return (StatusCode::PAYLOAD_TOO_LARGE, r#"{"error":"preview_too_large"}"#).into_response();
+    if disposition_type=="inline" && file_size>cfg.limits.max_preview_size as u64 {
+        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-
-    let mut file = match File::open(&resolution.resolved_path) {
-        Ok(f) => f,
-        Err(_) => {
-            return (StatusCode::NOT_FOUND, r#"{"error":"open_failed"}"#).into_response();
-        }
-    };
+    let helper_request=range_request(&user_context,&root_id,&relative_path,0,STREAM_CHUNK_SIZE);
 
     let filename = Path::new(&relative_path.0)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("download");
     let safe_filename = filename.replace(['"', '\n', '\r', '\\'], "_");
-    let mime = mime_for_path(&resolution.resolved_path);
+    let mime = mime_for_path(Path::new(&relative_path.0));
     let lower_filename = safe_filename.to_ascii_lowercase();
     let is_dangerous_web_content = lower_filename.ends_with(".html")
         || lower_filename.ends_with(".htm")
@@ -270,11 +253,10 @@ where
     let (status, body, content_range, content_length) = if let Some(range_str) = range_header {
         match parse_range_header(range_str, file_size) {
             Some(Ok(range)) => {
-                if file.seek(SeekFrom::Start(range.start)).is_err() {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "seek error").into_response();
-                }
+                let mut helper_request=helper_request.clone();
+                helper_request.write_options.as_mut().unwrap().offset=range.start;
                 let length = range.end - range.start + 1;
-                let body = create_stream_body(file, length);
+                let body = create_helper_stream(state.helper_client.clone(), helper_request, length);
                 let cr_val = format!("bytes {}-{}/{}", range.start, range.end, file_size);
                 (StatusCode::PARTIAL_CONTENT, body, Some(cr_val), length)
             }
@@ -287,12 +269,12 @@ where
                 return resp;
             }
             None => {
-                let body = create_stream_body(file, file_size);
+                let body = create_helper_stream(state.helper_client.clone(), helper_request, file_size);
                 (StatusCode::OK, body, None, file_size)
             }
         }
     } else {
-        let body = create_stream_body(file, file_size);
+        let body = create_helper_stream(state.helper_client.clone(), helper_request, file_size);
         (StatusCode::OK, body, None, file_size)
     };
 

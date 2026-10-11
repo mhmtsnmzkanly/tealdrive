@@ -219,3 +219,27 @@ mod tests {
         assert_eq!(response.error_kind, Some(ErrorKind::PolicyDenied));
     }
 }
+
+/// A bounded read also returns the size of the opened file, never a server-side pathname.
+pub fn read_file_range(request: &HelperRequest, roots: &[AllowedRoot], sensitive: &SensitivePolicyConfig) -> HelperResponse {
+    let Some(root)=roots.iter().find(|r|r.root_id==request.root_id) else { return HelperResponse::permission_denied(request,"Unknown root."); };
+    if crate::policy::sensitive::detect_sensitive(&request.relative_path,sensitive).is_sensitive
+        || (!root.hidden_files_allowed && crate::fs::path::is_hidden_relative(&request.relative_path)) {
+        return HelperResponse::permission_denied(request,"Read denied by policy.");
+    }
+    let resolution=match resolve_existing_path(root,&request.relative_path,false) {
+        Ok(p)=>p,Err(e)=>return helper_error_from_tealdrive(request,e),
+    };
+    let mut file=match fs::File::open(&resolution.resolved_path) { Ok(f)=>f,Err(e)=>return helper_error_from_io(request,e) };
+    let metadata=match file.metadata() { Ok(m) if m.is_file()=>m, _=>return HelperResponse::permission_denied(request,"Not a regular file.") };
+    let offset=request.write_options.as_ref().map_or(0,|o|o.offset);
+    let length=request.limits.max_chunk_size.min(crate::limits::MAX_CHUNK_SIZE);
+    use std::io::{Seek,SeekFrom};
+    if let Err(e)=file.seek(SeekFrom::Start(offset)) { return helper_error_from_io(request,e); }
+    let mut data=Vec::new();
+    if let Err(e)=file.take(length as u64).read_to_end(&mut data) { return helper_error_from_io(request,e); }
+    let mut response=HelperResponse::operation_done(request,"Read completed.");
+    response.bytes_read=data.len() as u64;
+    response.payload=crate::helper::types::HelperResponsePayload::FileRange { total_size:metadata.len(),offset,data };
+    response
+}

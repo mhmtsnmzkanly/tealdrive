@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::config::{AppConfig, RelativePath, RootId, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{resolve_new_target, validate_relative_path};
+use crate::fs::path::{authorize_new_target as resolve_new_target, validate_relative_path};
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
@@ -82,7 +82,7 @@ pub fn upload_begin_request(
         return Err(TealDriveError::PolicyDenied);
     }
 
-    crate::fs::quota::check_quota(root, request.total_size)?;
+    
 
     if detect_sensitive(&target_rel, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);
@@ -93,10 +93,7 @@ pub fn upload_begin_request(
         PolicyDecision::Deny(_) => return Err(TealDriveError::WebrootExecutableDenied),
     }
 
-    let target = resolve_new_target(root, &parent_rel, &filename.0)?;
-    if fs::symlink_metadata(&target.resolved_path).is_ok() {
-        return Err(TealDriveError::AlreadyExists);
-    }
+    let _target = resolve_new_target(root, &parent_rel, &filename.0)?;
 
     match policy_engine.check_operation(
         FileOperation::UploadFile,
@@ -238,13 +235,13 @@ pub fn upload_end_request<H: UploadHelper>(
     };
 
     let root = require_allowed_root(config.allowed_roots(), &active_upload.root_id)?;
-    crate::fs::quota::check_quota(root, active_upload.total_size)?;
+    
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
         uid: user_context.uid,
         gid: user_context.gid,
-        command: HelperCommand::WriteFile,
+        command: HelperCommand::UploadCommit,
         root_id: active_upload.root_id.clone(),
         relative_path: target_rel,
         target_relative_path: None,
@@ -500,7 +497,11 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("existing.txt", 50, 50, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::AlreadyExists));
+        let (mut active,_) = upload_begin_request(&user(),req,&config,&engine).unwrap();
+        let id=active.transfer_id;
+        upload_chunk_request(&mut active, RawChunk { transfer_id:id,chunk_index:0,offset:0,chunk_bytes:vec![0;50] }, &config).unwrap();
+        let helper=InProcessHelper { roots:config.roots.clone() };
+        assert_eq!(upload_end_request(&user(),&active,UploadEndRequest { transfer_id:active.transfer_id,total_size:50,sha256:None },&config,&helper),Err(TealDriveError::AlreadyExists));
     }
 
     #[test]
@@ -553,7 +554,11 @@ mod tests {
 
         // 80 existing + 30 new > 100 quota -> DiskFull
         let req = begin_req("toolarge.txt", 30, 30, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::DiskFull));
+        let (mut active,_) = upload_begin_request(&user(),req,&config,&engine).unwrap();
+        let id=active.transfer_id;
+        upload_chunk_request(&mut active, RawChunk { transfer_id:id,chunk_index:0,offset:0,chunk_bytes:vec![0;30] }, &config).unwrap();
+        let helper=InProcessHelper { roots:config.roots.clone() };
+        assert_eq!(upload_end_request(&user(),&active,UploadEndRequest { transfer_id:active.transfer_id,total_size:30,sha256:None },&config,&helper),Err(TealDriveError::DiskFull));
 
         // 80 existing + 15 new <= 100 quota -> Allowed to begin
         let req_ok = begin_req("fits.txt", 15, 15, None);

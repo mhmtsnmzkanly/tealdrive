@@ -165,7 +165,7 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
     })
 }
 
-fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
+pub(crate) fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
     match response.error_kind {
         Some(ErrorKind::PermissionDenied) => TealDriveError::PermissionDenied,
         Some(ErrorKind::PolicyDenied) => TealDriveError::PolicyDenied,

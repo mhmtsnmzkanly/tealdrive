@@ -375,6 +375,8 @@ pub(crate) fn helper_error_from_io(request: &HelperRequest, error: io::Error) ->
             "Permission denied.",
             "permission_denied",
         ),
+        Some(17) => (ErrorKind::AlreadyExists, "Target already exists.", "already_exists"),
+        Some(28) => (ErrorKind::DiskFull, "Disk is full.", "disk_full"),
         Some(2) => (ErrorKind::NotFound, "Path not found.", "not_found"),
         Some(20) => (ErrorKind::InvalidPath, "Invalid path.", "not_directory"),
         Some(40) => (ErrorKind::SymlinkLoop, "Symlink loop.", "symlink_loop"),

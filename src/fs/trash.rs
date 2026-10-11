@@ -1,7 +1,7 @@
 use crate::config::{AppConfig, RelativePath, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{resolve_existing_path, validate_relative_path};
+use crate::fs::path::{authorize_existing_path as resolve_existing_path, validate_relative_path};
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
@@ -129,9 +129,6 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
         _ => return Err(TealDriveError::HelperCommandNotImplemented),
     };
 
-    if let Some(days) = config.trash_retention_days {
-        crate::helper::trash::purge_expired_trash(config.allowed_roots(), days);
-    }
 
     Ok(MoveToTrashPayload {
         request_id: helper_request.request_id,

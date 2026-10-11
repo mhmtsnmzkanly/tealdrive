@@ -115,6 +115,9 @@ pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate
         let roots = &config.roots;
         return file_metadata_with_roots(request, roots, &config.sensitive_policy);
     }
+    if request.command == HelperCommand::ReadFileRange {
+        return crate::helper::download::read_file_range(request, &config.roots, &config.sensitive_policy);
+    }
     if request.command == HelperCommand::DownloadFile {
         let roots = &config.roots;
         return download_file_with_roots(request, roots, &config.sensitive_policy);
@@ -151,7 +154,7 @@ pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate
             &config.sensitive_policy,
         );
     }
-    if request.command == HelperCommand::WriteFile {
+    if matches!(request.command, HelperCommand::WriteFile | HelperCommand::UploadCommit) {
         let roots = &config.roots;
         return write_file_with_roots(request, roots, &config.sensitive_policy);
     }

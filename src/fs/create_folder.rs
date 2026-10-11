@@ -1,7 +1,7 @@
 use crate::config::{AppConfig, RelativePath, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{resolve_new_target, validate_relative_path};
+use crate::fs::path::{authorize_new_target as resolve_new_target, validate_relative_path};
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
@@ -293,7 +293,7 @@ mod tests {
 
         assert_eq!(
             create_folder_request(&user(), request("link", "new"), &config, &engine, &helper),
-            Err(TealDriveError::SymlinkDenied)
+            Err(TealDriveError::PolicyDenied)
         );
     }
 

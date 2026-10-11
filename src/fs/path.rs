@@ -315,3 +315,16 @@ mod tests {
         );
     }
 }
+
+/// The network tier validates names and policy only. Disk resolution belongs to the helper.
+pub fn authorize_existing_path(root: &AllowedRoot, path: &RelativePath, _follow: bool) -> Result<ExistingPathResolution, TealDriveError> {
+    let relative_path=validate_relative_path(path)?;
+    Ok(ExistingPathResolution { root: ResolvedRoot { root_id:root.root_id.clone(),canonical_base:root.base_path.clone(),root:root.clone() },
+        resolved_path:root.base_path.join(&relative_path.0),relative_path,is_symlink:false })
+}
+pub fn authorize_new_target(root: &AllowedRoot, parent: &RelativePath, filename: &str) -> Result<NewTargetResolution, TealDriveError> {
+    let parent=validate_relative_path(parent)?; let filename=SafeFileName::parse(filename)?;
+    let resolved_parent=root.base_path.join(&parent.0);
+    Ok(NewTargetResolution { root:ResolvedRoot { root_id:root.root_id.clone(),canonical_base:root.base_path.clone(),root:root.clone() },
+        parent_relative_path:parent,resolved_path:resolved_parent.join(&filename.0),resolved_parent,filename })
+}

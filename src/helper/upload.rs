@@ -16,7 +16,7 @@ pub fn write_file_with_roots(
     roots: &[AllowedRoot],
     sensitive_config: &SensitivePolicyConfig,
 ) -> HelperResponse {
-    if request.command != HelperCommand::WriteFile {
+    if !matches!(request.command, HelperCommand::WriteFile | HelperCommand::UploadCommit) {
         return HelperResponse::not_implemented(request);
     }
     if request.uid == 0 {
@@ -101,8 +101,12 @@ pub fn write_file_with_roots(
         Err(err) => return helper_error_from_tealdrive(request, err),
     };
 
+    if crate::fs::quota::check_quota(root, write_options.data.len() as u64).is_err() {
+        return helper_error(request, ErrorKind::DiskFull, "Storage quota exceeded.", "quota_exceeded");
+    }
     let mut open_options = OpenOptions::new();
-    open_options.write(true).create(true);
+    open_options.write(true);
+    if request.command == HelperCommand::UploadCommit { open_options.create_new(true); } else { open_options.create(true); }
     if write_options.truncate {
         open_options.truncate(true);
     }

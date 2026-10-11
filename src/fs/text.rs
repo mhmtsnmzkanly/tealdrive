@@ -239,7 +239,7 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
         Err(err) => return Err(err),
     }
 
-    crate::fs::quota::check_quota(root, request.content.len() as u64)?;
+
 
     let helper_request = HelperRequest {
         request_id: RequestId::new(),

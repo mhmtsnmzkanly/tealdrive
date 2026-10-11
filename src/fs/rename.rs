@@ -1,9 +1,10 @@
+#[cfg(test)]
 use std::fs;
 
 use crate::config::{AppConfig, RelativePath, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{resolve_existing_path, resolve_new_target, validate_relative_path};
+use crate::fs::path::{authorize_existing_path as resolve_existing_path, authorize_new_target as resolve_new_target, validate_relative_path};
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
@@ -51,10 +52,7 @@ pub fn rename_file_request<H: RenameHelper>(
         PolicyDecision::Deny(_) => return Err(TealDriveError::WebrootExecutableDenied),
     }
 
-    let target = resolve_new_target(root, &parent_relative_path, &new_name.0)?;
-    if fs::symlink_metadata(&target.resolved_path).is_ok() {
-        return Err(TealDriveError::AlreadyExists);
-    }
+    let _target = resolve_new_target(root, &parent_relative_path, &new_name.0)?;
 
     match policy_engine.check_operation(
         FileOperation::RenameFile,
@@ -390,7 +388,7 @@ mod tests {
                 &engine,
                 &helper
             ),
-            Err(TealDriveError::SymlinkDenied)
+            Err(TealDriveError::PolicyDenied)
         );
     }
 

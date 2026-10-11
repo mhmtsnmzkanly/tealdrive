@@ -810,4 +810,16 @@ mod tests {
             Err(TealDriveError::Validation)
         ));
     }
+
+    #[test]
+    fn msgpack_delete_permanently_request_roundtrip() {
+        let value = DeletePermanentlyRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("docs/old.txt"),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: DeletePermanentlyRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
 }

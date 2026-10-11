@@ -8,7 +8,8 @@ use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, Mov
 use crate::fs::rename::{rename_file_request, RenameHelper};
 use crate::fs::text::{read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{
-    move_to_trash_request, restore_from_trash_request, MoveToTrashHelper, RestoreFromTrashHelper,
+    delete_permanently_request, move_to_trash_request, restore_from_trash_request,
+    DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper,
 };
 use crate::policy::decision::PolicyEngine;
 use crate::policy::feature_gate::{FeatureGate, FeatureGateResult};
@@ -18,10 +19,11 @@ use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
-    ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DownloadBeginRequest,
-    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
-    OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
-    SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
+    ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DeletePermanentlyRequest,
+    DownloadBeginRequest, FileMetadataRequest, ListDirectoryRequest, MoveFileRequest,
+    MoveToTrashRequest, OperationFailedPayload, ReadTextFileRequest, RenameFileRequest,
+    RestoreFromTrashRequest, SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest,
+    UploadEndRequest,
 };
 use crate::upload::transfer::{
     upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
@@ -86,6 +88,7 @@ where
         + CopyHelper
         + MoveToTrashHelper
         + RestoreFromTrashHelper
+        + DeletePermanentlyHelper
         + UploadHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
@@ -110,6 +113,7 @@ where
         + CopyHelper
         + MoveToTrashHelper
         + RestoreFromTrashHelper
+        + DeletePermanentlyHelper
         + UploadHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
@@ -186,6 +190,7 @@ where
         + CopyHelper
         + MoveToTrashHelper
         + RestoreFromTrashHelper
+        + DeletePermanentlyHelper
         + UploadHelper,
 {
     match message_type {
@@ -221,6 +226,9 @@ where
         ])),
         MessageType::RestoreFromTrash => Ok(DispatchDecision::Outbound(vec![
             handle_restore_from_trash_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::DeletePermanently => Ok(DispatchDecision::Outbound(vec![
+            handle_delete_permanently_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         MessageType::UploadBegin => Ok(DispatchDecision::Outbound(vec![
             handle_upload_begin_frame_with_service(context, &frame, config)?,
@@ -633,6 +641,37 @@ pub fn handle_restore_from_trash_frame_with_service<H: RestoreFromTrashHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_delete_permanently_frame_with_service<H: DeletePermanentlyHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::DeletePermanently {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: DeletePermanentlyRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = delete_permanently_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 pub fn handle_upload_begin_frame_with_service(
     context: &mut WsConnectionContext,
     frame: &TdrvFrame,
@@ -919,6 +958,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::restore_file_from_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl DeletePermanentlyHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::delete_permanently_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -1697,6 +1749,67 @@ mod tests {
 
         assert_eq!(restore_resp.header.message_type, MessageType::OperationDone);
         assert!(base.join("restore_me.txt").exists());
+    }
+
+    fn delete_permanently_request_payload(path: &str) -> DeletePermanentlyRequest {
+        DeletePermanentlyRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+        }
+    }
+
+    #[test]
+    fn delete_permanently_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::DeletePermanently,
+            encode_msgpack(&delete_permanently_request_payload("file.txt")).expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_delete_permanently_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn delete_permanently_after_ready_reaches_trash_service() {
+        let base = temp_root();
+        fs::write(base.join("delete_forever.txt"), b"gone").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                delete_permanently: true,
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::DeletePermanently,
+            encode_msgpack(&delete_permanently_request_payload("delete_forever.txt"))
+                .expect("payload"),
+        );
+
+        let outbound =
+            handle_delete_permanently_frame_with_service(&context, &frame, &config, &helper)
+                .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(!base.join("delete_forever.txt").exists());
     }
 
     fn upload_begin_request_payload(

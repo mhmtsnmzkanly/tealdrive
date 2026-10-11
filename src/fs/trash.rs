@@ -12,7 +12,8 @@ use crate::policy::roots::require_allowed_root;
 use crate::policy::sensitive::detect_sensitive;
 use crate::protocol::frame::RequestId;
 use crate::protocol::payload::{
-    MoveToTrashPayload, MoveToTrashRequest, OperationDonePayload, RestoreFromTrashRequest,
+    DeletePermanentlyRequest, MoveToTrashPayload, MoveToTrashRequest, OperationDonePayload,
+    RestoreFromTrashRequest,
 };
 
 pub trait MoveToTrashHelper {
@@ -30,6 +31,16 @@ pub trait RestoreFromTrashHelper {
 }
 
 impl RestoreFromTrashHelper for HelperProcessClient {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        self.execute(request)
+    }
+}
+
+pub trait DeletePermanentlyHelper {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
+}
+
+impl DeletePermanentlyHelper for HelperProcessClient {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         self.execute(request)
     }
@@ -189,6 +200,85 @@ pub fn restore_from_trash_request<H: RestoreFromTrashHelper>(
     })
 }
 
+pub fn delete_permanently_request<H: DeletePermanentlyHelper>(
+    user_context: &UserContext,
+    request: DeletePermanentlyRequest,
+    config: &AppConfig,
+    policy_engine: &PolicyEngine<'_>,
+    helper_client: &H,
+) -> Result<OperationDonePayload, TealDriveError> {
+    let relative_path = validate_relative_path(&request.relative_path)?;
+    if relative_path.0.is_empty() {
+        return Err(TealDriveError::InvalidTarget);
+    }
+    let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
+    if root.read_only {
+        return Err(TealDriveError::ReadOnlyRoot);
+    }
+
+    match policy_engine.check_operation(
+        FileOperation::DeletePermanently,
+        &request.root_id,
+        &relative_path,
+        None,
+        None,
+        root.hidden_files_allowed,
+    )? {
+        PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
+        PolicyDecision::Deny(crate::errors::PolicyReason::FeatureDisabled) => {
+            return Err(TealDriveError::FeatureDisabled);
+        }
+        PolicyDecision::Deny(crate::errors::PolicyReason::ReadOnlyRoot) => {
+            return Err(TealDriveError::ReadOnlyRoot);
+        }
+        PolicyDecision::Deny(reason) => {
+            let _audit = PolicyAuditMetadata {
+                action: FileOperation::DeletePermanently,
+                root_id: request.root_id.clone(),
+                relative_path: relative_path.clone(),
+                target_relative_path: None,
+                reason,
+                safe_message: "Delete permanently denied by TealDrive policy.".to_owned(),
+            };
+            return Err(TealDriveError::PolicyDenied);
+        }
+    }
+
+    let helper_request = HelperRequest {
+        request_id: RequestId::new(),
+        username: user_context.username.clone(),
+        uid: user_context.uid,
+        gid: user_context.gid,
+        command: HelperCommand::DeletePermanently,
+        root_id: request.root_id.clone(),
+        relative_path: relative_path.clone(),
+        target_relative_path: None,
+        policy_context: HelperPolicyContext {
+            read_only_root: root.read_only,
+            is_web_root: root.is_web_root,
+        },
+        limits: HelperLimits {
+            max_directory_page_size: config.limits.max_directory_page_size,
+            max_text_edit_size: config.limits.max_text_edit_size,
+            max_chunk_size: config.limits.max_chunk_size,
+            max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
+        },
+        list_options: None,
+        write_options: None,
+    };
+
+    let response = helper_client.execute_helper(&helper_request)?;
+    if !response.success {
+        return Err(helper_response_to_error(&response));
+    }
+
+    Ok(OperationDonePayload {
+        request_id: helper_request.request_id,
+        operation: "DELETE_PERMANENTLY".to_owned(),
+        safe_message: Some("Item permanently deleted.".to_owned()),
+    })
+}
+
 fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
     match response.error_kind {
         Some(ErrorKind::PermissionDenied) => TealDriveError::PermissionDenied,
@@ -243,6 +333,19 @@ mod tests {
         }
     }
 
+    impl DeletePermanentlyHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::delete_permanently_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
     struct FailingIfCalled;
 
     impl MoveToTrashHelper for FailingIfCalled {
@@ -255,6 +358,15 @@ mod tests {
     }
 
     impl RestoreFromTrashHelper for FailingIfCalled {
+        fn execute_helper(
+            &self,
+            _request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            panic!("helper must not be called");
+        }
+    }
+
+    impl DeletePermanentlyHelper for FailingIfCalled {
         fn execute_helper(
             &self,
             _request: &HelperRequest,
@@ -280,6 +392,10 @@ mod tests {
                 hidden_files_allowed: false,
                 is_web_root: false,
             }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                delete_permanently: true,
+                ..Default::default()
+            },
             ..AppConfig::default()
         }
     }
@@ -582,5 +698,106 @@ mod tests {
         let decoded: MoveToTrashPayload = decode_msgpack(&bytes).expect("decoded");
 
         assert_eq!(decoded, payload);
+    }
+
+    fn delete_req(path: &str) -> DeletePermanentlyRequest {
+        DeletePermanentlyRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+        }
+    }
+
+    #[test]
+    fn delete_permanently_file_succeeds() {
+        let base = temp_root();
+        fs::write(base.join("killme.txt"), b"goodbye").expect("file");
+        let config = config_for(base.clone(), false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let result = delete_permanently_request(
+            &user(),
+            delete_req("killme.txt"),
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("delete ok");
+
+        assert_eq!(result.operation, "DELETE_PERMANENTLY");
+        assert!(!base.join("killme.txt").exists());
+    }
+
+    #[test]
+    fn delete_permanently_directory_succeeds() {
+        let base = temp_root();
+        let dir = base.join("folder_to_delete");
+        fs::create_dir_all(&dir).expect("dir");
+        fs::write(dir.join("child.txt"), b"child").expect("child");
+        let config = config_for(base.clone(), false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let result = delete_permanently_request(
+            &user(),
+            delete_req("folder_to_delete"),
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("delete ok");
+
+        assert_eq!(result.operation, "DELETE_PERMANENTLY");
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn delete_permanently_read_only_root_rejected() {
+        let base = temp_root();
+        fs::write(base.join("readonly.txt"), b"test").expect("file");
+        let config = config_for(base, true);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            delete_permanently_request(&user(), delete_req("readonly.txt"), &config, &engine, &helper),
+            Err(TealDriveError::ReadOnlyRoot)
+        );
+    }
+
+    #[test]
+    fn delete_permanently_sensitive_file_rejected() {
+        let base = temp_root();
+        let config = config_for(base, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            delete_permanently_request(&user(), delete_req(".env"), &config, &engine, &helper),
+            Err(TealDriveError::PolicyDenied)
+        );
+    }
+
+    #[test]
+    fn delete_permanently_root_itself_rejected() {
+        let base = temp_root();
+        let config = config_for(base, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            delete_permanently_request(&user(), delete_req(""), &config, &engine, &helper),
+            Err(TealDriveError::InvalidTarget)
+        );
     }
 }

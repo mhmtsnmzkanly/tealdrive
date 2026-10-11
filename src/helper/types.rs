@@ -380,7 +380,7 @@ impl HelperResponse {
 pub fn command_disabled_in_v1(command: HelperCommand) -> bool {
     matches!(
         command,
-        HelperCommand::DeletePermanently | HelperCommand::Chmod | HelperCommand::ExtractArchive
+        HelperCommand::Chmod | HelperCommand::ExtractArchive
     )
 }
 

@@ -267,6 +267,94 @@ pub fn restore_file_from_trash_with_roots(
     HelperResponse::operation_done(request, "Restored.")
 }
 
+pub fn delete_permanently_with_roots(
+    request: &HelperRequest,
+    roots: &[AllowedRoot],
+    sensitive_config: &SensitivePolicyConfig,
+) -> HelperResponse {
+    if request.command != HelperCommand::DeletePermanently {
+        return HelperResponse::not_implemented(request);
+    }
+    if request.uid == 0 {
+        return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
+    }
+
+    let Some(root) = roots.iter().find(|r| r.root_id == request.root_id) else {
+        return helper_error(
+            request,
+            ErrorKind::InvalidPath,
+            "Unknown root id.",
+            "invalid_root_id",
+        );
+    };
+
+    if root.read_only {
+        return helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Root is read-only.",
+            "read_only_root",
+        );
+    }
+
+    if request.relative_path.0.is_empty() {
+        return helper_error(
+            request,
+            ErrorKind::InvalidTarget,
+            "Cannot delete root directory.",
+            "invalid_target",
+        );
+    }
+
+    if crate::policy::sensitive::detect_sensitive(&request.relative_path, sensitive_config).is_sensitive {
+        return helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Target path is sensitive.",
+            "sensitive_path",
+        );
+    }
+
+    let source = match resolve_existing_path(root, &request.relative_path, false) {
+        Ok(s) => s,
+        Err(e) => return helper_error_from_tealdrive(request, e),
+    };
+
+    let trash_dir = source.root.canonical_base.join(TRASH_DIR_NAME);
+    if source.resolved_path == trash_dir {
+        return helper_error(
+            request,
+            ErrorKind::InvalidTarget,
+            "Cannot delete trash directory root.",
+            "invalid_target",
+        );
+    }
+
+    let metadata = match fs::symlink_metadata(&source.resolved_path) {
+        Ok(m) => m,
+        Err(e) => return helper_error_from_trash_io(request, e),
+    };
+
+    let remove_result = if metadata.is_dir() {
+        fs::remove_dir_all(&source.resolved_path)
+    } else {
+        fs::remove_file(&source.resolved_path)
+    };
+
+    if let Err(e) = remove_result {
+        return helper_error_from_trash_io(request, e);
+    }
+
+    if source.resolved_path.starts_with(trash_dir.join("files")) {
+        if let Some(file_name) = source.resolved_path.file_name() {
+            let info_file = trash_dir.join("info").join(format!("{}.msgpack", file_name.to_string_lossy()));
+            let _ = fs::remove_file(info_file);
+        }
+    }
+
+    HelperResponse::operation_done(request, "Deleted permanently.")
+}
+
 fn helper_error_from_trash_io(request: &HelperRequest, error: std::io::Error) -> HelperResponse {
     let (kind, message, reason) = match error.kind() {
         std::io::ErrorKind::NotFound => (ErrorKind::NotFound, "Source not found.", "not_found"),

@@ -24,7 +24,7 @@ use crate::fs::metadata::MetadataHelper;
 use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
 use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
-use crate::fs::trash::{MoveToTrashHelper, RestoreFromTrashHelper};
+use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
 use crate::session::store::{InMemorySessionStore, SessionId, SessionStore};
@@ -48,6 +48,7 @@ pub trait WsHelperBackend:
     + CopyHelper
     + MoveToTrashHelper
     + RestoreFromTrashHelper
+    + DeletePermanentlyHelper
     + UploadHelper
     + Send
     + Sync
@@ -66,6 +67,7 @@ impl<T> WsHelperBackend for T where
         + CopyHelper
         + MoveToTrashHelper
         + RestoreFromTrashHelper
+        + DeletePermanentlyHelper
         + UploadHelper
         + Send
         + Sync
@@ -676,6 +678,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::restore_file_from_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl DeletePermanentlyHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::delete_permanently_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

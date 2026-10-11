@@ -29,6 +29,12 @@ impl Default for RequestId {
     }
 }
 
+impl std::fmt::Display for RequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TransferId(pub Uuid);
 
@@ -49,6 +55,12 @@ impl TransferId {
 impl Default for TransferId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Display for TransferId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

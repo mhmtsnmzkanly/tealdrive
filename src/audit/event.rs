@@ -425,6 +425,30 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn upload(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+        bytes_in: u64,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::Upload,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event.bytes_in = bytes_in;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -679,5 +703,29 @@ mod tests {
         );
         assert_eq!(event.status, AuditStatus::Denied);
         assert_eq!(event.reason, Some(AuditReason::PolicyDenied));
+    }
+
+    #[test]
+    fn upload_audit_event_records_fields() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let event = AuditEvent::upload(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("uploads/file.png"),
+            AuditStatus::Success,
+            None,
+            4096,
+        );
+
+        assert_eq!(event.action, AuditAction::Upload);
+        assert_eq!(event.relative_path, Some(RelativePath::new("uploads/file.png")));
+        assert_eq!(event.bytes_in, 4096);
+        assert_eq!(event.status, AuditStatus::Success);
+        assert_eq!(event.reason, None);
     }
 }

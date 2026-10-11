@@ -11,6 +11,7 @@ use crate::helper::rename::rename_with_roots;
 use crate::helper::text::read_text_file_with_roots;
 use crate::helper::trash::{move_file_to_trash_with_roots, restore_file_from_trash_with_roots};
 use crate::helper::types::{command_disabled_in_v1, HelperCommand, HelperRequest, HelperResponse};
+use crate::helper::upload::write_file_with_roots;
 
 pub const MAX_HELPER_REQUEST_SIZE: usize = 1024 * 1024;
 pub const MAX_HELPER_RESPONSE_SIZE: usize = 1024 * 1024;
@@ -140,6 +141,10 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
             &roots,
             &SensitivePolicyConfig::default(),
         );
+    }
+    if request.command == HelperCommand::WriteFile {
+        let roots = allowed_roots_from_env();
+        return write_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
     HelperResponse::not_implemented(request)
 }
@@ -365,6 +370,7 @@ pub(crate) mod tests_support {
                     filter: Some(FileFilter::All),
                 },
             }),
+            write_options: None,
         }
     }
 }

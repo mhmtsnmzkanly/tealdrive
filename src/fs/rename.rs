@@ -98,6 +98,7 @@ pub fn rename_file_request<H: RenameHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

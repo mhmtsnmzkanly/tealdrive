@@ -98,6 +98,7 @@ pub fn list_directory_request<H: DirectoryListingHelper>(
             sort: request.sort.clone(),
             filter: request.filter.clone(),
         }),
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

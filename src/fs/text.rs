@@ -104,6 +104,7 @@ pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = TextPreviewHelper::execute_helper(helper_client, &helper_request)?;

@@ -689,4 +689,87 @@ mod tests {
 
         assert!(matches!(result, Err(TealDriveError::PayloadTooLarge)));
     }
+
+    #[test]
+    fn msgpack_upload_begin_request_roundtrip() {
+        let value = UploadBeginRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("uploads"),
+            filename: "photo.jpg".to_owned(),
+            total_size: 1048576,
+            chunk_size: 262144,
+            sha256: Some("abcdef1234567890".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: UploadBeginRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_upload_begin_response_roundtrip() {
+        let value = UploadBeginResponse {
+            transfer_id: TransferId::new(),
+            chunk_size: 262144,
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: UploadBeginResponse = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_upload_end_request_roundtrip() {
+        let value = UploadEndRequest {
+            transfer_id: TransferId::new(),
+            total_size: 1048576,
+            sha256: Some("abcdef1234567890".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: UploadEndRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_upload_end_response_roundtrip() {
+        let value = UploadEndResponse {
+            transfer_id: TransferId::new(),
+            bytes_written: 1048576,
+            sha256_verified: Some(true),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: UploadEndResponse = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_upload_abort_request_roundtrip() {
+        let value = UploadAbortRequest {
+            transfer_id: TransferId::new(),
+            reason: Some("user cancelled".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: UploadAbortRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn upload_begin_too_large_chunk_size_rejected() {
+        let request = UploadBeginRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("uploads"),
+            filename: "photo.jpg".to_owned(),
+            total_size: 1048576,
+            chunk_size: MAX_CHUNK_SIZE + 1,
+            sha256: None,
+        };
+
+        assert!(matches!(
+            request.validate(&Limits::default()),
+            Err(TealDriveError::Validation)
+        ));
+    }
 }

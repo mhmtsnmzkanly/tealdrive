@@ -92,6 +92,7 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -173,6 +174,7 @@ pub fn restore_from_trash_request<H: RestoreFromTrashHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

@@ -114,6 +114,7 @@ pub fn move_file_request<H: MoveHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -207,6 +208,7 @@ pub fn copy_file_request<H: CopyHelper>(
             max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

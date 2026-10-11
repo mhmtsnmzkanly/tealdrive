@@ -21,6 +21,14 @@ pub struct HelperRequest {
     pub policy_context: HelperPolicyContext,
     pub limits: HelperLimits,
     pub list_options: Option<HelperListDirectoryOptions>,
+    pub write_options: Option<HelperWriteOptions>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperWriteOptions {
+    pub data: Vec<u8>,
+    pub offset: u64,
+    pub truncate: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

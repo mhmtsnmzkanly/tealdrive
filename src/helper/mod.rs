@@ -10,3 +10,4 @@ pub mod rename;
 pub mod text;
 pub mod trash;
 pub mod types;
+pub mod upload;

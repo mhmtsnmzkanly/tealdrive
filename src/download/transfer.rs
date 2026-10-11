@@ -120,6 +120,7 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
             max_download_helper_bytes: MAX_DOWNLOAD_HELPER_BYTES,
         },
         list_options: None,
+        write_options: None,
     };
 
     let response = DownloadHelper::execute_helper(helper_client, &helper_request)?;

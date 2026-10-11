@@ -57,3 +57,13 @@ Administrators can PATCH `proxy.trusted_proxies` (IP/CIDR strings) and
 `proxy.client_ip_header` (`XForwardedFor`, `XRealIp`, `CfConnectingIp`), with normal
 session/CSRF checks. Invalid proxy ranges reject the configuration transaction.
 See CONFIGURATION.md and AUDIT.md for trust rules, event phases and limitations.
+
+
+## Login access
+
+PATCH `/api/admin/config` accepts `allowed_users: string[]`, stored as
+`account_policy.allowed_users`. GET returns the list under `account_policy`.
+Only administrator sessions with valid CSRF may change it. An empty list disables
+all login access. The helper's root-owned list remains an additional mandatory
+restriction. Unlisted users receive HTTP 401 `INVALID_CREDENTIALS` even with a
+correct password. Existing sessions cannot make further requests after removal.

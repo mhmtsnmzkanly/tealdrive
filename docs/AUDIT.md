@@ -9,7 +9,8 @@ retain the first 100 entries and the original source count.
 ## Events and outcomes
 
 - Authentication: login success/failure, account rejection, rate limiting, logout,
-  explicit revocation and expired sessions. A once-per-second maintenance task
+  explicit revocation, allowlist rejection and expired sessions. Policy removal
+  produces `SessionRevoked` / `AccountNotAllowed`, correlated by session hash. A once-per-second maintenance task
   removes expired sessions and emits one expiry event per removed session.
 - WebSocket: admission/connection, protocol handshake, malformed/text messages,
   rejected commands and disconnects. Session and request correlation, verified

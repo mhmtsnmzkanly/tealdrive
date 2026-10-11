@@ -27,6 +27,7 @@ allow_plain_ws_localhost_only = false
 allowed_origins = ["https://drive.example.com"]
 
 [account_policy]
+allowed_users = ["alice"]
 admin_users = ["alice"]
 reject_root = true
 reject_system_accounts = true

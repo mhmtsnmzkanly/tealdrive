@@ -27,7 +27,7 @@ initial startup overrides; a subsequent file reload replaces them with file valu
 | `server` | `bind_addr="127.0.0.1:3000"`, `behind_tls_proxy=true`, optional `static_dir` |
 | `session` | `cookie_name="tealdrive_session"`, idle 1800 s, absolute 43200 s, `secure_cookies=true`, `same_site="Strict"` (`Lax` also allowed) |
 | `security` | `production_wire_protocol="Tdrv1Binary"`, `allow_plain_ws_localhost_only=true`, `allowed_origins=[]` |
-| `account_policy` | `reject_root=true`, `reject_system_accounts=true`, `reject_disabled_shells=true`, `minimum_regular_uid=1000`, `admin_users=[]` |
+| `account_policy` | `reject_root=true`, `reject_system_accounts=true`, `reject_disabled_shells=true`, `minimum_regular_uid=1000`, `allowed_users=[]`, `admin_users=[]` |
 | `features` | `save_text_file`, `chmod_file`, `extract_archive`, `delete_permanently`, `chown`: all false |
 | `rate_limit` | `max_login_failures=5`, `lockout_duration_seconds=300` |
 | `helper` | `timeout_seconds=10` |
@@ -179,3 +179,46 @@ If directly behind Cloudflare, select `CfConnectingIp` and trust only its offici
 ranges. Keep those ranges current. Do not use `0.0.0.0/0` or `::/0` as trust lists.
 See [Cloudflare HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
 and [Caddy reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
+
+## Login allowlist
+
+Every network login requires an exact username in `account_policy.allowed_users`.
+The default is an empty list and **denies all logins**. Existing installations must
+add their intended users before upgrading both server and helper:
+
+```toml
+[account_policy]
+allowed_users = ["alice"]
+admin_users = ["alice"]
+reject_root = true
+reject_system_accounts = true
+reject_disabled_shells = true
+minimum_regular_uid = 1000
+```
+
+Set this list in the server TOML and the root-owned `/etc/tealdrive/helper.toml`.
+Both lists must allow the user. Server administrators can narrow or change the
+server list under Settings → Login access, or PATCH `/api/admin/config` with
+`{"allowed_users":["alice"]}`. This does not widen the root-owned helper list.
+Adding a user to `admin_users` alone does not grant login access. There are no
+wildcards, implicit admin permissions, groups or UID-based allowlist expansion.
+Lists contain at most 1024 nonempty usernames (256 bytes each); whitespace,
+control characters and path/wildcard/separator characters are rejected.
+
+Root, system-account UID and disabled-shell checks still apply to listed users.
+Thus listing a service account does not override those restrictions. Do not
+relax those existing account protections to make a service account eligible.
+Unlisted accounts receive the same generic credential error as other failures;
+audit records identify `AccountNotAllowed`. They are denied before PAM/helper
+work; backend results are also checked against the latest server policy.
+
+Removing a user blocks subsequent HTTP/WS commands immediately. Background
+maintenance removes disallowed sessions within approximately one second; their
+leases then cancel active work, and partial uploads are cleaned up. A
+`SessionRevoked` audit event records the policy removal. The privileged helper
+also checks its current root-owned allowlist when verifying cached identity
+tickets, so removing a user there prevents their next helper operation even if
+an old server session/ticket remains. Already completed operations are not undone.
+An empty server list (including removing the last administrator) requires editing
+the server config from the host to recover access.

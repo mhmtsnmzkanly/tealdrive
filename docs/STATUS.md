@@ -281,3 +281,31 @@ taşma veya ekran dışında modal görülmedi. JavaScript hatası yok. Ayarlar 
 izinleri test sırasında kaydedilmedi; kullanıcı dosyaları değiştirilmedi.
 Browser codec/shutdown regresyon testleri, Clippy ve release build geçti.
 Son sürüm Caddy üzerinden canlıda yeniden tarayıcı testinden geçirildi.
+
+
+## Kullanıcı giriş izin listesi
+
+Sunucu ve root-owned helper için `account_policy.allowed_users` zorunlu bir giriş
+izin listesi olarak eklendi. Eksik/boş liste bütün girişleri reddediyor; `admin_users`
+yönetici yetkisi veriyor, tek başına giriş izni vermiyor. Mevcut UID/root/nologin
+kontrolleri listede olan kullanıcılara da uygulanıyor. Canlı iki yapılandırmada
+şu an yalnızca `tealdrive-test` izinli; servis hesapları izinli değil.
+
+Settings → Login access alanı sunucu listesini yönetiyor. Helper üst sınırını
+sadece sunucudaki root-owned dosyayı düzenleyen sistem yöneticisi genişletebilir.
+Listeden çıkarılma yeni HTTP/WS işlemlerini engelliyor; oturum bakım görevi eski
+oturumları kaldırıyor, lease iptali yarım upload'ı temizliyor. Helper kendi listesini
+eski kimlik biletlerinde de yeniden denetliyor. Audit `AccountNotAllowed` ve
+`SessionRevoked` kayıtlarını üretiyor; dışarıya genel giriş hatası gösteriliyor.
+
+525 test (ignored gerçek-helper testleri dahil), Clippy ve release build geçti.
+Canlı testte www-data/wwwdata/caddy/tealdrive/root ve listede olmayan hesaplar
+reddedildi. Doğru parolaya sahip kullanıcı helper veya sunucu listesinden geçici
+çıkarıldığında da reddedildi; mevcut kimlik biletiyle helper kullanımı engellendi.
+Mevcut HTTP oturumu, WebSocket kapanışı, yarım upload temizliği ve audit kayıtları
+doğrulandı. Test sonunda kalıcı `tealdrive-test` listeleri korundu, servis yeniden
+başlatıldı ve izinli kullanıcı girişi doğrulandı. Dosya işlemleri ve 6 ekran boyutunda
+Chromium mobil arayüz testleri de geçti. Audit yazma hatası 0.
+
+Eski kurulumlar güncellemeden önce iki yapılandırmaya da izin listesini eklemeli;
+ayrıntılar CONFIGURATION.md ve DEPLOYMENT.md içinde.

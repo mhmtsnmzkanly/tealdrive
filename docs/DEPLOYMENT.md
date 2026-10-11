@@ -220,3 +220,13 @@ to untrusted peers. Audit `ip` is the resolved visitor; `peer_ip` is the socket 
 Use Settings → Audit Logs or the `X-Tealdrive-Audit-Write-Failures` health response
 header to check writer failures, and inspect `journalctl -u tealdrive` for details.
 See AUDIT.md for event coverage, byte-count semantics and recovery limits.
+
+
+### Mandatory login allowlist
+
+Before deploying an upgraded server/helper, set `account_policy.allowed_users`
+in both the service-owned server config and root-owned helper ceiling. Missing
+or empty lists disable login. The example allows only `alice`; replace it with
+actual intended Linux usernames. `admin_users` grants administration, not login.
+Do not include `www-data`, `caddy`, `tealdrive` or other service accounts.
+Adding users through the web settings cannot widen the helper's root-owned list.

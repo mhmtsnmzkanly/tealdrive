@@ -5,7 +5,7 @@ use crate::errors::TealDriveError;
 use crate::limits::Limits;
 use crate::policy::feature_gate::FeatureFlags;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct RootId(pub String);
 
 impl RootId {
@@ -14,12 +14,36 @@ impl RootId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+impl From<&str> for RootId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for RootId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct RelativePath(pub String);
 
 impl RelativePath {
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
+    }
+}
+
+impl From<&str> for RelativePath {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for RelativePath {
+    fn from(s: String) -> Self {
+        Self(s)
     }
 }
 

@@ -335,6 +335,7 @@ mod tests {
     use crate::fs::metadata::MetadataHelper;
     use crate::fs::move_copy::{CopyHelper, MoveHelper};
     use crate::fs::rename::RenameHelper;
+    use crate::fs::search::SearchFilesHelper;
     use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
     use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
     use crate::helper::types::{HelperRequest, HelperResponse};
@@ -372,6 +373,7 @@ mod tests {
     impl_dummy_helper!(CompressZipHelper);
     impl_dummy_helper!(CompressTarGzHelper);
     impl_dummy_helper!(ExtractArchiveHelper);
+    impl_dummy_helper!(SearchFilesHelper);
 
     fn test_state(max_failures: u32) -> WsServerState<DummyHelper> {
         let auth = MockAuthenticator::new(AccountPolicyConfig::default())

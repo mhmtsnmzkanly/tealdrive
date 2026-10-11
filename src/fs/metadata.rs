@@ -86,6 +86,7 @@ pub fn file_metadata_request<H: MetadataHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

@@ -19,6 +19,8 @@ pub enum MessageType {
     TextFileContent = 0x0104,
     SaveTextFile = 0x0105,
     FileMetadataRequest = 0x0106,
+    SearchFiles = 0x0107,
+    SearchResults = 0x0108,
     UploadBegin = 0x0200,
     UploadChunk = 0x0201,
     UploadEnd = 0x0202,
@@ -51,13 +53,13 @@ impl MessageType {
         use MessageType::*;
         match self {
             ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile | SaveTextFile
-            | UploadBegin | UploadChunk | UploadEnd | UploadAbort | DownloadBegin
+            | SearchFiles | UploadBegin | UploadChunk | UploadEnd | UploadAbort | DownloadBegin
             | CreateFolder | RenameFile | MoveFile | CopyFile | MoveToTrash | RestoreFromTrash
             | DeletePermanently | ChmodFile | CompressZip | CompressTarGz | ExtractArchive => {
                 MessageTypeDirection::ClientToServer
             }
             ServerHello | ProtocolReady | ConnectionStatus | DirectoryList | FileMetadata
-            | TextFileContent | DownloadChunk | DownloadEnd | OperationStarted
+            | TextFileContent | SearchResults | DownloadChunk | DownloadEnd | OperationStarted
             | OperationProgress | OperationDone | OperationFailed | PermissionDenied
             | PolicyDenied | ValidationError => MessageTypeDirection::ServerToClient,
             Error => MessageTypeDirection::ServerToClient,
@@ -108,6 +110,8 @@ impl TryFrom<u16> for MessageType {
             0x0104 => Ok(TextFileContent),
             0x0105 => Ok(SaveTextFile),
             0x0106 => Ok(FileMetadataRequest),
+            0x0107 => Ok(SearchFiles),
+            0x0108 => Ok(SearchResults),
             0x0200 => Ok(UploadBegin),
             0x0201 => Ok(UploadChunk),
             0x0202 => Ok(UploadEnd),

@@ -11,6 +11,7 @@ use crate::fs::listing::{list_directory_request, DirectoryListingHelper};
 use crate::fs::metadata::{file_metadata_request, MetadataHelper};
 use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, MoveHelper};
 use crate::fs::rename::{rename_file_request, RenameHelper};
+use crate::fs::search::{search_files_request, SearchFilesHelper};
 use crate::fs::text::{read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{
     delete_permanently_request, move_to_trash_request, restore_from_trash_request,
@@ -28,7 +29,7 @@ use crate::protocol::payload::{
     CreateFolderRequest, DeletePermanentlyRequest, DownloadBeginRequest, ExtractArchiveRequest,
     FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
     OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
-    SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
+    SaveTextFileRequest, SearchFilesRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
 };
 use crate::upload::transfer::{
     upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
@@ -98,7 +99,8 @@ where
         + UploadHelper
         + CompressZipHelper
         + CompressTarGzHelper
-        + ExtractArchiveHelper,
+        + ExtractArchiveHelper
+        + SearchFilesHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
     handle_decoded_frame_with_service(context, frame, config, helper_client)
@@ -127,7 +129,8 @@ where
         + UploadHelper
         + CompressZipHelper
         + CompressTarGzHelper
-        + ExtractArchiveHelper,
+        + ExtractArchiveHelper
+        + SearchFilesHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
 
@@ -208,9 +211,13 @@ where
         + UploadHelper
         + CompressZipHelper
         + CompressTarGzHelper
-        + ExtractArchiveHelper,
+        + ExtractArchiveHelper
+        + SearchFilesHelper,
 {
     match message_type {
+        MessageType::SearchFiles => Ok(DispatchDecision::Outbound(vec![
+            handle_search_files_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
         MessageType::ListDirectory => Ok(DispatchDecision::Outbound(vec![
             handle_list_directory_frame_with_service(context, &frame, config, helper_client)?,
         ])),
@@ -825,6 +832,37 @@ pub fn handle_extract_archive_frame_with_service<H: ExtractArchiveHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_search_files_frame_with_service<H: SearchFilesHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::SearchFiles {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: SearchFilesRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = search_files_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::SearchResults, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 pub fn handle_upload_begin_frame_with_service(
     context: &mut WsConnectionContext,
     frame: &TdrvFrame,
@@ -966,6 +1004,7 @@ mod tests {
     use crate::protocol::flags::FLAG_COMPRESSED;
     use crate::protocol::frame::TransferId;
     use crate::protocol::header::{TDRV_MAGIC, TDRV_VERSION};
+    use crate::protocol::payload::SearchResultsPayload;
     use crate::protocol::schema::{FileFilter, FilterMode, SortMode};
     use crate::{config::RelativePath, config::RootId};
     use std::fs;
@@ -1189,6 +1228,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::archive::extract_archive_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl SearchFilesHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::search::search_files_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -2524,6 +2576,61 @@ mod tests {
         // Verify file was never committed to destination
         assert!(!base.join("aborted.txt").exists());
         assert!(!context.active_uploads.contains_key(&transfer_id));
+    }
+
+    #[test]
+    fn search_files_after_ready_reaches_service() {
+        let base = temp_root();
+        fs::write(base.join("findme_one.txt"), b"alpha").expect("write");
+        fs::write(base.join("findme_two.rs"), b"beta").expect("write");
+        fs::write(base.join("other.log"), b"gamma").expect("write");
+
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        let _ = handle_inbound_frame(&mut context, &client_hello_frame()).expect("handshake");
+
+        let search_frame = client_frame(
+            MessageType::SearchFiles,
+            encode_msgpack(&SearchFilesRequest {
+                root_id: RootId::new("home"),
+                base_path: RelativePath::new(""),
+                query: "findme".into(),
+                extension: None,
+                max_results: Some(50),
+                include_hidden: false,
+            })
+            .expect("payload"),
+        );
+
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            search_frame,
+            &config,
+            &helper,
+        )
+        .expect("search ok");
+
+        let resp_frame = match decision {
+            DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),
+            _ => panic!("unexpected decision"),
+        };
+
+        assert_eq!(resp_frame.header.message_type, MessageType::SearchResults);
+        let results: SearchResultsPayload = decode_msgpack(&resp_frame.payload).expect("payload");
+        assert_eq!(results.matches.len(), 2);
     }
 
     #[test]

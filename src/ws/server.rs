@@ -27,6 +27,7 @@ use crate::fs::listing::DirectoryListingHelper;
 use crate::fs::metadata::MetadataHelper;
 use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
+use crate::fs::search::SearchFilesHelper;
 use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
@@ -59,6 +60,7 @@ pub trait WsHelperBackend:
     + CompressZipHelper
     + CompressTarGzHelper
     + ExtractArchiveHelper
+    + SearchFilesHelper
     + Send
     + Sync
 {
@@ -82,6 +84,7 @@ impl<T> WsHelperBackend for T where
         + CompressZipHelper
         + CompressTarGzHelper
         + ExtractArchiveHelper
+        + SearchFilesHelper
         + Send
         + Sync
 {
@@ -831,6 +834,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::archive::extract_archive_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl SearchFilesHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::search::search_files_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

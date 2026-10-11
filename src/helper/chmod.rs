@@ -144,6 +144,7 @@ mod tests {
             write_options: None,
             chmod_mode: mode.map(UnixMode),
             archive_source_paths: None,
+            search_options: None,
         }
     }
 

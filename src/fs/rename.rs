@@ -101,6 +101,7 @@ pub fn rename_file_request<H: RenameHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

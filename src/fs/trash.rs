@@ -106,6 +106,7 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -190,6 +191,7 @@ pub fn restore_from_trash_request<H: RestoreFromTrashHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -271,6 +273,7 @@ pub fn delete_permanently_request<H: DeletePermanentlyHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

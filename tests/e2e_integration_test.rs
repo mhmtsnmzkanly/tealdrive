@@ -46,6 +46,7 @@ fn sample_request(
         write_options,
         chmod_mode: None,
         archive_source_paths: sources.map(|s| s.into_iter().map(RelativePath::new).collect()),
+        search_options: None,
     }
 }
 

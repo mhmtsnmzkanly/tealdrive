@@ -263,6 +263,7 @@ pub fn upload_end_request<H: UploadHelper>(
         }),
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

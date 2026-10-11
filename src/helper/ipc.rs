@@ -172,6 +172,14 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
         let roots = allowed_roots_from_env();
         return extract_archive_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
+    if request.command == HelperCommand::SearchFiles {
+        let roots = allowed_roots_from_env();
+        return crate::helper::search::search_files_with_roots(
+            request,
+            &roots,
+            &SensitivePolicyConfig::default(),
+        );
+    }
     HelperResponse::not_implemented(request)
 }
 
@@ -399,6 +407,7 @@ pub(crate) mod tests_support {
             write_options: None,
             chmod_mode: None,
             archive_source_paths: None,
+            search_options: None,
         }
     }
 }

@@ -62,6 +62,10 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
           Trash Bin
         </button>
+        <div class="search-box" style="display:inline-flex;align-items:center;gap:4px;margin-left:0.5rem;">
+          <input type="text" id="searchInput" placeholder="Search files..." style="padding:4px 8px;font-size:0.85rem;border-radius:4px;border:1px solid var(--slate-700);background:var(--slate-800);color:var(--text-main);width:150px;">
+          <button id="searchClearBtn" class="btn btn-secondary btn-sm hidden" title="Clear Search">&times;</button>
+        </div>
       </div>
     </nav>
 
@@ -902,6 +906,8 @@ pub const APP_JS: &str = r##"
     uploadFileName: document.getElementById('uploadFileName'),
     uploadPercent: document.getElementById('uploadPercent'),
     uploadProgressBar: document.getElementById('uploadProgressBar'),
+    searchInput: document.getElementById('searchInput'),
+    searchClearBtn: document.getElementById('searchClearBtn'),
   };
 
   // --- MessagePack Pure JS Minimal Codec ---
@@ -1213,6 +1219,9 @@ pub const APP_JS: &str = r##"
       case 0x0280: // DirectoryList
         renderDirectoryList(payload);
         break;
+      case 0x0108: // SearchResults
+        renderSearchResults(payload);
+        break;
       case 0x0282: // TextFileContent
         openEditor(payload);
         break;
@@ -1349,6 +1358,76 @@ pub const APP_JS: &str = r##"
       tdAct.appendChild(renameBtn);
 
       const trashBtn = createActionButton('Trash', () => moveToTrash(itemRelPath), 'btn-danger');
+      tdAct.appendChild(trashBtn);
+
+      tr.appendChild(tdName);
+      tr.appendChild(tdSize);
+      tr.appendChild(tdMode);
+      tr.appendChild(tdMod);
+      tr.appendChild(tdAct);
+      el.fileTableBody.appendChild(tr);
+    }
+  }
+
+  function renderSearchResults(data) {
+    el.fileTableBody.innerHTML = '';
+    const matches = data.matches || [];
+
+    if (matches.length === 0) {
+      el.fileTableBody.innerHTML = `<tr class="empty-row"><td colspan="5">No files matching "${escapeHtml(data.query || '')}"</td></tr>`;
+      return;
+    }
+
+    for (const match of matches) {
+      const tr = document.createElement('tr');
+      const item = match.entry;
+      const relPath = match.relative_path;
+
+      // Name & Icon
+      const tdName = document.createElement('td');
+      const nameWrapper = document.createElement('a');
+      nameWrapper.className = 'item-name';
+      nameWrapper.href = '#';
+
+      const icon = item.is_dir ? '📁' : getFileIcon(item.name);
+      nameWrapper.innerHTML = `<span>${icon}</span> <span>${escapeHtml(relPath)}</span>`;
+      nameWrapper.onclick = (e) => {
+        e.preventDefault();
+        if (item.is_dir) {
+          loadDirectory(relPath);
+        } else {
+          viewOrEditFile(relPath);
+        }
+      };
+      tdName.appendChild(nameWrapper);
+
+      // Size
+      const tdSize = document.createElement('td');
+      tdSize.textContent = item.is_dir ? '-' : formatBytes(item.size);
+
+      // Mode
+      const tdMode = document.createElement('td');
+      tdMode.textContent = item.mode ? '0' + item.mode.toString(8) : '-';
+
+      // Modified
+      const tdMod = document.createElement('td');
+      tdMod.textContent = item.modified ? formatDate(item.modified) : '-';
+
+      // Actions
+      const tdAct = document.createElement('td');
+      tdAct.className = 'row-actions';
+
+      if (!item.is_dir) {
+        const dlBtn = createActionButton('Download', () => {
+          const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
+          window.location.href = url;
+        });
+        tdAct.appendChild(dlBtn);
+        const editBtn = createActionButton('Edit', () => viewOrEditFile(relPath));
+        tdAct.appendChild(editBtn);
+      }
+
+      const trashBtn = createActionButton('Trash', () => moveToTrash(relPath), 'btn-danger');
       tdAct.appendChild(trashBtn);
 
       tr.appendChild(tdName);
@@ -1684,6 +1763,39 @@ pub const APP_JS: &str = r##"
     // Trash modal
     el.trashBtn.onclick = () => {
       loadDirectory('.tealdrive-trash/files');
+    };
+
+    // Search
+    let searchDebounceTimer = null;
+    el.searchInput.oninput = (e) => {
+      const q = e.target.value.trim();
+      if (q) {
+        el.searchClearBtn.classList.remove('hidden');
+      } else {
+        el.searchClearBtn.classList.add('hidden');
+      }
+      clearTimeout(searchDebounceTimer);
+      if (!q) {
+        loadDirectory(state.currentPath);
+        return;
+      }
+      searchDebounceTimer = setTimeout(() => {
+        el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Searching...</td></tr>';
+        sendWsRequest(0x0107, {
+          root_id: state.currentRoot,
+          base_path: state.currentPath || '',
+          query: q,
+          extension: null,
+          max_results: 100,
+          include_hidden: false,
+        });
+      }, 300);
+    };
+
+    el.searchClearBtn.onclick = () => {
+      el.searchInput.value = '';
+      el.searchClearBtn.classList.add('hidden');
+      loadDirectory(state.currentPath);
     };
   }
 

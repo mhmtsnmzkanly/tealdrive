@@ -9,6 +9,7 @@ pub mod metadata;
 pub mod move_copy;
 pub mod privilege;
 pub mod rename;
+pub mod search;
 pub mod text;
 pub mod trash;
 pub mod types;

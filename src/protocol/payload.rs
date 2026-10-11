@@ -402,6 +402,35 @@ pub struct PermissionDeniedPayload {
     pub error: ErrorPayload,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchFilesRequest {
+    pub root_id: RootId,
+    #[serde(default)]
+    pub base_path: RelativePath,
+    pub query: String,
+    #[serde(default)]
+    pub extension: Option<String>,
+    #[serde(default)]
+    pub max_results: Option<usize>,
+    #[serde(default)]
+    pub include_hidden: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchMatchEntry {
+    pub relative_path: RelativePath,
+    pub entry: DirectoryEntryPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchResultsPayload {
+    pub root_id: RootId,
+    pub query: String,
+    pub matches: Vec<SearchMatchEntry>,
+    pub total_matches: usize,
+    pub truncated: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

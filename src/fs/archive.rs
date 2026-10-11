@@ -125,6 +125,7 @@ pub fn compress_zip_request<H: CompressZipHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: Some(validated_sources),
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -223,6 +224,7 @@ pub fn compress_targz_request<H: CompressTarGzHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: Some(validated_sources),
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -306,6 +308,7 @@ pub fn extract_archive_request<H: ExtractArchiveHelper>(
         write_options: None,
         chmod_mode: None,
         archive_source_paths: None,
+        search_options: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

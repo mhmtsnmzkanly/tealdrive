@@ -196,18 +196,28 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
   <div id="chmodModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Change Permissions (chmod)</h3>
+        <h3>File Permissions</h3>
         <button class="modal-close" id="chmodCloseBtn">&times;</button>
       </div>
       <form id="chmodForm" class="modal-body">
         <p class="file-target-name" id="chmodTargetName"></p>
+        <p class="muted">Select permissions or enter an octal code. Both stay in sync.</p>
+        <table class="permission-grid">
+          <thead><tr><th scope="col">Who</th><th scope="col">Read</th><th scope="col">Write</th><th scope="col">Execute</th></tr></thead>
+          <tbody><tr><th scope="row">Owner</th><td><input type="checkbox" class="chmod-bit" data-bit="256" aria-label="Owner: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="128" aria-label="Owner: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="64" aria-label="Owner: Execute"></td></tr>
+<tr><th scope="row">Group</th><td><input type="checkbox" class="chmod-bit" data-bit="32" aria-label="Group: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="16" aria-label="Group: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="8" aria-label="Group: Execute"></td></tr>
+<tr><th scope="row">Others</th><td><input type="checkbox" class="chmod-bit" data-bit="4" aria-label="Others: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="2" aria-label="Others: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="1" aria-label="Others: Execute"></td></tr>
+</tbody>
+        </table>
         <div class="form-group">
-          <label for="chmodOctalInput">Octal Mode (e.g. 0644, 0755):</label>
-          <input type="text" id="chmodOctalInput" class="form-input" pattern="0?[0-7]{3}" maxlength="4" required>
+          <label for="chmodOctalInput">Permission code</label>
+          <input type="text" id="chmodOctalInput" class="form-input" pattern="0?[0-7]{3}" maxlength="4" inputmode="numeric" autocomplete="off" aria-describedby="chmodPreview chmodError" required>
+          <p id="chmodPreview" class="permission-preview" aria-live="polite"></p>
+          <p id="chmodError" class="permission-error" role="status"></p>
         </div>
         <div class="modal-actions">
           <button type="button" id="chmodCancelBtn" class="btn btn-secondary">Cancel</button>
-          <button type="submit" class="btn btn-primary">Apply</button>
+          <button type="submit" id="chmodApplyBtn" class="btn btn-primary">Apply Permissions</button>
         </div>
       </form>
     </div>
@@ -1019,6 +1029,14 @@ body {
 .settings-row .form-input {
   width: 140px;
 }
+
+.permission-grid { width:100%; border-collapse:collapse; margin:16px 0 20px; font-size:14px; }
+.permission-grid th,.permission-grid td { padding:12px 4px; text-align:center; border-bottom:1px solid var(--border-color, #334155); }
+.permission-grid th:first-child { text-align:left; }
+.permission-grid input { width:20px; height:20px; accent-color:var(--teal-500); cursor:pointer; }
+.permission-preview { font-family:monospace; letter-spacing:2px; margin:8px 0; }
+.permission-error { color:var(--danger); font-size:13px; min-height:20px; }
+.permission-grid + .form-group { margin-top:16px; }
 "##;
 
 pub const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
@@ -1091,6 +1109,10 @@ pub const APP_JS: &str = r##"
     chmodCancelBtn: document.getElementById('chmodCancelBtn'),
     chmodTargetName: document.getElementById('chmodTargetName'),
     chmodOctalInput: document.getElementById('chmodOctalInput'),
+    chmodBits: [...document.querySelectorAll('#chmodForm .chmod-bit')],
+    chmodPreview: document.getElementById('chmodPreview'),
+    chmodError: document.getElementById('chmodError'),
+    chmodApplyBtn: document.getElementById('chmodApplyBtn'),
     archiveModal: document.getElementById('archiveModal'),
     archiveForm: document.getElementById('archiveForm'),
     archiveCloseBtn: document.getElementById('archiveCloseBtn'),
@@ -1332,7 +1354,7 @@ pub const APP_JS: &str = r##"
         }
       }
 
-      const chmodBtn = createActionButton('Mode', () => openChmodModal(itemRelPath, item.mode));
+      const chmodBtn = createActionButton('Permissions', () => openChmodModal(itemRelPath, item.mode));
       tdAct.appendChild(chmodBtn);
 
       const renameBtn = createActionButton('Rename', () => openRenameModal(item.name, itemRelPath));
@@ -1621,10 +1643,30 @@ pub const APP_JS: &str = r##"
     });
   }
 
+  function syncChmodFromCode() {
+    const value=el.chmodOctalInput.value.trim();
+    const valid=/^0?[0-7]{3}$/.test(value);
+    el.chmodOctalInput.setAttribute('aria-invalid',String(!valid));
+    el.chmodOctalInput.setCustomValidity(valid?'':'Enter three octal digits (0–7), optionally preceded by 0.');
+    el.chmodApplyBtn.disabled=!valid;
+    el.chmodError.textContent=valid?'':'Enter a valid code such as 0644 or 0755 (digits 0–7).';
+    if(!valid){el.chmodPreview.textContent='';return null;}
+    const mode=parseInt(value,8);
+    for(const checkbox of el.chmodBits)checkbox.checked=Boolean(mode&Number(checkbox.dataset.bit));
+    el.chmodPreview.textContent=el.chmodBits.map((checkbox,index)=>checkbox.checked?'rwx'[index%3]:'-').join('');
+    return mode;
+  }
+  function syncChmodFromCheckboxes() {
+    const mode=el.chmodBits.reduce((value,checkbox)=>value|(checkbox.checked?Number(checkbox.dataset.bit):0),0);
+    el.chmodOctalInput.value='0'+mode.toString(8).padStart(3,'0');
+    syncChmodFromCode();
+  }
   function openChmodModal(relPath, currentMode) {
     state.chmodTarget = relPath;
     el.chmodTargetName.textContent = relPath;
-    el.chmodOctalInput.value = currentMode ? '0' + currentMode.toString(8) : '0644';
+    const mode=(currentMode??0o644)&0o777;
+    el.chmodOctalInput.value='0'+mode.toString(8).padStart(3,'0');
+    syncChmodFromCode();
     el.chmodModal.classList.remove('hidden');
   }
 
@@ -1970,17 +2012,19 @@ pub const APP_JS: &str = r##"
     // Chmod modal
     el.chmodCloseBtn.onclick = () => el.chmodModal.classList.add('hidden');
     el.chmodCancelBtn.onclick = () => el.chmodModal.classList.add('hidden');
-    el.chmodForm.onsubmit = (e) => {
+    el.chmodOctalInput.addEventListener('input',syncChmodFromCode);
+    for(const checkbox of el.chmodBits)checkbox.addEventListener('change',syncChmodFromCheckboxes);
+    el.chmodForm.onsubmit = async (e) => {
       e.preventDefault();
-      const mode = parseInt(el.chmodOctalInput.value.trim(), 8);
-      if (!isNaN(mode)) {
-        sendWsRequest(MT.ChmodFile, {
-          root_id: state.currentRoot,
-          relative_path: state.chmodTarget,
-          mode: mode,
-        });
-      }
-      el.chmodModal.classList.add('hidden');
+      const mode=syncChmodFromCode();
+      if(mode===null)return;
+      el.chmodApplyBtn.disabled=true;
+      try {
+        await requestWs(MT.ChmodFile,{root_id:state.currentRoot,relative_path:state.chmodTarget,mode});
+        el.chmodModal.classList.add('hidden');
+        showToast('Permissions updated','success');loadDirectory(state.currentPath);
+      } catch(error) {el.chmodError.textContent=error.message;}
+      finally {el.chmodApplyBtn.disabled=false;}
     };
 
     // Trash modal

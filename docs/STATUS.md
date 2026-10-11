@@ -144,3 +144,17 @@ gerçek PAM girişi, oturum, HTTP Range ve logout doğrulandı. Aynı alan adın
 bağlantısıyla handshake, listeleme, klasör oluşturma, upload, save, rename, ZIP,
 extraction, UID sahipliği ve çıkışta socket kapanışı tekrar başarılı oldu.
 Servisler test sonunda açık bırakıldı. Tarayıcıdaki görsel kullanım testi kullanıcıya kalır.
+
+## İzin seçici arayüzü
+
+Dosya listesindeki Mode aksiyonu Permissions olarak adlandırıldı. İzin penceresine
+Owner/Group/Others için Read/Write/Execute checkbox matrisi eklendi. Octal kod ve
+checkbox'lar çift yönlü eşleşir; sembolik izin özeti gösterilir. 0000 doğru işlenir;
+geçersiz kodlarda Apply kapalıdır. Backend hatası pencereyi kapatmaz; başarı yalnızca
+sunucu onayından sonra gösterilir. Özel setuid/setgid/sticky bitleri desteklenmez.
+Mevcut backend chmod feature gate'i korunmuştur.
+
+JavaScript davranış kontrolleri (0644, 0755, checkbox değişikliği, 0000, hatalı
+kodlar ve hatadan toparlanma), browser contract testi, Clippy ve release build
+başarılıdır. Yeni server binary canlı servise yüklenmiş ve HTTPS üzerinden yeni
+HTML/JavaScript'in sunulduğu doğrulanmıştır.

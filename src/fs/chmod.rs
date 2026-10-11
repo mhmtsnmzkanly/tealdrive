@@ -174,6 +174,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 chmod_file,

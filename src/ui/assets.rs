@@ -1605,7 +1605,14 @@ pub const APP_JS: &str = r##"
     for (const r of state.roots) {
       const opt = document.createElement('option');
       opt.value = r.root_id;
-      opt.textContent = `${r.root_id} ${r.read_only ? '(read-only)' : ''}`;
+      let label = r.root_id;
+      if (r.quota_bytes) {
+        const used = r.used_bytes ? formatBytes(r.used_bytes) : '0 B';
+        const total = formatBytes(r.quota_bytes);
+        label += ` [Quota: ${used} / ${total}]`;
+      }
+      if (r.read_only) label += ' (read-only)';
+      opt.textContent = label;
       el.rootSelect.appendChild(opt);
     }
     state.currentRoot = state.roots.length > 0 ? state.roots[0].root_id : null;

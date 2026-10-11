@@ -154,6 +154,7 @@ mod tests {
             uploads_allowed,
             hidden_files_allowed: false,
             is_web_root,
+            quota_bytes: None,
         }
     }
 

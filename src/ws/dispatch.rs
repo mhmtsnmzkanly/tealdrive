@@ -1568,6 +1568,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1599,6 +1600,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1630,6 +1632,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1665,6 +1668,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1720,6 +1724,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 save_text_file: true,
@@ -1756,6 +1761,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1788,6 +1794,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1820,6 +1827,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1853,6 +1861,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1936,6 +1945,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -1972,6 +1982,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -2045,6 +2056,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 delete_permanently: true,
@@ -2111,6 +2123,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 chmod_file: true,
@@ -2150,6 +2163,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -2190,6 +2204,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -2230,6 +2245,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 extract_archive: true,
@@ -2378,6 +2394,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -2499,6 +2516,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };
@@ -2593,6 +2611,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };

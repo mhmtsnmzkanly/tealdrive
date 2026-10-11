@@ -115,6 +115,7 @@ pub fn allowed_roots_from_env() -> Vec<AllowedRoot> {
                     uploads_allowed: true,
                     hidden_files_allowed: false,
                     is_web_root: false,
+                quota_bytes: None,
                 })
             })
             .collect();
@@ -516,6 +517,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         }
     }
 

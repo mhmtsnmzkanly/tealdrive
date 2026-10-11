@@ -82,6 +82,8 @@ pub fn upload_begin_request(
         return Err(TealDriveError::PolicyDenied);
     }
 
+    crate::fs::quota::check_quota(root, request.total_size)?;
+
     if detect_sensitive(&target_rel, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);
     }
@@ -236,6 +238,7 @@ pub fn upload_end_request<H: UploadHelper>(
     };
 
     let root = require_allowed_root(config.allowed_roots(), &active_upload.root_id)?;
+    crate::fs::quota::check_quota(root, active_upload.total_size)?;
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
@@ -346,6 +349,7 @@ mod tests {
                 uploads_allowed,
                 hidden_files_allowed: false,
                 is_web_root,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         }
@@ -537,5 +541,22 @@ mod tests {
 
         let req = begin_req(".env", 50, 50, None);
         assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::PolicyDenied));
+    }
+
+    #[test]
+    fn upload_exceeding_quota_rejected() {
+        let base = temp_root();
+        std::fs::write(base.join("existing.dat"), vec![0u8; 80]).unwrap();
+        let mut config = config_for(base, false, true, false);
+        config.roots[0].quota_bytes = Some(100);
+        let engine = PolicyEngine::new(&config);
+
+        // 80 existing + 30 new > 100 quota -> DiskFull
+        let req = begin_req("toolarge.txt", 30, 30, None);
+        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::DiskFull));
+
+        // 80 existing + 15 new <= 100 quota -> Allowed to begin
+        let req_ok = begin_req("fits.txt", 15, 15, None);
+        assert!(upload_begin_request(&user(), req_ok, &config, &engine).is_ok());
     }
 }

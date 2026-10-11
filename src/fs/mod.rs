@@ -6,6 +6,7 @@ pub mod listing;
 pub mod metadata;
 pub mod move_copy;
 pub mod path;
+pub mod quota;
 pub mod rename;
 pub mod search;
 pub mod text;

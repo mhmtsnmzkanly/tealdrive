@@ -787,6 +787,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         // Compress
@@ -832,6 +833,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         // Compress
@@ -873,6 +875,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: true,
+                quota_bytes: None,
         };
 
         let req = sample_request(
@@ -898,6 +901,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let req = sample_request(

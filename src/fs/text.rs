@@ -239,6 +239,8 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
         Err(err) => return Err(err),
     }
 
+    crate::fs::quota::check_quota(root, request.content.len() as u64)?;
+
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
@@ -367,6 +369,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: hidden_allowed,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 save_text_file: true,

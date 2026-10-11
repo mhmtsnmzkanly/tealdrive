@@ -239,6 +239,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: hidden_allowed,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         }

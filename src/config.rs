@@ -219,6 +219,8 @@ pub struct AllowedRoot {
     pub uploads_allowed: bool,
     pub hidden_files_allowed: bool,
     pub is_web_root: bool,
+    #[serde(default)]
+    pub quota_bytes: Option<u64>,
 }
 
 impl Default for AllowedRoot {
@@ -230,6 +232,7 @@ impl Default for AllowedRoot {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+            quota_bytes: None,
         }
     }
 }

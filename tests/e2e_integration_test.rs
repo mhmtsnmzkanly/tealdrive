@@ -192,6 +192,7 @@ async fn test_e2e_server_http_login_session_lifecycle() {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         }],
         ..AppConfig::default()
     };
@@ -273,6 +274,7 @@ async fn test_e2e_web_ui_and_static_assets_serving() {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         }],
         ..AppConfig::default()
     };
@@ -382,6 +384,7 @@ async fn test_e2e_http_streaming_download_and_range_requests() {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         }],
         ..AppConfig::default()
     };

@@ -28,6 +28,10 @@ pub struct RootSummary {
     pub read_only: bool,
     pub is_web_root: bool,
     pub uploads_allowed: bool,
+    #[serde(default)]
+    pub quota_bytes: Option<u64>,
+    #[serde(default)]
+    pub used_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +181,8 @@ where
             read_only: r.read_only,
             is_web_root: r.is_web_root,
             uploads_allowed: r.uploads_allowed,
+            quota_bytes: r.quota_bytes,
+            used_bytes: r.quota_bytes.map(|_| crate::fs::quota::compute_directory_size(&r.base_path)),
         })
         .collect();
 
@@ -277,6 +283,8 @@ where
                     read_only: r.read_only,
                     is_web_root: r.is_web_root,
                     uploads_allowed: r.uploads_allowed,
+                    quota_bytes: r.quota_bytes,
+                    used_bytes: r.quota_bytes.map(|_| crate::fs::quota::compute_directory_size(&r.base_path)),
                 })
                 .collect();
 
@@ -386,6 +394,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             ..AppConfig::default()
         };

@@ -400,6 +400,7 @@ mod tests {
                 uploads_allowed: true,
                 hidden_files_allowed: false,
                 is_web_root: false,
+                quota_bytes: None,
             }],
             features: crate::policy::feature_gate::FeatureFlags {
                 delete_permanently: true,

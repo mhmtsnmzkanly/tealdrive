@@ -162,6 +162,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request("script.sh", Some(0o755));
@@ -192,6 +193,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request("file.txt", Some(0o644));
@@ -211,6 +213,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request("file.txt", None);
@@ -231,6 +234,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request(".env", Some(0o600));
@@ -251,6 +255,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: true,
+                quota_bytes: None,
         };
 
         let request = chmod_request("exploit.php", Some(0o755));
@@ -271,6 +276,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: true,
+                quota_bytes: None,
         };
 
         let request = chmod_request("index.html", Some(0o644));
@@ -291,6 +297,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request("", Some(0o755));
@@ -310,6 +317,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
+                quota_bytes: None,
         };
 
         let request = chmod_request("missing.txt", Some(0o644));

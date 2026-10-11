@@ -77,6 +77,7 @@ fn context_from_session(
         protocol_ready: false,
         selected_protocol: None,
         features,
+        active_uploads: std::collections::HashMap::new(),
     }
 }
 
@@ -98,6 +99,7 @@ pub mod tests {
             protocol_ready: false,
             selected_protocol: None,
             features: FeatureFlags::default(),
+            active_uploads: std::collections::HashMap::new(),
         }
     }
 

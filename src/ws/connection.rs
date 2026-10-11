@@ -1,13 +1,16 @@
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashMap;
+
 use crate::config::UserContext;
 use crate::limits::Limits;
 use crate::policy::feature_gate::FeatureFlags;
 use crate::protocol::compression::Compression;
-use crate::protocol::frame::TdrvFrame;
+use crate::protocol::frame::{TdrvFrame, TransferId};
 use crate::protocol::header::Encoding;
 use crate::protocol::message_type::MessageType;
 use crate::session::SessionId;
+use crate::upload::transfer::ActiveUpload;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WsConnectionContext {
@@ -21,6 +24,7 @@ pub struct WsConnectionContext {
     pub protocol_ready: bool,
     pub selected_protocol: Option<WsSelectedProtocol>,
     pub features: FeatureFlags,
+    pub active_uploads: HashMap<TransferId, ActiveUpload>,
 }
 
 impl WsConnectionContext {

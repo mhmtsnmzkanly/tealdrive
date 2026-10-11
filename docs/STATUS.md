@@ -309,3 +309,24 @@ Chromium mobil arayüz testleri de geçti. Audit yazma hatası 0.
 
 Eski kurulumlar güncellemeden önce iki yapılandırmaya da izin listesini eklemeli;
 ayrıntılar CONFIGURATION.md ve DEPLOYMENT.md içinde.
+
+
+## Filtreli yerel kullanıcı seçicisi
+
+Login access alanı metin kutusu yerine checkbox listesi oldu. Yöneticiye özel
+`GET /api/admin/users`, yerel passwd/shell kayıtlarından uygun hesapları keşfediyor.
+Root, sistem UID'leri, nologin/false veya kayıtlı olmayan shell'ler ve bilinen servis
+adları (caddy/www-data dahil) yeni seçeneklerden filtreleniyor. Sadece ad/UID/GID
+aktarılıyor; parola/shadow okunmuyor. Liste sıralı ve 1024 seçenekle sınırlı.
+
+Mevcut izin listesinde olup filtreye takılan hesaplar ayrı, yalnızca kaldırılabilir
+kayıtlar olarak korunuyor. Diğer ayarları kaydetmek onları sessizce silmiyor.
+Keşif hatasında kaydetme engelleniyor. Seçim Linux hesabı oluşturmaz ve root-owned
+helper izin listesini genişletmez. Filtre standart yerel hesaplar için yardımcıdır;
+özel servis hesaplarını kesin olarak tanımlamaz, NSS/LDAP-only kullanıcıları keşfetmez.
+İki giriş izin listesi ve PAM kontrolleri yetkili güvenlik sınırı olmaya devam ediyor.
+
+528 test (gerçek-helper/ignored testler dahil), Clippy ve release build başarılı.
+Canlı Chromium'da mevcut kullanıcının seçili gelmesi, servislerin görünmemesi,
+checkbox değişikliğinin kaydedilmesi ve 6 ekran boyutunda liste/modal davranışı
+doğrulandı. Kullanıcı dosyaları ve kalıcı giriş izinleri korunarak canlıya uygulandı.

@@ -67,3 +67,13 @@ Only administrator sessions with valid CSRF may change it. An empty list disable
 all login access. The helper's root-owned list remains an additional mandatory
 restriction. Unlisted users receive HTTP 401 `INVALID_CREDENTIALS` even with a
 correct password. Existing sessions cannot make further requests after removal.
+
+
+## Local user choices
+
+GET `/api/admin/users` requires an administrator session and returns
+`{"users":[{"username":"alice","uid":1000,"gid":1000}],"truncated":false}`.
+It includes eligible local accounts only, excludes system/service accounts and
+returns `Cache-Control: no-store`. Discovery failure returns HTTP 503 with
+`USER_DISCOVERY_UNAVAILABLE`; unauthenticated/non-admin requests return 401/403.
+Selecting a choice does not create an OS account or widen the helper allowlist.

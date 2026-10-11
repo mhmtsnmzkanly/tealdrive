@@ -199,7 +199,7 @@ minimum_regular_uid = 1000
 
 Set this list in the server TOML and the root-owned `/etc/tealdrive/helper.toml`.
 Both lists must allow the user. Server administrators can narrow or change the
-server list under Settings → Login access, or PATCH `/api/admin/config` with
+server list by checking eligible local users under Settings → Login access, or PATCH `/api/admin/config` with
 `{"allowed_users":["alice"]}`. This does not widen the root-owned helper list.
 Adding a user to `admin_users` alone does not grant login access. There are no
 wildcards, implicit admin permissions, groups or UID-based allowlist expansion.
@@ -222,3 +222,32 @@ tickets, so removing a user there prevents their next helper operation even if
 an old server session/ticket remains. Already completed operations are not undone.
 An empty server list (including removing the last administrator) requires editing
 the server config from the host to recover access.
+
+
+### User picker and service filtering
+
+Settings → Login access discovers local users from the bounded public
+`/etc/passwd` and `/etc/shells` files; it does not read shadow/password data.
+Only administrator sessions can request `/api/admin/users`. Responses are not
+cached and contain username, UID and GID only, sorted by username.
+
+New choices require a nonzero UID at or above `minimum_regular_uid`, a valid
+username and a shell listed in `/etc/shells`; `false` and `nologin` are always
+excluded even if listed there. Known service names such as caddy, www-data,
+wwwdata, tealdrive, nginx, apache, database/Redis accounts and nobody are excluded
+also when they have an unusually high UID and an interactive shell. If
+`/etc/shells` is missing, common sh/bash/dash/zsh/fish paths are used as fallback.
+At most 1024 choices are returned, with an explicit truncation flag.
+
+This is a conservative local-account chooser, not proof that an account is a
+human: custom service accounts can have ordinary UIDs, names and shells. Review
+selections; PAM checks and both mandatory allowlists remain authoritative.
+LDAP/NSS-only users and custom shells absent from `/etc/shells` are not discovered
+by this local picker and can still be managed explicitly in the configurations.
+The root-owned helper list must permit newly selected users as before.
+
+Existing configured users outside the filtered choices remain visible as
+remove-only entries. Saving other settings preserves them unless explicitly
+unchecked; after removal they cannot be reselected through the picker. A failed
+user discovery blocks settings saving rather than overwriting permissions with
+an empty list.

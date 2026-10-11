@@ -61,6 +61,7 @@ pub struct UserContext {
 pub struct AppConfig {
     pub server: ServerConfig,
     pub audit: AuditConfig,
+    pub proxy: crate::client_ip::ProxyConfig,
     pub session: SessionConfig,
     pub security: SecurityConfig,
     pub roots: Vec<AllowedRoot>,
@@ -84,6 +85,7 @@ impl Default for AppConfig {
         Self {
             server: ServerConfig::default(),
             audit: AuditConfig::default(),
+            proxy: crate::client_ip::ProxyConfig::default(),
             session: SessionConfig::default(),
             security: SecurityConfig::default(),
             roots: vec![AllowedRoot::default()],
@@ -175,6 +177,9 @@ impl AppConfig {
                         .any(|p| matches!(p, std::path::Component::ParentDir))
             })
         {
+            return Err(TealDriveError::Validation);
+        }
+        if !self.proxy.validate() {
             return Err(TealDriveError::Validation);
         }
         let l = &self.limits;
@@ -510,6 +515,8 @@ impl Default for SearchConfig {
 #[serde(deny_unknown_fields)]
 pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<crate::config_patch::ProxyPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audit: Option<crate::config_patch::AuditPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub features: Option<crate::config_patch::FeaturesPatch>,
@@ -543,6 +550,9 @@ pub struct ConfigPatch {
 
 impl ConfigPatch {
     pub fn apply_to(&self, config: &mut AppConfig) {
+        if let Some(proxy) = &self.proxy {
+            proxy.apply_to(&mut config.proxy);
+        }
         if let Some(audit) = &self.audit {
             audit.apply_to(&mut config.audit);
         }

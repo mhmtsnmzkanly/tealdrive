@@ -23,6 +23,7 @@ pub struct PreparedAudit {
 #[derive(Debug)]
 pub struct JsonlAuditSink {
     writer: Mutex<Writer>,
+    write_failures: std::sync::atomic::AtomicU64,
 }
 fn open_file(path: &Path) -> io::Result<File> {
     let file = OpenOptions::new()
@@ -154,6 +155,7 @@ impl JsonlAuditSink {
         });
         let file = open_file(&path)?;
         Ok(Self {
+            write_failures: std::sync::atomic::AtomicU64::new(0),
             writer: Mutex::new(Writer {
                 file,
                 config: config.clone(),
@@ -201,7 +203,25 @@ impl JsonlAuditSink {
             .file
             .sync_all()
     }
+    pub fn write_failures(&self) -> u64 {
+        self.write_failures
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
     pub fn emit(&self, event: &AuditEvent) -> io::Result<()> {
+        let result = self.emit_inner(event);
+        if let Err(error) = &result {
+            let count = self
+                .write_failures
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                + 1;
+            eprintln!(
+                "Audit write failed (count={count}, request_id={}, action={:?}): {error}",
+                event.request_id, event.action
+            );
+        }
+        result
+    }
+    fn emit_inner(&self, event: &AuditEvent) -> io::Result<()> {
         let mut line = to_jsonl(event).map_err(io::Error::other)?;
         line.push('\n');
         let mut writer = self
@@ -238,6 +258,19 @@ mod tests {
             AuditAction::Login,
             AuditStatus::Success,
         )
+    }
+    #[test]
+    fn failed_write_is_counted_and_can_recover() {
+        let dir = fixture();
+        let path = dir.join("audit.jsonl");
+        let sink = JsonlAuditSink::open(&path).unwrap();
+        std::os::unix::fs::symlink(&path, dir.join("audit.jsonl.1")).unwrap();
+        assert!(sink.emit(&event("alice")).is_err());
+        assert_eq!(sink.write_failures(), 1);
+        fs::remove_file(dir.join("audit.jsonl.1")).unwrap();
+        sink.emit(&event("alice")).unwrap();
+        assert_eq!(sink.write_failures(), 1);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn concurrent_rotation_keeps_complete_events() {

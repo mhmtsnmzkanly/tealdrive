@@ -310,7 +310,12 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
         </div>
 
         <div class="settings-section">
+          <h4>Client IP / Trusted proxies</h4>
+          <div class="settings-row"><label for="cfgTrustedProxies">Trusted proxy IPs / CIDRs (one per line):</label><textarea id="cfgTrustedProxies" class="form-input" rows="3"></textarea></div>
+          <div class="settings-row"><label for="cfgClientIpHeader">Client IP header:</label><select id="cfgClientIpHeader" class="form-input"><option value="XForwardedFor">X-Forwarded-For</option><option value="XRealIp">X-Real-IP</option><option value="CfConnectingIp">CF-Connecting-IP</option></select></div>
+          <p>Only connections from trusted proxies may supply this header. Leave the list empty for direct connections. Trust your immediate proxy, not every address.</p>
           <h4>Audit Logs</h4>
+          <p id="cfgAuditHealth"></p>
           <div class="settings-row"><label for="cfgAuditPath">Log file path:</label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
           <div class="settings-row"><label for="cfgAuditMaxMB">Maximum file size (MiB):</label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
           <div class="settings-row"><label for="cfgAuditArchives">Archives to keep:</label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
@@ -1175,6 +1180,9 @@ pub const APP_JS: &str = r##"
     cfgFeatChmod: document.getElementById('cfgFeatChmod'),
     cfgFeatArchive: document.getElementById('cfgFeatArchive'),
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
+    cfgTrustedProxies: document.getElementById('cfgTrustedProxies'),
+    cfgClientIpHeader: document.getElementById('cfgClientIpHeader'),
+    cfgAuditHealth: document.getElementById('cfgAuditHealth'),
     cfgAuditPath: document.getElementById('cfgAuditPath'),
     cfgAuditMaxMB: document.getElementById('cfgAuditMaxMB'),
     cfgAuditArchives: document.getElementById('cfgAuditArchives'),
@@ -1933,10 +1941,13 @@ pub const APP_JS: &str = r##"
         el.cfgFeatChmod.checked = !!cfg.features.chmod_file;
         el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
+      el.cfgTrustedProxies.value=(cfg.proxy?.trusted_proxies||[]).join('\n');
+      el.cfgClientIpHeader.value=cfg.proxy?.client_ip_header||'XForwardedFor';
       el.cfgAuditPath.value=cfg.audit?.path||'';
       el.cfgAuditMaxMB.value=(cfg.audit?.max_file_bytes??10485760)/1048576;
       el.cfgAuditArchives.value=cfg.audit?.max_archives??5;
       el.cfgAuditDays.value=cfg.audit?.retention_days||'';
+      el.cfgAuditHealth.textContent='Audit write failures since server start: '+(resp.headers.get('x-tealdrive-audit-write-failures')||'0');
       el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
       if (cfg.limits) {
         el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_in_flight_upload || 1024 * 1024) / (1024 * 1024));
@@ -1969,6 +1980,7 @@ pub const APP_JS: &str = r##"
     const dayText=el.cfgAuditDays.value.trim();const days=dayText===''?null:Number(dayText);
     if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>36500))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
     const patch = {
+      proxy:{trusted_proxies:el.cfgTrustedProxies.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),client_ip_header:el.cfgClientIpHeader.value},
       audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_days:days},
       features: {
         ...(currentAdminConfig?.features||{}),

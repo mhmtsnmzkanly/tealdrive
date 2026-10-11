@@ -208,12 +208,14 @@ where
     };
 
     let request_id = RequestId::new();
-    let _ = state.audit_sink.emit(&AuditEvent::login_success(
+    let mut event = AuditEvent::login_success(
         request_id,
         &auth_success.username,
         auth_success.uid,
         auth_success.primary_gid,
-    ));
+    );
+    event.session_id_hash = crate::audit::context::session_hash(session.session_id);
+    let _ = state.audit_sink.emit(&event);
 
     let cfg = state.config.load();
     let cookie_config = SessionCookieConfig::from_session_config(&cfg.session);

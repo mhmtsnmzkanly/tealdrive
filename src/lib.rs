@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod audit;
 pub mod auth;
+pub mod client_ip;
 pub mod config;
 pub mod config_patch;
 pub mod download;

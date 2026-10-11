@@ -249,6 +249,9 @@ impl Drop for Fixture {
     }
 }
 fn fixture(admin: bool) -> Fixture {
+    fixture_with_proxy(admin, Default::default())
+}
+fn fixture_with_proxy(admin: bool, proxy: tealdrive::client_ip::ProxyConfig) -> Fixture {
     use tealdrive::auth::account::{MockAuthenticator, MockUser};
     use tealdrive::ws::server::{build_router, WsServerState};
     let root = temp_dir();
@@ -259,6 +262,7 @@ fn fixture(admin: bool) -> Fixture {
         }],
         ..AppConfig::default()
     };
+    config.proxy = proxy;
     if admin {
         config.account_policy.admin_users = vec!["alice".into()];
     }
@@ -708,4 +712,66 @@ fn real_helper_cancellation_interrupts_a_blocked_quota_lock() {
     assert!(!base.join("cancelled").exists());
     drop(directory);
     fs::remove_dir_all(base).unwrap();
+}
+
+#[tokio::test]
+async fn proxy_identity_is_verified_and_sensitive_values_are_not_audited() {
+    use tealdrive::client_ip::{ClientIpHeader, ProxyConfig};
+    for (trust, peer, expected) in [
+        (false, "127.0.0.1:1234", "127.0.0.1"),
+        (true, "127.0.0.1:1234", "2001:db8::42"),
+        (true, "192.0.2.1:1234", "192.0.2.1"),
+    ] {
+        let f = fixture_with_proxy(
+            true,
+            ProxyConfig {
+                trusted_proxies: if trust {
+                    vec!["127.0.0.1/32".into()]
+                } else {
+                    vec![]
+                },
+                client_ip_header: ClientIpHeader::XRealIp,
+            },
+        );
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/login")
+            .header("host", "localhost")
+            .header("content-type", "application/json")
+            .header("x-real-ip", "2001:db8::42")
+            .header("user-agent", "audit-test")
+            .extension(axum::extract::ConnectInfo(
+                peer.parse::<std::net::SocketAddr>().unwrap(),
+            ))
+            .body(Body::from(r#"{"username":"alice","password":"secret123"}"#))
+            .unwrap();
+        let response = f.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["x-tealdrive-audit-write-failures"], "0");
+        let raw_cookie = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let _ = json(response).await;
+        let raw = fs::read_to_string(f.root.join("audit.jsonl")).unwrap();
+        assert!(!raw.contains("secret123"));
+        assert!(!raw.contains(&raw_cookie));
+        let events: Vec<tealdrive::audit::event::AuditEvent> = raw
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let login = events
+            .iter()
+            .find(|e| {
+                e.action == tealdrive::audit::event::AuditAction::Login
+                    && e.status == tealdrive::audit::event::AuditStatus::Success
+            })
+            .unwrap();
+        assert_eq!(login.ip.as_deref(), Some(expected));
+        assert_eq!(login.user_agent.as_deref(), Some("audit-test"));
+        assert_eq!(login.session_id_hash.len(), 64);
+    }
 }

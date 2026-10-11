@@ -100,6 +100,7 @@ impl HelperProcessClient {
         let output = self.communicate(bytes)?;
         let response: HelperResponse =
             rmp_serde::from_slice(&output).map_err(|_| TealDriveError::HelperMalformedResponse)?;
+        crate::audit::operation::observe(&response);
         if response.success && response.policy_revision != revision {
             return Err(TealDriveError::HelperMalformedResponse);
         }

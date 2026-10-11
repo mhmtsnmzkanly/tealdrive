@@ -16,6 +16,7 @@ partial!(SecurityPatch,crate::config::SecurityConfig,{production_wire_protocol:c
 partial!(RateLimitPatch,crate::config::RateLimitConfig,{max_login_failures:u32,lockout_duration_seconds:u64});
 partial!(HelperPatch,crate::config::HelperConfig,{timeout_seconds:u64});
 partial!(SearchPatch,crate::config::SearchConfig,{max_depth:usize,default_max_results:usize,max_results_limit:usize});
+partial!(ProxyPatch,crate::client_ip::ProxyConfig,{trusted_proxies:Vec<String>,client_ip_header:crate::client_ip::ClientIpHeader});
 pub fn nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<Option<T>>, D::Error> {

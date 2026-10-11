@@ -41,6 +41,36 @@ pub struct AuditEvent {
     pub user_agent: Option<String>,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    #[serde(default)]
+    pub peer_ip: Option<String>,
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub operation: Option<String>,
+    #[serde(default)]
+    pub error_kind: Option<crate::errors::ErrorKind>,
+    #[serde(default)]
+    pub http_status: Option<u16>,
+    #[serde(default)]
+    pub http_method: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub target_root_id: Option<RootId>,
+    #[serde(default)]
+    pub source_relative_paths: Vec<RelativePath>,
+    #[serde(default)]
+    pub source_count: Option<usize>,
+    #[serde(default)]
+    pub transfer_id: Option<crate::protocol::frame::TransferId>,
+    #[serde(default)]
+    pub mode: Option<u32>,
+    #[serde(default)]
+    pub trash_id: Option<String>,
+    #[serde(default)]
+    pub helper_bytes_read: u64,
+    #[serde(default)]
+    pub helper_bytes_written: u64,
 }
 
 impl AuditEvent {
@@ -52,7 +82,7 @@ impl AuditEvent {
         action: AuditAction,
         status: AuditStatus,
     ) -> Self {
-        Self {
+        let mut event = Self {
             timestamp: utc_timestamp(),
             request_id,
             session_id_hash: String::new(),
@@ -69,7 +99,24 @@ impl AuditEvent {
             user_agent: None,
             bytes_in: 0,
             bytes_out: 0,
-        }
+            peer_ip: None,
+            phase: None,
+            operation: None,
+            error_kind: None,
+            http_status: None,
+            http_method: None,
+            endpoint: None,
+            target_root_id: None,
+            source_relative_paths: Vec::new(),
+            source_count: None,
+            transfer_id: None,
+            mode: None,
+            trash_id: None,
+            helper_bytes_read: 0,
+            helper_bytes_written: 0,
+        };
+        crate::audit::context::current().enrich(&mut event);
+        event
     }
 
     pub fn login_success(
@@ -643,6 +690,8 @@ impl AuditEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditStatus {
+    Started,
+    Cancelled,
     Success,
     Denied,
     Failed,
@@ -679,10 +728,24 @@ pub enum AuditAction {
     ConfigReload,
     ConfigPatch,
     ServerShutdown,
+    HttpRequest,
+    SearchFiles,
+    ListTrash,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditReason {
+    ProtocolError,
+    Cancelled,
+    Shutdown,
+    ConnectionClosed,
+    StreamFailed,
+    ValidationError,
+    InternalError,
+    CsrfRejected,
+    AdminRequired,
+    Unauthenticated,
+    ClientAborted,
     FeatureDisabled,
     PermissionDenied,
     PolicyDenied,

@@ -242,7 +242,7 @@ where
         .route("/favicon.svg", get(crate::ui::serve_favicon::<H>))
         .route("/favicon.ico", get(crate::ui::serve_favicon::<H>))
         .route("/static/*path", get(crate::ui::serve_static_asset::<H>))
-        .route("/api/health", get(health_check))
+        .route("/api/health", get(health_check::<H>))
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))
         .route("/api/session", get(session_handler::<H>))
@@ -269,8 +269,8 @@ where
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .layer(axum::middleware::from_fn_with_state(
-            state.shutdown.clone(),
-            shutdown_admission,
+            state.clone(),
+            shutdown_admission::<H>,
         ))
         .with_state(state)
 }
@@ -307,11 +307,41 @@ where
 {
     let shutdown = state.shutdown.clone();
     let audit = state.audit_sink.clone();
+    let expiry_store = state.session_store.clone();
+    let expiry_audit = audit.clone();
+    let expiry_shutdown = shutdown.clone();
+    struct AbortTask(tokio::task::JoinHandle<()>);
+    impl Drop for AbortTask {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let _expiry_task = AbortTask(tokio::spawn(async move {
+        let mut timer = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {
+                _ = expiry_shutdown.draining() => break,
+                _ = timer.tick() => {
+                    let expired = expiry_store.lock().await.take_expired(InMemorySessionStore::now_epoch_seconds());
+                    for session in expired {
+                        let mut event = AuditEvent::session_expired(RequestId::new(), session.username, session.uid, session.gid);
+                        event.session_id_hash = crate::audit::context::session_hash(session.session_id);
+                        event.ip = session.ip;
+                        event.user_agent = session.user_agent.map(|s| s.chars().take(512).collect());
+                        let _ = expiry_audit.emit(&event);
+                    }
+                }
+            }
+        }
+    }));
     let stop_accepting = shutdown.clone();
-    let server = axum::serve(listener, build_router(state).into_make_service())
-        .with_graceful_shutdown(async move {
-            stop_accepting.draining().await;
-        });
+    let server = axum::serve(
+        listener,
+        build_router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        stop_accepting.draining().await;
+    });
     let server = std::future::IntoFuture::into_future(server);
     tokio::pin!(server);
     tokio::select! {
@@ -349,35 +379,162 @@ where
     }
 }
 
-async fn shutdown_admission(
-    State(shutdown): State<crate::shutdown::Shutdown>,
-    request: axum::extract::Request,
+async fn shutdown_admission<H>(
+    State(state): State<WsServerState<H>>,
+    mut request: axum::extract::Request,
     next: axum::middleware::Next,
-) -> Response {
-    let Some(activity) = shutdown.enter() else {
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    use crate::audit::context::{AuditContext, REQUEST};
+    let cfg = state.config.load_full();
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip());
+    let session_id = extract_session_id(request.headers(), &cfg.session.cookie_name).ok();
+    let session = if let Some(id) = session_id {
+        match state
+            .session_store
+            .lock()
+            .await
+            .get_session(&id, InMemorySessionStore::now_epoch_seconds())
+        {
+            crate::session::store::SessionLookupResult::Found(session) => Some(session),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let context = AuditContext {
+        request_id: Some(RequestId::new()),
+        user: session.as_ref().map(|s| crate::config::UserContext {
+            username: s.username.clone(),
+            uid: s.uid,
+            gid: s.gid,
+        }),
+        session_id,
+        ip: cfg
+            .proxy
+            .resolve(peer, request.headers())
+            .map(|ip| ip.to_string()),
+        peer_ip: peer.map(|ip| ip.to_string()),
+        user_agent: request
+            .headers()
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.chars().take(512).collect()),
+    };
+    // Raw proxy headers never reach identity/rate-limit code. It uses the scoped verified address.
+    request.headers_mut().remove("x-tealdrive-client-ip");
+    let mut audit = crate::audit::http::HttpAudit::new(
+        request.method(),
+        request.uri(),
+        context.clone(),
+        state.audit_sink.clone(),
+    );
+    let csrf_invalid = session
+        .as_ref()
+        .is_some_and(|s| !crate::session::csrf::validate_header(s, request.headers()))
+        && matches!(
+            *request.method(),
+            axum::http::Method::POST | axum::http::Method::PATCH | axum::http::Method::DELETE
+        );
+    let admin_required = request.uri().path().starts_with("/api/admin/")
+        && session
+            .as_ref()
+            .is_some_and(|s| !cfg.account_policy.is_admin(&s.username));
+    let path = request.uri().path().to_owned();
+    let Some(activity) = state.shutdown.enter() else {
+        audit.fail(AuditReason::Shutdown);
         return (StatusCode::SERVICE_UNAVAILABLE, "server shutting down").into_response();
     };
-    let cancellation = shutdown.cancellation();
-    let response = tokio::select! {
-        response = next.run(request) => response,
-        _ = cancellation.cancelled() => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    let cancellation = state.shutdown.cancellation();
+    let mut response = tokio::select! {
+        response = REQUEST.scope(context.clone(), next.run(request)) => response,
+        _ = cancellation.cancelled() => { audit.fail(AuditReason::Shutdown);return StatusCode::SERVICE_UNAVAILABLE.into_response(); },
     };
+    audit.response(response.status(), response.headers());
+    if let Some(failure) = response
+        .extensions()
+        .get::<crate::audit::http::AuditFailure>()
+    {
+        audit.rejected(failure.0);
+    }
+    if response.status() == StatusCode::FORBIDDEN {
+        if admin_required {
+            audit.rejected(AuditReason::AdminRequired);
+        } else if csrf_invalid {
+            audit.rejected(AuditReason::CsrfRejected);
+        }
+    }
+    if path == "/api/login" && response.status().is_success() {
+        if let Some(cookie) = response
+            .headers()
+            .get(axum::http::header::SET_COOKIE)
+            .cloned()
+        {
+            let mut headers = HeaderMap::new();
+            headers.insert(axum::http::header::COOKIE, cookie);
+            if let Ok(id) = extract_session_id(&headers, &cfg.session.cookie_name) {
+                if let crate::session::store::SessionLookupResult::Found(session) = state
+                    .session_store
+                    .lock()
+                    .await
+                    .get_session(&id, InMemorySessionStore::now_epoch_seconds())
+                {
+                    let mut logged_in = context.clone();
+                    logged_in.session_id = Some(id);
+                    logged_in.user = Some(crate::config::UserContext {
+                        username: session.username,
+                        uid: session.uid,
+                        gid: session.gid,
+                    });
+                    audit.set_context(logged_in);
+                }
+            }
+        }
+    }
+    response.headers_mut().insert(
+        "x-tealdrive-audit-write-failures",
+        state
+            .audit_sink
+            .write_failures()
+            .to_string()
+            .parse()
+            .unwrap(),
+    );
     let (parts, body) = response.into_parts();
     let stream = futures_util::stream::unfold(
-        (body.into_data_stream(), activity, cancellation),
-        |(mut body, activity, cancellation)| async move {
+        (body.into_data_stream(), activity, cancellation, audit),
+        |(mut body, activity, cancellation, mut audit)| async move {
             tokio::select! {
                 biased;
-                _ = cancellation.cancelled() => None,
-                item = body.next() => item.map(|item| (item, (body, activity, cancellation))),
+                _ = cancellation.cancelled() => { audit.fail(AuditReason::Shutdown);None },
+                item = body.next() => match item {
+                    Some(Ok(bytes)) => { audit.chunk(bytes.len());Some((Ok(bytes),(body,activity,cancellation,audit))) },
+                    Some(Err(error)) => { audit.fail(AuditReason::StreamFailed);Some((Err(error),(body,activity,cancellation,audit))) },
+                    None => { audit.end();None },
+                },
             }
         },
     );
     Response::from_parts(parts, axum::body::Body::from_stream(stream))
 }
 
-async fn health_check() -> &'static str {
-    "ok"
+async fn health_check<H>(State(state): State<WsServerState<H>>) -> Response {
+    let mut response = "ok".into_response();
+    response.headers_mut().insert(
+        "x-tealdrive-audit-write-failures",
+        state
+            .audit_sink
+            .write_failures()
+            .to_string()
+            .parse()
+            .unwrap(),
+    );
+    response
 }
 
 async fn websocket_upgrade<H>(
@@ -432,9 +589,18 @@ where
     let Some(activity) = state.shutdown.enter() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let mut audit_context = crate::audit::context::current();
+    audit_context.request_id = None;
+    audit_context.session_id = Some(context.session_id);
+    audit_context.user = Some(context.user_context());
     ws.on_upgrade(move |socket| async move {
         let _activity = activity;
-        let _ = handle_socket_connection(socket, state, context).await;
+        let _ = crate::audit::context::REQUEST
+            .scope(
+                audit_context,
+                handle_socket_connection(socket, state, context),
+            )
+            .await;
     })
     .into_response()
 }
@@ -505,20 +671,8 @@ pub fn extract_session_id(
     Err(TealDriveError::PermissionDenied)
 }
 
-pub fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|value| value.to_str().ok())
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty())
-        })
+pub fn extract_client_ip(_headers: &HeaderMap) -> Option<String> {
+    crate::audit::context::current().ip
 }
 
 fn map_upgrade_error(error: TealDriveError) -> (StatusCode, &'static str) {
@@ -540,23 +694,67 @@ fn audit_reason_for_upgrade_error(error: &TealDriveError) -> AuditReason {
     }
 }
 
-struct UploadCleanup(WsConnectionContext);
+struct UploadCleanup {
+    context: WsConnectionContext,
+    sink: Arc<JsonlAuditSink>,
+    shutdown: crate::shutdown::Shutdown,
+    audit_context: crate::audit::context::AuditContext,
+}
 impl std::ops::Deref for UploadCleanup {
     type Target = WsConnectionContext;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.context
     }
 }
 impl std::ops::DerefMut for UploadCleanup {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.context
     }
 }
 impl Drop for UploadCleanup {
     fn drop(&mut self) {
-        for upload in self.0.active_uploads.values() {
+        for upload in self.context.active_uploads.values() {
             let _ = std::fs::remove_file(&upload.staging_path);
+            let mut event = AuditEvent::new(
+                RequestId::new(),
+                &self.context.username,
+                self.context.uid,
+                self.context.gid,
+                crate::audit::AuditAction::Upload,
+                AuditStatus::Cancelled,
+            );
+            self.audit_context.enrich(&mut event);
+            event.phase = Some("transfer_aborted".into());
+            event.reason = Some(if self.shutdown.is_draining() {
+                AuditReason::Shutdown
+            } else {
+                AuditReason::ConnectionClosed
+            });
+            event.root_id = Some(upload.root_id.clone());
+            event.relative_path = Some(crate::config::RelativePath::new(
+                if upload.parent_relative_path.0.is_empty() {
+                    upload.filename.0.clone()
+                } else {
+                    format!("{}/{}", upload.parent_relative_path.0, upload.filename.0)
+                },
+            ));
+            event.transfer_id = Some(upload.transfer_id);
+            event.bytes_in = upload.bytes_received;
+            let _ = self.sink.emit(&event);
         }
+        let mut event = AuditEvent::websocket_disconnect(
+            RequestId::new(),
+            self.context.username.clone(),
+            self.context.uid,
+            self.context.gid,
+        );
+        self.audit_context.enrich(&mut event);
+        event.reason = Some(if self.shutdown.is_draining() {
+            AuditReason::Shutdown
+        } else {
+            AuditReason::ConnectionClosed
+        });
+        let _ = self.sink.emit(&event);
     }
 }
 
@@ -577,7 +775,12 @@ where
         shutdown,
         ..
     } = state;
-    let mut context = UploadCleanup(context);
+    let mut context = UploadCleanup {
+        context,
+        sink: audit_sink.clone(),
+        shutdown: shutdown.clone(),
+        audit_context: crate::audit::context::current(),
+    };
     let initial_config = config.load_full();
     let (mut sender, mut receiver) = socket.split();
     let server_hello = create_server_hello_frame(&initial_config)?;
@@ -595,7 +798,6 @@ where
         context.session_id,
         shutdown.cancellation(),
     );
-    let mut handshake_completed = false;
     let mut shutdown_notified = false;
 
     loop {
@@ -633,6 +835,13 @@ where
                 let frame = match TdrvFrame::decode(&bytes) {
                     Ok(frame) => frame,
                     Err(_) => {
+                        let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
+                            RequestId::new(),
+                            context.username.clone(),
+                            context.uid,
+                            context.gid,
+                            AuditReason::ProtocolError,
+                        ));
                         let error = error_frame(RequestId::new(), "Malformed websocket frame.")?;
                         send_frame(&mut sender, &shutdown, &error).await?;
                         break;
@@ -659,22 +868,33 @@ where
                 let helper = helper_client.clone();
                 let token = lease.cancellation.clone();
                 let inbound = frame.clone();
+                let mut operation_audit = crate::audit::operation::OperationAudit::new(
+                    &frame,
+                    &context,
+                    &crate::audit::context::current(),
+                    audit_sink.clone(),
+                    token.clone(),
+                );
+                let observer = operation_audit.observer.clone();
                 let mut job = tokio::task::spawn_blocking(move || {
                     let _activity = activity;
                     let _permit = permit;
-                    let result = crate::session::lease::with_cancellation(token, || {
-                        crate::helper::policy::with_snapshot(&current_config, || {
-                            handle_decoded_frame_with_service(
-                                &mut context,
-                                inbound,
-                                &current_config,
-                                helper.as_ref(),
-                            )
+                    let result = crate::audit::operation::with_observer(observer, || {
+                        crate::session::lease::with_cancellation(token, || {
+                            crate::helper::policy::with_snapshot(&current_config, || {
+                                handle_decoded_frame_with_service(
+                                    &mut context,
+                                    inbound,
+                                    &current_config,
+                                    helper.as_ref(),
+                                )
+                            })
                         })
                     });
-                    (context, result)
+                    operation_audit.finish(&result);
+                    (context, result, operation_audit.event.clone())
                 });
-                let (returned_context, result) = loop {
+                let (returned_context, result, delivery_event) = loop {
                     tokio::select! {
                         biased;
                         _=shutdown.draining(), if !shutdown_notified => {
@@ -683,29 +903,45 @@ where
                         },
                         result=&mut job => break result.map_err(|_|TealDriveError::Internal)?,
                         _=lease.cancellation.cancelled()=> {
-                            let (returned_context,_)=job.await.map_err(|_|TealDriveError::Internal)?;
+                            let (returned_context,_,delivery_event)=job.await.map_err(|_|TealDriveError::Internal)?;
                             context=returned_context;
-                            break (context, Err(TealDriveError::PermissionDenied));
+                            break (context, Err(TealDriveError::PermissionDenied), delivery_event);
                         }
                     }
                 };
                 context = returned_context;
                 if lease.cancellation.is_cancelled() {
+                    if frame.header.message_type == MessageType::DownloadBegin {
+                        drop(crate::audit::operation::WsDelivery::new(
+                            delivery_event.clone(),
+                            audit_sink.clone(),
+                        ));
+                    }
                     break;
                 }
                 match result {
                     Ok(DispatchDecision::Outbound(frames)) => {
+                        let mut delivery = if frame.header.message_type
+                            == MessageType::DownloadBegin
+                            && frames
+                                .iter()
+                                .any(|f| f.header.message_type == MessageType::DownloadEnd)
+                        {
+                            Some(crate::audit::operation::WsDelivery::new(
+                                delivery_event,
+                                audit_sink.clone(),
+                            ))
+                        } else {
+                            None
+                        };
                         for outbound in frames {
                             send_frame(&mut sender, &shutdown, &outbound).await?;
+                            if let Some(delivery) = delivery.as_mut() {
+                                delivery.frame(&outbound);
+                            }
                         }
-                        if context.protocol_ready && !handshake_completed {
-                            handshake_completed = true;
-                            let _ = audit_sink.emit(&AuditEvent::websocket_handshake_success(
-                                RequestId::new(),
-                                context.username.clone(),
-                                context.uid,
-                                context.gid,
-                            ));
+                        if let Some(delivery) = delivery.as_mut() {
+                            delivery.finish();
                         }
                         let mut store = session_store.lock().await;
                         let _ = store.touch_session(&context.session_id, now);
@@ -756,6 +992,13 @@ where
                 break;
             }
             Message::Text(_) => {
+                let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
+                    RequestId::new(),
+                    context.username.clone(),
+                    context.uid,
+                    context.gid,
+                    AuditReason::ProtocolError,
+                ));
                 let response = error_frame(RequestId::new(), "Binary TDRV/1 frames are required.")?;
                 send_frame(&mut sender, &shutdown, &response).await?;
                 break;
@@ -763,15 +1006,6 @@ where
         }
     }
 
-    for upload in context.active_uploads.values() {
-        let _ = std::fs::remove_file(&upload.staging_path);
-    }
-    let _ = audit_sink.emit(&AuditEvent::websocket_disconnect(
-        RequestId::new(),
-        context.username.clone(),
-        context.uid,
-        context.gid,
-    ));
     let close = shutdown
         .is_draining()
         .then(|| axum::extract::ws::CloseFrame {
@@ -1429,8 +1663,15 @@ mod tests {
         let staging = upload.staging_path.clone();
         context.active_uploads.insert(upload.transfer_id, upload);
         assert!(staging.exists());
+        let audit_path = root.join("cleanup-audit.jsonl");
         let result = std::panic::catch_unwind(move || {
-            let _context = UploadCleanup(context);
+            let sink = Arc::new(JsonlAuditSink::open(audit_path).unwrap());
+            let _context = UploadCleanup {
+                context,
+                sink,
+                shutdown: Default::default(),
+                audit_context: Default::default(),
+            };
             panic!("dispatch error");
         });
         assert!(result.is_err());

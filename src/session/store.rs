@@ -77,6 +77,20 @@ impl InMemorySessionStore {
         }
     }
 
+    pub fn take_expired(&mut self, now: u64) -> Vec<Session> {
+        let expired: Vec<_> = self
+            .sessions
+            .values()
+            .filter(|s| matches!(Self::classify(s, now), SessionLookupResult::Expired))
+            .cloned()
+            .collect();
+        for session in &expired {
+            self.sessions.remove(&session.session_id);
+        }
+        self.sessions.retain(|_, session| !session.revoked);
+        expired
+    }
+
     pub fn config(&self) -> &SessionConfig {
         &self.config
     }

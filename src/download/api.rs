@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
-use crate::audit::event::{AuditEvent, AuditReason, AuditStatus};
+use crate::audit::event::AuditReason;
 use crate::config::{RelativePath, RootId, UserContext};
 use crate::errors::TealDriveError;
 use crate::fs::path::validate_relative_path;
@@ -323,16 +323,12 @@ where
     ) {
         Ok(PolicyDecision::Allow | PolicyDecision::WarnAllowed(_)) => {}
         _ => {
-            let _ = state.audit_sink.emit(&AuditEvent::download(
-                RequestId::new(),
-                &user_context,
-                root_id.clone(),
-                relative_path.clone(),
-                AuditStatus::Denied,
-                Some(AuditReason::PolicyDenied),
-                0,
-            ));
-            return (StatusCode::FORBIDDEN, r#"{"error":"policy_denied"}"#).into_response();
+            let mut response =
+                (StatusCode::FORBIDDEN, r#"{"error":"policy_denied"}"#).into_response();
+            response
+                .extensions_mut()
+                .insert(crate::audit::http::AuditFailure(AuditReason::PolicyDenied));
+            return response;
         }
     }
 
@@ -476,16 +472,6 @@ where
             resp_headers.insert(CONTENT_RANGE, val);
         }
     }
-
-    let _ = state.audit_sink.emit(&AuditEvent::download(
-        RequestId::new(),
-        &user_context,
-        root_id,
-        relative_path,
-        AuditStatus::Success,
-        None,
-        content_length,
-    ));
 
     response
 }

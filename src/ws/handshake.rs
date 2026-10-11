@@ -91,15 +91,13 @@ pub fn apply_protocol_ready(context: &mut WsConnectionContext, selected: WsSelec
 fn select_compression(client: &[Compression]) -> Result<Compression, TealDriveError> {
     if client.contains(&Compression::None) {
         Ok(Compression::None)
-    } else if client.contains(&Compression::Gzip) {
-        Ok(Compression::Gzip)
     } else {
         Err(TealDriveError::InvalidCompression)
     }
 }
 
 pub fn server_supported_compressions() -> Vec<Compression> {
-    vec![Compression::None, Compression::Gzip]
+    vec![Compression::None]
 }
 
 #[cfg(test)]

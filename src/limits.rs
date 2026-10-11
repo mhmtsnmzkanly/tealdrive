@@ -20,6 +20,7 @@ pub struct Limits {
     pub max_control_payload: usize,
     pub max_decompressed_control_payload: usize,
     pub max_chunk_size: usize,
+    #[serde(alias = "max_upload_bytes")]
     pub max_in_flight_upload: usize,
     pub max_directory_page_size: usize,
     pub default_directory_page_size: usize,
@@ -61,5 +62,16 @@ mod tests {
         assert_eq!(limits.default_directory_page_size, 200);
         assert_eq!(limits.max_text_edit_size, 5 * 1024 * 1024);
         assert_eq!(limits.max_preview_size, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn deserialize_limits_with_aliases() {
+        let toml_str = r#"
+            max_upload_bytes = 2097152
+            max_edit_text_bytes = 1048576
+        "#;
+        let limits: Limits = toml::from_str(toml_str).expect("deserialize");
+        assert_eq!(limits.max_in_flight_upload, 2 * 1024 * 1024);
+        assert_eq!(limits.max_text_edit_size, 1024 * 1024);
     }
 }

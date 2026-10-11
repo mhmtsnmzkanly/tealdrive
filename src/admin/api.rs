@@ -49,12 +49,27 @@ where
         store.get_session(&session_id, now)
     };
 
-    if !matches!(lookup, SessionLookupResult::Found(_)) {
+    let session = match lookup {
+        SessionLookupResult::Found(s) => s,
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(AdminErrorResponse {
+                    error: "Unauthorized".to_owned(),
+                    code: "unauthorized".to_owned(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let cfg = state.config.load();
+    if !cfg.account_policy.is_admin(&session.username) {
         return (
-            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
             Json(AdminErrorResponse {
-                error: "Unauthorized".to_owned(),
-                code: "unauthorized".to_owned(),
+                error: "Forbidden: Admin privileges required".to_owned(),
+                code: "forbidden".to_owned(),
             }),
         )
             .into_response();
@@ -104,6 +119,18 @@ where
             }
         }
     };
+
+    let cfg = state.config.load();
+    if !cfg.account_policy.is_admin(&session.username) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(AdminErrorResponse {
+                error: "Forbidden: Admin privileges required".to_owned(),
+                code: "forbidden".to_owned(),
+            }),
+        )
+            .into_response();
+    }
 
     match state.config.apply_patch(patch) {
         Ok(updated) => {
@@ -193,6 +220,18 @@ where
             }
         }
     };
+
+    let cfg = state.config.load();
+    if !cfg.account_policy.is_admin(&session.username) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(AdminErrorResponse {
+                error: "Forbidden: Admin privileges required".to_owned(),
+                code: "forbidden".to_owned(),
+            }),
+        )
+            .into_response();
+    }
 
     match state.config.reload() {
         Ok(reloaded) => {
@@ -441,5 +480,33 @@ mod tests {
         assert_eq!(state.config.load().trash_retention_days, Some(60));
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_admin_endpoint_forbidden_for_non_admin() {
+        let (state, headers) = test_state_with_session(None).await;
+
+        // Patch config to only allow "superuser" as admin
+        let patch = ConfigPatch {
+            admin_users: Some(vec!["superuser".to_owned()]),
+            ..ConfigPatch::default()
+        };
+        let _ = state.config.apply_patch(patch);
+
+        // Current session is "admin", who is not "superuser"
+        let get_resp = get_config_handler(State(state.clone()), headers.clone()).await;
+        assert_eq!(get_resp.status(), StatusCode::FORBIDDEN);
+
+        let patch_resp = patch_config_handler(
+            State(state.clone()),
+            headers.clone(),
+            Query(PatchConfigQuery { save: false }),
+            Json(ConfigPatch::default()),
+        )
+        .await;
+        assert_eq!(patch_resp.status(), StatusCode::FORBIDDEN);
+
+        let reload_resp = reload_config_handler(State(state), headers).await;
+        assert_eq!(reload_resp.status(), StatusCode::FORBIDDEN);
     }
 }

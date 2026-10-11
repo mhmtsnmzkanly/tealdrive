@@ -12,6 +12,8 @@ use crate::policy::decision::PolicyDecision;
 use crate::policy::sensitive::detect_sensitive;
 use crate::policy::webroot::check_webroot_archive_extract;
 
+pub const MAX_ARCHIVE_EXTRACT_BYTES: u64 = 500 * 1024 * 1024; // 500 MB maximum decompressed size
+
 pub fn compress_zip_with_roots(
     request: &HelperRequest,
     roots: &[AllowedRoot],
@@ -569,11 +571,21 @@ fn extract_zip(
         Err(_) => return helper_error(request, ErrorKind::ValidationError, "Corrupted archive file.", "corrupted_archive"),
     };
 
+    let mut total_extracted: u64 = 0;
+
     for i in 0..zip.len() {
         let mut file = match zip.by_index(i) {
             Ok(f) => f,
             Err(_) => return helper_error(request, ErrorKind::ValidationError, "Failed to read zip entry.", "zip_read_error"),
         };
+
+        #[cfg(unix)]
+        if let Some(mode) = file.unix_mode() {
+            if (mode & 0o170000) == 0o120000 {
+                // Reject symlinks inside archives to prevent link traversal attacks
+                continue;
+            }
+        }
 
         let Some(enclosed) = file.enclosed_name() else {
             return helper_error(
@@ -606,6 +618,40 @@ fn extract_zip(
             }
         }
 
+        let mut curr = outpath.parent();
+        let mut parent_is_symlink = false;
+        while let Some(p) = curr {
+            if p == dest_dir {
+                break;
+            }
+            if let Ok(meta) = fs::symlink_metadata(p) {
+                if meta.file_type().is_symlink() {
+                    parent_is_symlink = true;
+                    break;
+                }
+            }
+            curr = p.parent();
+        }
+        if parent_is_symlink {
+            return helper_error(
+                request,
+                ErrorKind::PolicyDenied,
+                "Archive entry parent directory is a symlink.",
+                "symlink_denied",
+            );
+        }
+
+        if let Ok(meta) = fs::symlink_metadata(&outpath) {
+            if meta.file_type().is_symlink() {
+                return helper_error(
+                    request,
+                    ErrorKind::PolicyDenied,
+                    "Archive entry target is a symlink.",
+                    "symlink_denied",
+                );
+            }
+        }
+
         if file.is_dir() {
             if let Err(err) = fs::create_dir_all(&outpath) {
                 return helper_error_from_io(request, err);
@@ -620,8 +666,21 @@ fn extract_zip(
                 Ok(f) => f,
                 Err(err) => return helper_error_from_io(request, err),
             };
-            if let Err(err) = std::io::copy(&mut file, &mut outfile) {
-                return helper_error_from_io(request, err);
+
+            let remaining_budget = MAX_ARCHIVE_EXTRACT_BYTES.saturating_sub(total_extracted);
+            let mut limited = (&mut file).take(remaining_budget + 1);
+            let written = match std::io::copy(&mut limited, &mut outfile) {
+                Ok(n) => n,
+                Err(err) => return helper_error_from_io(request, err),
+            };
+            total_extracted += written;
+            if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES {
+                return helper_error(
+                    request,
+                    ErrorKind::FileTooLarge,
+                    "Archive decompressed size exceeds maximum extraction limit (500 MB).",
+                    "decompression_limit_exceeded",
+                );
             }
         }
 
@@ -662,6 +721,8 @@ fn extract_tar(
         Ok(e) => e,
         Err(err) => return helper_error_from_io(request, err),
     };
+
+    let mut total_extracted: u64 = 0;
 
     for entry in entries {
         let mut entry = match entry {
@@ -720,6 +781,51 @@ fn extract_tar(
         if entry_type.is_symlink() || entry_type.is_hard_link() {
             // Reject symlinks/hardlinks in archive to prevent link traversal attacks
             continue;
+        }
+
+        let mut curr = outpath.parent();
+        let mut parent_is_symlink = false;
+        while let Some(p) = curr {
+            if p == dest_dir {
+                break;
+            }
+            if let Ok(meta) = fs::symlink_metadata(p) {
+                if meta.file_type().is_symlink() {
+                    parent_is_symlink = true;
+                    break;
+                }
+            }
+            curr = p.parent();
+        }
+        if parent_is_symlink {
+            return helper_error(
+                request,
+                ErrorKind::PolicyDenied,
+                "Archive entry parent directory is a symlink.",
+                "symlink_denied",
+            );
+        }
+
+        if let Ok(meta) = fs::symlink_metadata(&outpath) {
+            if meta.file_type().is_symlink() {
+                return helper_error(
+                    request,
+                    ErrorKind::PolicyDenied,
+                    "Archive entry target is a symlink.",
+                    "symlink_denied",
+                );
+            }
+        }
+
+        let entry_size = entry.header().size().unwrap_or(0);
+        total_extracted += entry_size;
+        if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES {
+            return helper_error(
+                request,
+                ErrorKind::FileTooLarge,
+                "Archive decompressed size exceeds maximum extraction limit (500 MB).",
+                "decompression_limit_exceeded",
+            );
         }
 
         if let Err(err) = entry.unpack(&outpath) {
@@ -913,5 +1019,51 @@ mod tests {
         let resp = compress_zip_with_roots(&req, &[root], &SensitivePolicyConfig::default());
         assert!(!resp.success);
         assert_eq!(resp.error_kind, Some(ErrorKind::PolicyDenied));
+    }
+
+    #[test]
+    fn extract_archive_symlink_parent_rejected() {
+        let base = temp_root();
+        let outside = temp_root();
+
+        // Create a valid zip with one file
+        let file_path = base.join("data.txt");
+        fs::write(&file_path, b"test payload").expect("write");
+
+        let root = AllowedRoot {
+            root_id: RootId::new("home"),
+            base_path: base.clone(),
+            read_only: false,
+            uploads_allowed: true,
+            hidden_files_allowed: false,
+            is_web_root: false,
+            quota_bytes: None,
+        };
+
+        let comp_req = sample_request(
+            HelperCommand::CompressZip,
+            "",
+            "test.zip",
+            Some(vec!["data.txt"]),
+        );
+        let comp_resp = compress_zip_with_roots(&comp_req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        assert!(comp_resp.success);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink(&outside, base.join("escape_dir")).expect("symlink");
+
+            // Attempting to extract to escape_dir must be rejected
+            let ext_req = sample_request(
+                HelperCommand::ExtractArchive,
+                "test.zip",
+                "escape_dir",
+                None,
+            );
+            let ext_resp = extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
+            assert!(!ext_resp.success);
+            assert_eq!(ext_resp.error_kind, Some(ErrorKind::PolicyDenied));
+        }
     }
 }

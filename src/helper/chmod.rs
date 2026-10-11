@@ -96,7 +96,16 @@ pub fn chmod_file_with_roots(
         Err(err) => return helper_error_from_tealdrive(request, err),
     };
 
-    let permissions = std::fs::Permissions::from_mode(mode.0 & 0o7777);
+    if mode.0 & 0o7000 != 0 {
+        return helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Special permission bits (SUID/SGID/Sticky) are forbidden.",
+            "special_bits_denied",
+        );
+    }
+
+    let permissions = std::fs::Permissions::from_mode(mode.0 & 0o0777);
     match std::fs::set_permissions(&target.resolved_path, permissions) {
         Ok(()) => HelperResponse::operation_done(request, "Permissions changed."),
         Err(err) => helper_error_from_io(request, err),
@@ -325,5 +334,34 @@ mod tests {
 
         assert!(!response.success);
         assert_eq!(response.error_kind, Some(ErrorKind::NotFound));
+    }
+
+    #[test]
+    fn chmod_suid_sgid_bits_rejected() {
+        let base = temp_root();
+        let file_path = base.join("target.sh");
+        fs::write(&file_path, b"echo test").expect("write");
+
+        let root = AllowedRoot {
+            root_id: RootId::new("home"),
+            base_path: base,
+            read_only: false,
+            uploads_allowed: true,
+            hidden_files_allowed: false,
+            is_web_root: false,
+            quota_bytes: None,
+        };
+
+        // Try SUID bit 04755
+        let request = chmod_request("target.sh", Some(0o4755));
+        let response = chmod_file_with_roots(&request, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        assert!(!response.success);
+        assert_eq!(response.error_kind, Some(ErrorKind::PolicyDenied));
+
+        // Try SGID bit 02755
+        let request2 = chmod_request("target.sh", Some(0o2755));
+        let response2 = chmod_file_with_roots(&request2, &[root], &SensitivePolicyConfig::default());
+        assert!(!response2.success);
+        assert_eq!(response2.error_kind, Some(ErrorKind::PolicyDenied));
     }
 }

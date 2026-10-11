@@ -1,5 +1,6 @@
 use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 
 use crate::config::{AllowedRoot, SensitivePolicyConfig};
 use crate::errors::ErrorKind;
@@ -54,29 +55,105 @@ pub fn move_file_with_roots(
         Err(e) => return helper_error_from_tealdrive(request, e),
     };
 
-    let target_path = source.root.canonical_base.join(&target_validated.0);
-    if !target_path.starts_with(&source.root.canonical_base) {
-        return helper_error(
-            request,
-            ErrorKind::InvalidPath,
-            "Target escapes root.",
-            "target_escapes_root",
-        );
-    }
-
-    if fs::symlink_metadata(&target_path).is_ok() {
-        return helper_error(
-            request,
-            ErrorKind::AlreadyExists,
-            "Target already exists.",
-            "already_exists",
-        );
-    }
+    let target_path = match resolve_safe_target_path(&source.root.canonical_base, &target_validated.0, request) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
 
     match fs::rename(&source.resolved_path, &target_path) {
         Ok(()) => HelperResponse::operation_done(request, "Moved."),
         Err(e) => helper_error_from_move_io(request, e),
     }
+}
+
+#[allow(clippy::result_large_err)]
+fn resolve_safe_target_path(
+    canonical_base: &Path,
+    target_rel: &str,
+    request: &HelperRequest,
+) -> Result<PathBuf, HelperResponse> {
+    let (parent_rel_str, filename_str) = match target_rel.rsplit_once('/') {
+        Some((p, f)) => (p, f),
+        None => ("", target_rel),
+    };
+
+    let parent_path = if parent_rel_str.is_empty() {
+        canonical_base.to_path_buf()
+    } else {
+        canonical_base.join(parent_rel_str)
+    };
+
+    let parent_meta = match fs::symlink_metadata(&parent_path) {
+        Ok(m) => m,
+        Err(_) => {
+            return Err(helper_error(
+                request,
+                ErrorKind::NotFound,
+                "Target parent directory not found.",
+                "target_parent_not_found",
+            ));
+        }
+    };
+
+    if parent_meta.file_type().is_symlink() {
+        return Err(helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Target parent directory cannot be a symlink.",
+            "symlink_denied",
+        ));
+    }
+
+    if !parent_meta.is_dir() {
+        return Err(helper_error(
+            request,
+            ErrorKind::InvalidTarget,
+            "Target parent must be a directory.",
+            "invalid_target",
+        ));
+    }
+
+    let canonical_parent = match parent_path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            return Err(helper_error(
+                request,
+                ErrorKind::InvalidPath,
+                "Failed to resolve target parent directory.",
+                "invalid_target_parent",
+            ));
+        }
+    };
+
+    if !canonical_parent.starts_with(canonical_base) {
+        return Err(helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Target escapes root.",
+            "target_escapes_root",
+        ));
+    }
+
+    let target_path = canonical_parent.join(filename_str);
+    if !target_path.starts_with(canonical_base) {
+        return Err(helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Target escapes root.",
+            "target_escapes_root",
+        ));
+    }
+
+    if fs::symlink_metadata(&target_path).is_ok() {
+        return Err(helper_error(
+            request,
+            ErrorKind::AlreadyExists,
+            "Target already exists.",
+            "already_exists",
+        ));
+    }
+
+    Ok(target_path)
 }
 
 pub fn copy_file_with_roots(
@@ -135,24 +212,10 @@ pub fn copy_file_with_roots(
         );
     }
 
-    let target_path = source.root.canonical_base.join(&target_validated.0);
-    if !target_path.starts_with(&source.root.canonical_base) {
-        return helper_error(
-            request,
-            ErrorKind::InvalidPath,
-            "Target escapes root.",
-            "target_escapes_root",
-        );
-    }
-
-    if fs::symlink_metadata(&target_path).is_ok() {
-        return helper_error(
-            request,
-            ErrorKind::AlreadyExists,
-            "Target already exists.",
-            "already_exists",
-        );
-    }
+    let target_path = match resolve_safe_target_path(&source.root.canonical_base, &target_validated.0, request) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
 
     match fs::copy(&source.resolved_path, &target_path) {
         Ok(_) => HelperResponse::operation_done(request, "Copied."),
@@ -438,5 +501,36 @@ mod tests {
 
         assert!(response.success);
         assert!(!serialized.contains(base.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn helper_move_and_copy_target_symlink_parent_rejected() {
+        let base = temp_root();
+        let outside = temp_root();
+        fs::write(base.join("source.txt"), b"data").expect("write");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink(&outside, base.join("escape_link")).expect("symlink");
+
+            // Moving into escape_link/target.txt must be rejected
+            let move_resp = move_file_with_roots(
+                &move_request("source.txt", "escape_link/target.txt"),
+                &[root(base.clone())],
+                &SensitivePolicyConfig::default(),
+            );
+            assert!(!move_resp.success);
+            assert_eq!(move_resp.error_kind, Some(ErrorKind::PolicyDenied));
+
+            // Copying into escape_link/target.txt must also be rejected
+            let copy_resp = copy_file_with_roots(
+                &copy_request("source.txt", "escape_link/target.txt"),
+                &[root(base)],
+                &SensitivePolicyConfig::default(),
+            );
+            assert!(!copy_resp.success);
+            assert_eq!(copy_resp.error_kind, Some(ErrorKind::PolicyDenied));
+        }
     }
 }

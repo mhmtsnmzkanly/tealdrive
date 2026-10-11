@@ -5,8 +5,8 @@ use std::path::Path;
 use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::header::{
-    ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
-    X_CONTENT_TYPE_OPTIONS,
+    ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_SECURITY_POLICY,
+    CONTENT_TYPE, RANGE, X_CONTENT_TYPE_OPTIONS,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -251,7 +251,19 @@ where
         .unwrap_or("download");
     let safe_filename = filename.replace(['"', '\n', '\r', '\\'], "_");
     let mime = mime_for_path(&resolution.resolved_path);
-    let disposition_val = format!("{disposition_type}; filename=\"{safe_filename}\"");
+    let lower_filename = safe_filename.to_ascii_lowercase();
+    let is_dangerous_web_content = lower_filename.ends_with(".html")
+        || lower_filename.ends_with(".htm")
+        || lower_filename.ends_with(".svg")
+        || lower_filename.ends_with(".xml")
+        || lower_filename.ends_with(".xhtml");
+
+    let effective_disposition_type = if disposition_type == "inline" && is_dangerous_web_content {
+        "attachment"
+    } else {
+        disposition_type
+    };
+    let disposition_val = format!("{effective_disposition_type}; filename=\"{safe_filename}\"");
 
     let range_header = headers.get(RANGE).and_then(|v| v.to_str().ok());
 
@@ -299,6 +311,12 @@ where
         HeaderValue::from_str(&content_length.to_string()).unwrap(),
     );
     resp_headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    if disposition_type == "inline" {
+        resp_headers.insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("sandbox; default-src 'none'; img-src 'self' data:; media-src 'self' data:; style-src 'unsafe-inline'"),
+        );
+    }
 
     if let Some(cr) = content_range {
         if let Ok(val) = HeaderValue::from_str(&cr) {
@@ -363,5 +381,24 @@ mod tests {
     fn test_parse_range_header_invalid_syntax() {
         assert_eq!(parse_range_header("invalid", 1000), None);
         assert_eq!(parse_range_header("items=0-10", 1000), None);
+    }
+
+    #[test]
+    fn test_preview_disposition_security() {
+        let is_dangerous = |name: &str| {
+            let lower = name.to_ascii_lowercase();
+            lower.ends_with(".html")
+                || lower.ends_with(".htm")
+                || lower.ends_with(".svg")
+                || lower.ends_with(".xml")
+                || lower.ends_with(".xhtml")
+        };
+
+        assert!(is_dangerous("exploit.html"));
+        assert!(is_dangerous("IMAGE.SVG"));
+        assert!(is_dangerous("doc.xml"));
+        assert!(!is_dangerous("photo.png"));
+        assert!(!is_dangerous("video.mp4"));
+        assert!(!is_dangerous("document.pdf"));
     }
 }

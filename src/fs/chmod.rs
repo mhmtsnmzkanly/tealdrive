@@ -68,6 +68,10 @@ pub fn chmod_file_request<H: ChmodFileHelper>(
         }
     }
 
+    if request.mode.0 & 0o7000 != 0 {
+        return Err(TealDriveError::PermissionDenied);
+    }
+
     match check_webroot_chmod_executable(root.is_web_root, request.mode.0) {
         PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
         PolicyDecision::Deny(_) => {
@@ -312,5 +316,23 @@ mod tests {
         );
 
         assert_eq!(result, Err(TealDriveError::InvalidTarget));
+    }
+
+    #[test]
+    fn chmod_file_suid_rejected() {
+        let base = temp_root();
+        let config = config_for(base, false, false, true);
+        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let engine = PolicyEngine::new(&config);
+
+        let result = chmod_file_request(
+            &user(),
+            chmod_req("script.sh", 0o4755),
+            &config,
+            &engine,
+            &helper,
+        );
+
+        assert_eq!(result, Err(TealDriveError::PermissionDenied));
     }
 }

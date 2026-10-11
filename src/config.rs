@@ -312,11 +312,14 @@ impl Default for WebRootPolicyConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AccountPolicyConfig {
     pub reject_root: bool,
     pub reject_system_accounts: bool,
     pub reject_disabled_shells: bool,
     pub minimum_regular_uid: u32,
+    #[serde(default)]
+    pub admin_users: Vec<String>,
 }
 
 impl Default for AccountPolicyConfig {
@@ -326,6 +329,17 @@ impl Default for AccountPolicyConfig {
             reject_system_accounts: true,
             reject_disabled_shells: true,
             minimum_regular_uid: 1000,
+            admin_users: Vec::new(),
+        }
+    }
+}
+
+impl AccountPolicyConfig {
+    pub fn is_admin(&self, username: &str) -> bool {
+        if self.admin_users.is_empty() {
+            true // When unconfigured, backwards-compatible: allow authenticated users
+        } else {
+            self.admin_users.iter().any(|u| u.eq_ignore_ascii_case(username))
         }
     }
 }
@@ -404,6 +418,8 @@ pub struct ConfigPatch {
     pub helper: Option<HelperConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search: Option<SearchConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_users: Option<Vec<String>>,
 }
 
 impl ConfigPatch {
@@ -443,6 +459,9 @@ impl ConfigPatch {
         }
         if let Some(ref search) = self.search {
             config.search = search.clone();
+        }
+        if let Some(ref admin_users) = self.admin_users {
+            config.account_policy.admin_users = admin_users.clone();
         }
     }
 }

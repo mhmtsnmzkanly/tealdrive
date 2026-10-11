@@ -2,8 +2,8 @@ use crate::config::AppConfig;
 use crate::download::transfer::{download_file_request, DownloadHelper};
 use crate::errors::{ErrorKind, ErrorPayload, TealDriveError};
 use crate::fs::archive::{
-    compress_targz_request, compress_zip_request, extract_archive_request,
-    CompressTarGzHelper, CompressZipHelper, ExtractArchiveHelper,
+    compress_targz_request, compress_zip_request, extract_archive_request, CompressTarGzHelper,
+    CompressZipHelper, ExtractArchiveHelper,
 };
 use crate::fs::chmod::{chmod_file_request, ChmodFileHelper};
 use crate::fs::create_folder::{create_folder_request, CreateFolderHelper};
@@ -12,7 +12,9 @@ use crate::fs::metadata::{file_metadata_request, MetadataHelper};
 use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, MoveHelper};
 use crate::fs::rename::{rename_file_request, RenameHelper};
 use crate::fs::search::{search_files_request, SearchFilesHelper};
-use crate::fs::text::{read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper};
+use crate::fs::text::{
+    read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper,
+};
 use crate::fs::trash::{
     delete_permanently_request, list_trash_request, move_to_trash_request,
     restore_from_trash_request, DeletePermanentlyHelper, ListTrashHelper, MoveToTrashHelper,
@@ -26,11 +28,12 @@ use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
-    ClientHelloPayload, ChmodFileRequest, CompressTarGzRequest, CompressZipRequest, CopyFileRequest,
-    CreateFolderRequest, DeletePermanentlyRequest, DownloadBeginRequest, ExtractArchiveRequest,
-    FileMetadataRequest, ListDirectoryRequest, ListTrashRequest, MoveFileRequest, MoveToTrashRequest,
-    OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
-    SaveTextFileRequest, SearchFilesRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
+    ChmodFileRequest, ClientHelloPayload, CompressTarGzRequest, CompressZipRequest,
+    CopyFileRequest, CreateFolderRequest, DeletePermanentlyRequest, DownloadBeginRequest,
+    ExtractArchiveRequest, FileMetadataRequest, ListDirectoryRequest, ListTrashRequest,
+    MoveFileRequest, MoveToTrashRequest, OperationFailedPayload, ReadTextFileRequest,
+    RenameFileRequest, RestoreFromTrashRequest, SaveTextFileRequest, SearchFilesRequest,
+    UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
 };
 use crate::upload::transfer::{
     upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
@@ -918,12 +921,8 @@ pub fn handle_upload_begin_frame_with_service(
 
     let request: UploadBeginRequest = decode_msgpack(&frame.payload)?;
     let policy_engine = PolicyEngine::new(config);
-    let (active_upload, response) = upload_begin_request(
-        &context.user_context(),
-        request,
-        config,
-        &policy_engine,
-    )?;
+    let (active_upload, response) =
+        upload_begin_request(&context.user_context(), request, config, &policy_engine)?;
     context
         .active_uploads
         .insert(active_upload.transfer_id, active_upload);
@@ -1788,15 +1787,21 @@ mod tests {
         };
         let frame = client_frame(
             MessageType::SaveTextFile,
-            encode_msgpack(&save_text_file_request_payload("saved.txt", "new text content"))
-                .expect("payload"),
+            encode_msgpack(&save_text_file_request_payload(
+                "saved.txt",
+                "new text content",
+            ))
+            .expect("payload"),
         );
 
         let outbound = handle_save_text_file_frame_with_service(&context, &frame, &config, &helper)
             .expect("operation done");
 
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
-        assert_eq!(fs::read_to_string(base.join("saved.txt")).expect("read"), "new text content");
+        assert_eq!(
+            fs::read_to_string(base.join("saved.txt")).expect("read"),
+            "new text content"
+        );
     }
 
     #[test]
@@ -2179,7 +2184,8 @@ mod tests {
         // Move to trash first
         let trash_frame = client_frame(
             MessageType::MoveToTrash,
-            encode_msgpack(&move_to_trash_request_payload("trash_list_target.txt")).expect("payload"),
+            encode_msgpack(&move_to_trash_request_payload("trash_list_target.txt"))
+                .expect("payload"),
         );
         let trash_resp =
             handle_move_to_trash_frame_with_service(&context, &trash_frame, &config, &helper)
@@ -2192,13 +2198,9 @@ mod tests {
             MessageType::ListTrash,
             encode_msgpack(&list_trash_request_payload()).expect("payload"),
         );
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            list_frame,
-            &config,
-            &helper,
-        )
-        .expect("list trash ok");
+        let decision =
+            handle_decoded_frame_with_service(&mut context, list_frame, &config, &helper)
+                .expect("list trash ok");
 
         match decision {
             DispatchDecision::Outbound(frames) => {
@@ -2414,8 +2416,9 @@ mod tests {
             .expect("payload"),
         );
 
-        let outbound = handle_extract_archive_frame_with_service(&context, &extract_frame, &config, &helper)
-            .expect("extract done");
+        let outbound =
+            handle_extract_archive_frame_with_service(&context, &extract_frame, &config, &helper)
+                .expect("extract done");
 
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         assert_eq!(
@@ -2550,13 +2553,9 @@ mod tests {
             ))
             .expect("payload"),
         );
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            begin_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload begin ok");
+        let decision =
+            handle_decoded_frame_with_service(&mut context, begin_frame, &config, &helper)
+                .expect("upload begin ok");
 
         let begin_resp = match decision {
             DispatchDecision::Outbound(frames) => {
@@ -2565,7 +2564,10 @@ mod tests {
             }
             _ => panic!("unexpected decision"),
         };
-        assert_eq!(begin_resp.header.message_type, MessageType::OperationStarted);
+        assert_eq!(
+            begin_resp.header.message_type,
+            MessageType::OperationStarted
+        );
         let begin_payload: crate::protocol::payload::UploadBeginResponse =
             decode_msgpack(&begin_resp.payload).expect("payload");
         let transfer_id = begin_payload.transfer_id;
@@ -2578,14 +2580,11 @@ mod tests {
             offset: 0,
             chunk_bytes: content.to_vec(),
         };
-        let chunk_frame = raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            chunk_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload chunk ok");
+        let chunk_frame =
+            raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
+        let decision =
+            handle_decoded_frame_with_service(&mut context, chunk_frame, &config, &helper)
+                .expect("upload chunk ok");
 
         let chunk_resp = match decision {
             DispatchDecision::Outbound(frames) => {
@@ -2594,7 +2593,10 @@ mod tests {
             }
             _ => panic!("unexpected decision"),
         };
-        assert_eq!(chunk_resp.header.message_type, MessageType::OperationProgress);
+        assert_eq!(
+            chunk_resp.header.message_type,
+            MessageType::OperationProgress
+        );
         let progress_payload: crate::protocol::payload::OperationProgressPayload =
             decode_msgpack(&chunk_resp.payload).expect("payload");
         assert_eq!(progress_payload.bytes_done, Some(content.len() as u64));
@@ -2609,13 +2611,8 @@ mod tests {
             })
             .expect("payload"),
         );
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            end_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload end ok");
+        let decision = handle_decoded_frame_with_service(&mut context, end_frame, &config, &helper)
+            .expect("upload end ok");
 
         let end_resp = match decision {
             DispatchDecision::Outbound(frames) => {
@@ -2669,13 +2666,9 @@ mod tests {
             ))
             .expect("payload"),
         );
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            begin_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload begin ok");
+        let decision =
+            handle_decoded_frame_with_service(&mut context, begin_frame, &config, &helper)
+                .expect("upload begin ok");
 
         let begin_resp = match decision {
             DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),
@@ -2692,14 +2685,10 @@ mod tests {
             offset: 0,
             chunk_bytes: content.to_vec(),
         };
-        let chunk_frame = raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
-        handle_decoded_frame_with_service(
-            &mut context,
-            chunk_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload chunk ok");
+        let chunk_frame =
+            raw_client_frame(MessageType::UploadChunk, chunk.encode().expect("encode"));
+        handle_decoded_frame_with_service(&mut context, chunk_frame, &config, &helper)
+            .expect("upload chunk ok");
 
         // 3. Abort
         let abort_frame = client_frame(
@@ -2710,13 +2699,9 @@ mod tests {
             })
             .expect("payload"),
         );
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            abort_frame,
-            &config,
-            &helper,
-        )
-        .expect("upload abort ok");
+        let decision =
+            handle_decoded_frame_with_service(&mut context, abort_frame, &config, &helper)
+                .expect("upload abort ok");
 
         let abort_resp = match decision {
             DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),
@@ -2767,13 +2752,9 @@ mod tests {
             .expect("payload"),
         );
 
-        let decision = handle_decoded_frame_with_service(
-            &mut context,
-            search_frame,
-            &config,
-            &helper,
-        )
-        .expect("search ok");
+        let decision =
+            handle_decoded_frame_with_service(&mut context, search_frame, &config, &helper)
+                .expect("search ok");
 
         let resp_frame = match decision {
             DispatchDecision::Outbound(frames) => frames.into_iter().next().unwrap(),

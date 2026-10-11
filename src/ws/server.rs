@@ -119,6 +119,17 @@ impl<H: std::fmt::Debug> std::fmt::Debug for WsServerState<H> {
 }
 
 impl<H> WsServerState<H> {
+    pub async fn sync_runtime_config(&self, config: &AppConfig) {
+        self.session_store
+            .lock()
+            .await
+            .update_config(config.session.clone());
+        self.set_helper_timeout(Duration::from_secs(config.helper.timeout_seconds));
+        self.rate_limiter.lock().await.set_limits(
+            config.rate_limit.max_login_failures,
+            config.rate_limit.lockout_duration_seconds,
+        );
+    }
     pub fn config(&self) -> Arc<AppConfig> {
         self.config.load_full()
     }
@@ -227,11 +238,26 @@ where
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))
         .route("/api/session", get(session_handler::<H>))
-        .route("/api/download", get(crate::download::api::download_handler::<H>))
-        .route("/api/preview", get(crate::download::api::preview_handler::<H>))
-        .route("/api/admin/config", get(crate::admin::api::get_config_handler::<H>))
-        .route("/api/admin/config", patch(crate::admin::api::patch_config_handler::<H>))
-        .route("/api/admin/config/reload", post(crate::admin::api::reload_config_handler::<H>))
+        .route(
+            "/api/download",
+            get(crate::download::api::download_handler::<H>),
+        )
+        .route(
+            "/api/preview",
+            get(crate::download::api::preview_handler::<H>),
+        )
+        .route(
+            "/api/admin/config",
+            get(crate::admin::api::get_config_handler::<H>),
+        )
+        .route(
+            "/api/admin/config",
+            patch(crate::admin::api::patch_config_handler::<H>),
+        )
+        .route(
+            "/api/admin/config/reload",
+            post(crate::admin::api::reload_config_handler::<H>),
+        )
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .with_state(state)
@@ -286,12 +312,7 @@ where
     };
     let context = {
         let store = state.session_store.lock().await;
-        match accept_session_bound_upgrade(
-            &*store,
-            &security_cfg,
-            features_cfg,
-            upgrade_request,
-        ) {
+        match accept_session_bound_upgrade(&*store, &security_cfg, features_cfg, upgrade_request) {
             Ok(context) => context,
             Err(error) => {
                 let _ = state.audit_sink.emit(&AuditEvent::websocket_rejection(
@@ -315,7 +336,7 @@ where
     let config = state.config.clone();
     let helper_client = state.helper_client.clone();
     let session_store = state.session_store.clone();
-    let operation_slots=state.operation_slots.clone();
+    let operation_slots = state.operation_slots.clone();
     ws.on_upgrade(move |socket| async move {
         let _ = handle_socket_connection(
             socket,
@@ -336,6 +357,26 @@ fn build_upgrade_request<H>(
     headers: &HeaderMap,
     now: u64,
 ) -> Result<WsUpgradeRequest, TealDriveError> {
+    let cfg = state.config.load();
+    if let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|h| h.to_str().ok())
+    {
+        if cfg.security.allowed_origins.is_empty() {
+            let host = headers
+                .get(axum::http::header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .ok_or(TealDriveError::PermissionDenied)?;
+            let scheme = if cfg.server.behind_tls_proxy {
+                "https"
+            } else {
+                "http"
+            };
+            if origin != format!("{scheme}://{host}") {
+                return Err(TealDriveError::PermissionDenied);
+            }
+        }
+    }
     let cookie_name = state.config.load().session.cookie_name.clone();
     let session_id = extract_session_id(headers, &cookie_name)?;
     Ok(WsUpgradeRequest {
@@ -353,7 +394,10 @@ fn build_upgrade_request<H>(
     })
 }
 
-pub fn extract_session_id(headers: &HeaderMap, cookie_name: &str) -> Result<SessionId, TealDriveError> {
+pub fn extract_session_id(
+    headers: &HeaderMap,
+    cookie_name: &str,
+) -> Result<SessionId, TealDriveError> {
     let cookie_header = headers
         .get(axum::http::header::COOKIE)
         .and_then(|value| value.to_str().ok())
@@ -433,17 +477,25 @@ where
         context.gid,
     ));
 
-    let lease=crate::session::lease::SessionLease::new(session_store.clone(),context.session_id);
+    let lease = crate::session::lease::SessionLease::new(session_store.clone(), context.session_id);
     let mut handshake_completed = false;
 
     loop {
-        let message=tokio::select! {
+        let message = tokio::select! {
             _=lease.cancellation.cancelled()=>break,
             message=receiver.next()=>match message { Some(message)=>message,None=>break },
         };
         {
-            let store=session_store.lock().await;
-            if !matches!(store.get_session(&context.session_id,InMemorySessionStore::now_epoch_seconds()),crate::session::store::SessionLookupResult::Found(_)) { break; }
+            let store = session_store.lock().await;
+            if !matches!(
+                store.get_session(
+                    &context.session_id,
+                    InMemorySessionStore::now_epoch_seconds()
+                ),
+                crate::session::store::SessionLookupResult::Found(_)
+            ) {
+                break;
+            }
         }
 
         let message = match message {
@@ -468,25 +520,35 @@ where
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
-                let permit=tokio::select! {
+                let permit = tokio::select! {
                     _=lease.cancellation.cancelled()=>break,
                     permit=operation_slots.clone().acquire_owned()=>permit.map_err(|_|TealDriveError::Internal)?,
                 };
-                let helper=helper_client.clone();let token=lease.cancellation.clone();let inbound=frame.clone();
-                let mut job=tokio::task::spawn_blocking(move|| {
-                    let _permit=permit;
-                    let result=crate::session::lease::with_cancellation(token,||crate::helper::policy::with_snapshot(&current_config,||
-                        handle_decoded_frame_with_service(&mut context,inbound,&current_config,helper.as_ref())));
-                    (context,result)
+                let helper = helper_client.clone();
+                let token = lease.cancellation.clone();
+                let inbound = frame.clone();
+                let mut job = tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    let result = crate::session::lease::with_cancellation(token, || {
+                        crate::helper::policy::with_snapshot(&current_config, || {
+                            handle_decoded_frame_with_service(
+                                &mut context,
+                                inbound,
+                                &current_config,
+                                helper.as_ref(),
+                            )
+                        })
+                    });
+                    (context, result)
                 });
-                let (returned_context,result)=tokio::select! {
+                let (returned_context, result) = tokio::select! {
                     result=&mut job=>result.map_err(|_|TealDriveError::Internal)?,
                     _=lease.cancellation.cancelled()=> {
                         let (returned_context,_)=job.await.map_err(|_|TealDriveError::Internal)?;
                         context=returned_context;break;
                     }
                 };
-                context=returned_context;
+                context = returned_context;
                 match result {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
@@ -557,7 +619,9 @@ where
         }
     }
 
-    for upload in context.active_uploads.values() { let _=std::fs::remove_file(&upload.staging_path); }
+    for upload in context.active_uploads.values() {
+        let _ = std::fs::remove_file(&upload.staging_path);
+    }
     let _ = audit_sink.emit(&AuditEvent::websocket_disconnect(
         RequestId::new(),
         context.username,
@@ -689,17 +753,26 @@ pub fn spawn_config_watcher<H: 'static>(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
-    let watcher_res = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-        if let Ok(event) = res {
-            use notify::EventKind;
-            match event.kind {
-                EventKind::Modify(_) | EventKind::Create(_) => {
-                    let _ = tx.blocking_send(());
+    let watched_name = config_path.file_name().map(|name| name.to_owned());
+    let watcher_res =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+                if !event
+                    .paths
+                    .iter()
+                    .any(|path| path.file_name() == watched_name.as_deref())
+                {
+                    return;
                 }
-                _ => {}
+                use notify::EventKind;
+                match event.kind {
+                    EventKind::Modify(_) | EventKind::Create(_) => {
+                        let _ = tx.try_send(());
+                    }
+                    _ => {}
+                }
             }
-        }
-    });
+        });
 
     let mut watcher = match watcher_res {
         Ok(w) => w,
@@ -714,7 +787,13 @@ pub fn spawn_config_watcher<H: 'static>(
     };
 
     use notify::Watcher;
-    if let Err(err) = watcher.watch(&config_path, notify::RecursiveMode::NonRecursive) {
+    if let Err(err) = watcher.watch(
+        config_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(std::path::Path::new(".")),
+        notify::RecursiveMode::NonRecursive,
+    ) {
         eprintln!(
             "Failed to watch config path {}: {}",
             config_path.display(),
@@ -751,7 +830,10 @@ pub fn spawn_config_watcher<H: 'static>(
                             reloaded.rate_limit.lockout_duration_seconds,
                         );
                     }
-                    eprintln!("Config successfully reloaded from {}", config_path.display());
+                    eprintln!(
+                        "Config successfully reloaded from {}",
+                        config_path.display()
+                    );
                 }
                 Err(err) => {
                     let mut ev = AuditEvent::config_reload(

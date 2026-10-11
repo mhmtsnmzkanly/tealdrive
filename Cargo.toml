@@ -2,7 +2,7 @@
 name = "tealdrive"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.85"
 
 [lib]
 name = "tealdrive"
@@ -37,3 +37,6 @@ notify = "8.2.0"
 [features]
 default = []
 pam-auth = []
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

@@ -352,7 +352,10 @@ mod tests {
     }
 
     impl CompressZipHelper for InProcessArchiveHelper {
-        fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
             Ok(compress_zip_with_roots(
                 request,
                 &self.roots,
@@ -362,7 +365,10 @@ mod tests {
     }
 
     impl CompressTarGzHelper for InProcessArchiveHelper {
-        fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
             Ok(compress_targz_with_roots(
                 request,
                 &self.roots,
@@ -372,7 +378,10 @@ mod tests {
     }
 
     impl ExtractArchiveHelper for InProcessArchiveHelper {
-        fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
             Ok(extract_archive_with_roots(
                 request,
                 &self.roots,
@@ -390,7 +399,8 @@ mod tests {
     }
 
     fn temp_root() -> (PathBuf, AllowedRoot) {
-        let path = std::env::temp_dir().join(format!("tealdrive-archive-svc-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-archive-svc-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp dir");
         let root = AllowedRoot {
             root_id: RootId::new("home"),
@@ -399,7 +409,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         };
         (path, root)
     }
@@ -419,9 +429,7 @@ mod tests {
             ..Default::default()
         };
         let policy_engine = PolicyEngine::new(&config);
-        let helper = InProcessArchiveHelper {
-            roots: vec![root],
-        };
+        let helper = InProcessArchiveHelper { roots: vec![root] };
 
         let compress_req = CompressZipRequest {
             root_id: RootId::new("home"),
@@ -429,7 +437,13 @@ mod tests {
             target_relative_path: RelativePath::new("bundle.zip"),
         };
 
-        let result = compress_zip_request(&sample_user(), compress_req, &config, &policy_engine, &helper);
+        let result = compress_zip_request(
+            &sample_user(),
+            compress_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert!(result.is_ok());
 
         let extract_req = ExtractArchiveRequest {
@@ -438,7 +452,13 @@ mod tests {
             target_relative_path: RelativePath::new("unpacked"),
         };
 
-        let extract_result = extract_archive_request(&sample_user(), extract_req, &config, &policy_engine, &helper);
+        let extract_result = extract_archive_request(
+            &sample_user(),
+            extract_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert!(extract_result.is_ok());
         assert_eq!(
             fs::read_to_string(path.join("unpacked/hello.txt")).unwrap(),
@@ -462,9 +482,7 @@ mod tests {
             ..Default::default()
         };
         let policy_engine = PolicyEngine::new(&config);
-        let helper = InProcessArchiveHelper {
-            roots: vec![root],
-        };
+        let helper = InProcessArchiveHelper { roots: vec![root] };
 
         let compress_req = CompressTarGzRequest {
             root_id: RootId::new("home"),
@@ -472,7 +490,13 @@ mod tests {
             target_relative_path: RelativePath::new("bundle.tar.gz"),
         };
 
-        let result = compress_targz_request(&sample_user(), compress_req, &config, &policy_engine, &helper);
+        let result = compress_targz_request(
+            &sample_user(),
+            compress_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert!(result.is_ok());
 
         let extract_req = ExtractArchiveRequest {
@@ -481,7 +505,13 @@ mod tests {
             target_relative_path: RelativePath::new("unpacked_tar"),
         };
 
-        let extract_result = extract_archive_request(&sample_user(), extract_req, &config, &policy_engine, &helper);
+        let extract_result = extract_archive_request(
+            &sample_user(),
+            extract_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert!(extract_result.is_ok());
         assert_eq!(
             fs::read_to_string(path.join("unpacked_tar/test.txt")).unwrap(),
@@ -502,9 +532,7 @@ mod tests {
             ..Default::default()
         };
         let policy_engine = PolicyEngine::new(&config);
-        let helper = InProcessArchiveHelper {
-            roots: vec![root],
-        };
+        let helper = InProcessArchiveHelper { roots: vec![root] };
 
         let extract_req = ExtractArchiveRequest {
             root_id: RootId::new("home"),
@@ -512,7 +540,13 @@ mod tests {
             target_relative_path: RelativePath::new("unpacked"),
         };
 
-        let result = extract_archive_request(&sample_user(), extract_req, &config, &policy_engine, &helper);
+        let result = extract_archive_request(
+            &sample_user(),
+            extract_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert_eq!(result.err(), Some(TealDriveError::FeatureDisabled));
         let _ = fs::remove_dir_all(path);
     }
@@ -530,9 +564,7 @@ mod tests {
             ..Default::default()
         };
         let policy_engine = PolicyEngine::new(&config);
-        let helper = InProcessArchiveHelper {
-            roots: vec![root],
-        };
+        let helper = InProcessArchiveHelper { roots: vec![root] };
 
         let extract_req = ExtractArchiveRequest {
             root_id: RootId::new("home"),
@@ -540,7 +572,13 @@ mod tests {
             target_relative_path: RelativePath::new("unpacked"),
         };
 
-        let result = extract_archive_request(&sample_user(), extract_req, &config, &policy_engine, &helper);
+        let result = extract_archive_request(
+            &sample_user(),
+            extract_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert_eq!(result.err(), Some(TealDriveError::PolicyDenied));
         let _ = fs::remove_dir_all(path);
     }
@@ -554,9 +592,7 @@ mod tests {
             ..Default::default()
         };
         let policy_engine = PolicyEngine::new(&config);
-        let helper = InProcessArchiveHelper {
-            roots: vec![root],
-        };
+        let helper = InProcessArchiveHelper { roots: vec![root] };
 
         let compress_req = CompressZipRequest {
             root_id: RootId::new("home"),
@@ -564,7 +600,13 @@ mod tests {
             target_relative_path: RelativePath::new("bundle.zip"),
         };
 
-        let result = compress_zip_request(&sample_user(), compress_req, &config, &policy_engine, &helper);
+        let result = compress_zip_request(
+            &sample_user(),
+            compress_req,
+            &config,
+            &policy_engine,
+            &helper,
+        );
         assert_eq!(result.err(), Some(TealDriveError::ReadOnlyRoot));
         let _ = fs::remove_dir_all(path);
     }

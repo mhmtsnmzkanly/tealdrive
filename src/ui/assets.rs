@@ -292,30 +292,26 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
         <div class="settings-section">
           <h4>Feature Gates</h4>
           <div class="settings-grid">
-            <label><input type="checkbox" id="cfgFeatUpload"> Allow Uploads</label>
-            <label><input type="checkbox" id="cfgFeatDownload"> Allow Downloads</label>
             <label><input type="checkbox" id="cfgFeatEdit"> Allow File Editing</label>
-            <label><input type="checkbox" id="cfgFeatDelete"> Allow File Deletions</label>
-            <label><input type="checkbox" id="cfgFeatRename"> Allow Rename &amp; Move</label>
-            <label><input type="checkbox" id="cfgFeatTrash"> Enable Trash System</label>
+            <label><input type="checkbox" id="cfgFeatDelete"> Allow Permanent Deletion</label>
             <label><input type="checkbox" id="cfgFeatChmod"> Allow Chmod Permissions</label>
-            <label><input type="checkbox" id="cfgFeatArchive"> Allow Compression / Extraction</label>
+            <label><input type="checkbox" id="cfgFeatArchive"> Allow Archive Extraction</label>
           </div>
         </div>
 
         <div class="settings-section">
           <h4>Retention &amp; Limits</h4>
           <div class="settings-row">
-            <label for="cfgTrashRetention">Trash Retention (Days):</label>
-            <input type="number" id="cfgTrashRetention" class="form-input" min="0" max="365">
+            <label for="cfgTrashRetention">Trash Retention (automatic cleanup unavailable):</label>
+            <input type="number" id="cfgTrashRetention" class="form-input" min="0" max="365" disabled>
           </div>
           <div class="settings-row">
             <label for="cfgMaxUploadBytes">Max Upload (MB):</label>
-            <input type="number" id="cfgMaxUploadBytes" class="form-input" min="1">
+            <input type="number" id="cfgMaxUploadBytes" class="form-input" min="1" max="3">
           </div>
           <div class="settings-row">
             <label for="cfgMaxEditTextBytes">Max Text Edit (KB):</label>
-            <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1">
+            <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1" max="128">
           </div>
           <div class="settings-row">
             <label for="cfgMaxPreviewBytes">Max Preview / Inline (MB):</label>
@@ -1122,12 +1118,8 @@ pub const APP_JS: &str = r##"
     settingsCancelBtn: document.getElementById('settingsCancelBtn'),
     cfgSaveBtn: document.getElementById('cfgSaveBtn'),
     cfgReloadBtn: document.getElementById('cfgReloadBtn'),
-    cfgFeatUpload: document.getElementById('cfgFeatUpload'),
-    cfgFeatDownload: document.getElementById('cfgFeatDownload'),
     cfgFeatEdit: document.getElementById('cfgFeatEdit'),
     cfgFeatDelete: document.getElementById('cfgFeatDelete'),
-    cfgFeatRename: document.getElementById('cfgFeatRename'),
-    cfgFeatTrash: document.getElementById('cfgFeatTrash'),
     cfgFeatChmod: document.getElementById('cfgFeatChmod'),
     cfgFeatArchive: document.getElementById('cfgFeatArchive'),
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
@@ -1225,13 +1217,13 @@ pub const APP_JS: &str = r##"
   }
 
   // --- Directory Listing & Navigation ---
-  function loadDirectory(path) {
+  function loadDirectory(path, cursor = null) {
     state.currentPath = path || '';
     renderBreadcrumbs();
     el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading files...</td></tr>';
     sendWsRequest(MT.ListDirectory, {
       root_id: state.currentRoot,
-      relative_path: state.currentPath,cursor:null,limit:state.protocolLimits.default_directory_page_size,include_hidden:false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
+      relative_path: state.currentPath,cursor,limit:state.protocolLimits.default_directory_page_size,include_hidden:false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
     });
   }
 
@@ -1272,6 +1264,12 @@ pub const APP_JS: &str = r##"
       return;
     }
 
+    if(data.has_more && data.next_cursor) {
+      const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;
+      const previous=document.createElement('button');previous.textContent='First page';previous.onclick=()=>loadDirectory(state.currentPath);
+      const next=document.createElement('button');next.textContent='Next page';next.onclick=()=>loadDirectory(state.currentPath,data.next_cursor);
+      cell.append(previous,next);row.appendChild(cell);el.fileTableBody.appendChild(row);
+    }
     // Sort: directories first, then alphabetical
     entries.sort((a, b) => {
       if (a.is_dir !== b.is_dir) return b.is_dir ? 1 : -1;
@@ -1363,7 +1361,7 @@ pub const APP_JS: &str = r##"
 
     for (const match of matches) {
       const tr = document.createElement('tr');
-      const item = match.entry;
+      const item = {...match.entry,is_dir:match.entry.file_type==='Directory'};
       const relPath = match.relative_path;
 
       // Name & Icon
@@ -1520,7 +1518,7 @@ pub const APP_JS: &str = r##"
     sendWsRequest(MT.ReadTextFile, {
       root_id: state.currentRoot,
       relative_path: relPath,
-      max_bytes: 1024 * 1024,
+      max_bytes: 128 * 1024,
     });
   }
 
@@ -1690,6 +1688,7 @@ pub const APP_JS: &str = r##"
   function onSessionActive() {
     el.loginModal.classList.add('hidden');
     el.userInfo.classList.remove('hidden');
+    el.settingsBtn.disabled=!state.session.is_admin;
     el.userBadge.textContent = `${state.session.username} (uid: ${state.session.uid})`;
 
     // Populate roots dropdown
@@ -1699,7 +1698,7 @@ pub const APP_JS: &str = r##"
       opt.value = r.root_id;
       let label = r.root_id;
       if (r.quota_bytes) {
-        const used = r.used_bytes ? formatBytes(r.used_bytes) : '0 B';
+        const used = r.used_bytes != null ? formatBytes(r.used_bytes) : 'unknown';
         const total = formatBytes(r.quota_bytes);
         label += ` [Quota: ${used} / ${total}]`;
       }
@@ -1801,19 +1800,15 @@ pub const APP_JS: &str = r##"
       const cfg = data.config || data;
       currentAdminConfig = cfg;
       if (cfg && cfg.features) {
-        el.cfgFeatUpload.checked = !!cfg.features.allow_upload;
-        el.cfgFeatDownload.checked = !!cfg.features.allow_download;
-        el.cfgFeatEdit.checked = !!cfg.features.allow_edit_text;
-        el.cfgFeatDelete.checked = !!cfg.features.allow_delete;
-        el.cfgFeatRename.checked = !!cfg.features.allow_rename_move;
-        el.cfgFeatTrash.checked = !!cfg.features.allow_trash;
-        el.cfgFeatChmod.checked = !!cfg.features.allow_chmod;
-        el.cfgFeatArchive.checked = !!cfg.features.allow_archive;
+        el.cfgFeatEdit.checked = !!cfg.features.save_text_file;
+        el.cfgFeatDelete.checked = !!cfg.features.delete_permanently;
+        el.cfgFeatChmod.checked = !!cfg.features.chmod_file;
+        el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
       el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
       if (cfg.limits) {
-        el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_upload_bytes || 1024 * 1024 * 1024) / (1024 * 1024));
-        el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_text_edit_size || cfg.limits.max_edit_text_bytes || 512 * 1024) / 1024);
+        el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_in_flight_upload || 1024 * 1024) / (1024 * 1024));
+        el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_text_edit_size || cfg.limits.max_edit_text_bytes || 128 * 1024) / 1024);
         el.cfgMaxPreviewBytes.value = Math.round((cfg.limits.max_preview_size || 50 * 1024 * 1024) / (1024 * 1024));
       }
       if (cfg.rate_limit) {
@@ -1839,19 +1834,17 @@ pub const APP_JS: &str = r##"
   async function saveSettings() {
     const patch = {
       features: {
-        allow_upload: el.cfgFeatUpload.checked,
-        allow_download: el.cfgFeatDownload.checked,
-        allow_edit_text: el.cfgFeatEdit.checked,
-        allow_delete: el.cfgFeatDelete.checked,
-        allow_rename_move: el.cfgFeatRename.checked,
-        allow_trash: el.cfgFeatTrash.checked,
-        allow_chmod: el.cfgFeatChmod.checked,
-        allow_archive: el.cfgFeatArchive.checked,
+        ...(currentAdminConfig?.features||{}),
+        save_text_file: el.cfgFeatEdit.checked,
+        delete_permanently: el.cfgFeatDelete.checked,
+        chmod_file: el.cfgFeatChmod.checked,
+        extract_archive: el.cfgFeatArchive.checked,
       },
-      trash_retention_days: parseInt(el.cfgTrashRetention.value, 10) || 30,
+      trash_retention_days: currentAdminConfig?.trash_retention_days ?? null,
       limits: {
         ...(currentAdminConfig && currentAdminConfig.limits ? currentAdminConfig.limits : {}),
-        max_text_edit_size: (parseInt(el.cfgMaxEditTextBytes.value, 10) || 512) * 1024,
+        max_in_flight_upload: (parseInt(el.cfgMaxUploadBytes.value,10)||1)*1024*1024,
+        max_text_edit_size: (parseInt(el.cfgMaxEditTextBytes.value, 10) || 128) * 1024,
         max_preview_size: (parseInt(el.cfgMaxPreviewBytes.value, 10) || 50) * 1024 * 1024,
       },
       rate_limit: {
@@ -1875,7 +1868,7 @@ pub const APP_JS: &str = r##"
     try {
       const resp = await fetch('/api/admin/config' + persist, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrfToken },
         body: JSON.stringify(patch),
         credentials: 'same-origin'
       });
@@ -1895,6 +1888,7 @@ pub const APP_JS: &str = r##"
     try {
       const resp = await fetch('/api/admin/config/reload', {
         method: 'POST',
+        headers: {'X-CSRF-Token':state.csrfToken},
         credentials: 'same-origin'
       });
       if (resp.ok) {

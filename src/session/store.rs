@@ -24,6 +24,7 @@ impl Default for SessionId {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub session_id: SessionId,
+    pub csrf_token: crate::session::csrf::CsrfToken,
     pub username: String,
     pub uid: u32,
     pub gid: u32,
@@ -105,13 +106,14 @@ impl SessionStore for InMemorySessionStore {
     fn create_session(&mut self, input: SessionCreateInput, now: u64) -> Session {
         let session = Session {
             session_id: SessionId::new(),
+            csrf_token: crate::session::csrf::CsrfToken::generate(),
             username: input.username,
             uid: input.uid,
             gid: input.gid,
             created_at: now,
             last_seen_at: now,
-            expires_at: now + self.config.absolute_timeout_seconds,
-            idle_expires_at: now + self.config.idle_timeout_seconds,
+            expires_at: now.saturating_add(self.config.absolute_timeout_seconds),
+            idle_expires_at: now.saturating_add(self.config.idle_timeout_seconds),
             user_agent: input.user_agent,
             ip: input.ip,
             revoked: false,
@@ -135,7 +137,7 @@ impl SessionStore for InMemorySessionStore {
         match Self::classify(session, now) {
             SessionLookupResult::Found(_) => {
                 session.last_seen_at = now;
-                session.idle_expires_at = now + self.config.idle_timeout_seconds;
+                session.idle_expires_at = now.saturating_add(self.config.idle_timeout_seconds);
                 SessionLookupResult::Found(session.clone())
             }
             other => other,

@@ -55,7 +55,13 @@ pub fn compute_directory_size(root_path: &Path) -> u64 {
 
 /// Checks if writing `additional_bytes` to `root` would exceed its configured `quota_bytes`.
 pub fn check_quota(root: &AllowedRoot, additional_bytes: u64) -> Result<(), TealDriveError> {
-    if let Some(available)=crate::helper::quota::budget() { return if additional_bytes<=available { Ok(()) }else{Err(TealDriveError::DiskFull)}; }
+    if let Some(available) = crate::helper::quota::budget() {
+        return if additional_bytes <= available {
+            Ok(())
+        } else {
+            Err(TealDriveError::DiskFull)
+        };
+    }
     if let Some(quota) = root.quota_bytes {
         let current_usage = compute_directory_size(&root.base_path);
         if current_usage.saturating_add(additional_bytes) > quota {
@@ -68,8 +74,8 @@ pub fn check_quota(root: &AllowedRoot, additional_bytes: u64) -> Result<(), Teal
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::config::RootId;
+    use std::path::PathBuf;
 
     fn temp_test_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!("tdrv-quota-test-{}", uuid::Uuid::new_v4()));

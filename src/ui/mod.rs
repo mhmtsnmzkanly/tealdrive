@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, State};
 use axum::http::header::{
-    CONTENT_SECURITY_POLICY, CONTENT_TYPE, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS,
-    X_FRAME_OPTIONS,
+    CONTENT_SECURITY_POLICY, CONTENT_TYPE, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{Html, IntoResponse, Response};
@@ -24,7 +23,10 @@ fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
         REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
-    headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP_POLICY));
+    headers.insert(
+        CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CSP_POLICY),
+    );
 }
 
 pub fn mime_for_path(path: &Path) -> &'static str {
@@ -120,14 +122,26 @@ where
         if let Some(target) = resolve_safe_static_path(static_dir, "app.js") {
             if let Ok(content) = fs::read(&target) {
                 let mut response = content.into_response();
-                apply_security_headers(response.headers_mut(), "application/javascript; charset=utf-8");
+                apply_security_headers(
+                    response.headers_mut(),
+                    "application/javascript; charset=utf-8",
+                );
                 return response;
             }
         }
     }
 
-    let mut response = format!("{}\n{}\n{}",crate::protocol::JAVASCRIPT_CONTRACT,include_str!("protocol.js"),APP_JS).into_response();
-    apply_security_headers(response.headers_mut(), "application/javascript; charset=utf-8");
+    let mut response = format!(
+        "{}\n{}\n{}",
+        crate::protocol::JAVASCRIPT_CONTRACT,
+        include_str!("protocol.js"),
+        APP_JS
+    )
+    .into_response();
+    apply_security_headers(
+        response.headers_mut(),
+        "application/javascript; charset=utf-8",
+    );
     response
 }
 
@@ -199,10 +213,22 @@ mod tests {
 
     #[test]
     fn mime_type_mappings() {
-        assert_eq!(mime_for_path(Path::new("index.html")), "text/html; charset=utf-8");
-        assert_eq!(mime_for_path(Path::new("main.css")), "text/css; charset=utf-8");
-        assert_eq!(mime_for_path(Path::new("bundle.js")), "application/javascript; charset=utf-8");
-        assert_eq!(mime_for_path(Path::new("data.json")), "application/json; charset=utf-8");
+        assert_eq!(
+            mime_for_path(Path::new("index.html")),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            mime_for_path(Path::new("main.css")),
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(
+            mime_for_path(Path::new("bundle.js")),
+            "application/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            mime_for_path(Path::new("data.json")),
+            "application/json; charset=utf-8"
+        );
         assert_eq!(mime_for_path(Path::new("logo.svg")), "image/svg+xml");
         assert_eq!(mime_for_path(Path::new("icon.png")), "image/png");
         assert_eq!(mime_for_path(Path::new("picture.jpg")), "image/jpeg");
@@ -210,7 +236,10 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("song.mp3")), "audio/mpeg");
         assert_eq!(mime_for_path(Path::new("doc.pdf")), "application/pdf");
         assert_eq!(mime_for_path(Path::new("favicon.ico")), "image/x-icon");
-        assert_eq!(mime_for_path(Path::new("unknown.xyz")), "application/octet-stream");
+        assert_eq!(
+            mime_for_path(Path::new("unknown.xyz")),
+            "application/octet-stream"
+        );
     }
 
     #[test]

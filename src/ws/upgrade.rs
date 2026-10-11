@@ -20,16 +20,13 @@ pub fn validate_origin(
     security: &SecurityConfig,
     origin: Option<&str>,
 ) -> Result<(), TealDriveError> {
-    if security.allow_plain_ws_localhost_only {
+    if security.allow_plain_ws_localhost_only && security.allowed_origins.is_empty() {
         return Ok(());
     }
     match origin {
         Some(value) if !value.trim().is_empty() => {
             if security.allowed_origins.is_empty()
-                || security
-                    .allowed_origins
-                    .iter()
-                    .any(|o| o == "*" || o.eq_ignore_ascii_case(value))
+                || security.allowed_origins.iter().any(|o| o == value)
             {
                 Ok(())
             } else {

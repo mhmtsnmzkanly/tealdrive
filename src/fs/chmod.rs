@@ -146,7 +146,10 @@ mod tests {
     }
 
     impl ChmodFileHelper for InProcessChmodHelper {
-        fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
             Ok(chmod_file_with_roots(
                 request,
                 &self.roots,
@@ -164,12 +167,18 @@ mod tests {
     }
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tealdrive-chmod-svc-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-chmod-svc-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
 
-    fn config_for(base: PathBuf, read_only: bool, is_web_root: bool, chmod_file: bool) -> AppConfig {
+    fn config_for(
+        base: PathBuf,
+        read_only: bool,
+        is_web_root: bool,
+        chmod_file: bool,
+    ) -> AppConfig {
         AppConfig {
             roots: vec![AllowedRoot {
                 root_id: RootId::new("home"),
@@ -204,7 +213,9 @@ mod tests {
         fs::set_permissions(&file_path, fs::Permissions::from_mode(0o644)).expect("perm");
 
         let config = config_for(base.clone(), false, false, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
         let result = chmod_file_request(
@@ -226,7 +237,9 @@ mod tests {
         fs::write(base.join("script.sh"), b"hi").expect("write");
 
         let config = config_for(base, false, false, false);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
         let result = chmod_file_request(
@@ -246,7 +259,9 @@ mod tests {
         fs::write(base.join("readonly.txt"), b"hi").expect("write");
 
         let config = config_for(base, true, false, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
         let result = chmod_file_request(
@@ -266,16 +281,13 @@ mod tests {
         fs::write(base.join(".env"), b"SECRET=1").expect("write");
 
         let config = config_for(base, false, false, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
-        let result = chmod_file_request(
-            &user(),
-            chmod_req(".env", 0o600),
-            &config,
-            &engine,
-            &helper,
-        );
+        let result =
+            chmod_file_request(&user(), chmod_req(".env", 0o600), &config, &engine, &helper);
 
         assert_eq!(result, Err(TealDriveError::PolicyDenied));
     }
@@ -286,7 +298,9 @@ mod tests {
         fs::write(base.join("script.php"), b"<?php").expect("write");
 
         let config = config_for(base, false, true, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
         let result = chmod_file_request(
@@ -304,16 +318,12 @@ mod tests {
     fn chmod_file_root_itself_rejected() {
         let base = temp_root();
         let config = config_for(base, false, false, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
-        let result = chmod_file_request(
-            &user(),
-            chmod_req("", 0o755),
-            &config,
-            &engine,
-            &helper,
-        );
+        let result = chmod_file_request(&user(), chmod_req("", 0o755), &config, &engine, &helper);
 
         assert_eq!(result, Err(TealDriveError::InvalidTarget));
     }
@@ -322,7 +332,9 @@ mod tests {
     fn chmod_file_suid_rejected() {
         let base = temp_root();
         let config = config_for(base, false, false, true);
-        let helper = InProcessChmodHelper { roots: config.roots.clone() };
+        let helper = InProcessChmodHelper {
+            roots: config.roots.clone(),
+        };
         let engine = PolicyEngine::new(&config);
 
         let result = chmod_file_request(

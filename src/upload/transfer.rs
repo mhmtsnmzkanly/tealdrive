@@ -82,8 +82,6 @@ pub fn upload_begin_request(
         return Err(TealDriveError::PolicyDenied);
     }
 
-    
-
     if detect_sensitive(&target_rel, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);
     }
@@ -119,10 +117,7 @@ pub fn upload_begin_request(
 
     let transfer_id = TransferId::new();
     let temp_name = TempUploadName::new(&transfer_id);
-    let negotiated_chunk_size = request
-        .chunk_size
-        .min(config.limits.max_chunk_size)
-        .max(1);
+    let negotiated_chunk_size = request.chunk_size.min(config.limits.max_chunk_size).max(1);
     let staging_path = std::env::temp_dir().join(temp_name.as_str());
 
     fs::File::create(&staging_path).map_err(|_| TealDriveError::Internal)?;
@@ -200,6 +195,13 @@ pub fn upload_end_request<H: UploadHelper>(
     config: &AppConfig,
     helper_client: &H,
 ) -> Result<UploadEndResponse, TealDriveError> {
+    struct Cleanup<'a>(&'a std::path::Path);
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(self.0);
+        }
+    }
+    let _cleanup = Cleanup(&active_upload.staging_path);
     if request.transfer_id != active_upload.transfer_id {
         return Err(TealDriveError::Validation);
     }
@@ -210,20 +212,27 @@ pub fn upload_end_request<H: UploadHelper>(
         return Err(TealDriveError::Validation);
     }
 
-    let staged_bytes = fs::read(&active_upload.staging_path).map_err(|_| TealDriveError::Internal)?;
+    let staged_bytes =
+        fs::read(&active_upload.staging_path).map_err(|_| TealDriveError::Internal)?;
 
-    let sha256_verified = if let Some(expected_hash) = &request.sha256 {
-        let mut hasher = Sha256::new();
-        hasher.update(&staged_bytes);
-        let computed_hash = format!("{:x}", hasher.finalize());
-        if !computed_hash.eq_ignore_ascii_case(expected_hash) {
-            let _ = fs::remove_file(&active_upload.staging_path);
+    if let (Some(begin), Some(end)) = (&active_upload.sha256, &request.sha256) {
+        if !begin.eq_ignore_ascii_case(end) {
             return Err(TealDriveError::Validation);
         }
-        Some(true)
-    } else {
-        None
-    };
+    }
+    let sha256_verified =
+        if let Some(expected_hash) = active_upload.sha256.as_ref().or(request.sha256.as_ref()) {
+            let mut hasher = Sha256::new();
+            hasher.update(&staged_bytes);
+            let computed_hash = format!("{:x}", hasher.finalize());
+            if !computed_hash.eq_ignore_ascii_case(expected_hash) {
+                let _ = fs::remove_file(&active_upload.staging_path);
+                return Err(TealDriveError::Validation);
+            }
+            Some(true)
+        } else {
+            None
+        };
 
     let target_rel = if active_upload.parent_relative_path.0.is_empty() {
         RelativePath::new(active_upload.filename.0.clone())
@@ -235,7 +244,7 @@ pub fn upload_end_request<H: UploadHelper>(
     };
 
     let root = require_allowed_root(config.allowed_roots(), &active_upload.root_id)?;
-    
+
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
@@ -322,7 +331,10 @@ mod tests {
     }
 
     impl UploadHelper for InProcessHelper {
-        fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
             Ok(write_file_with_roots(
                 request,
                 &self.roots,
@@ -332,12 +344,18 @@ mod tests {
     }
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tealdrive-upload-test-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-upload-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
 
-    fn config_for(path: PathBuf, read_only: bool, uploads_allowed: bool, is_web_root: bool) -> AppConfig {
+    fn config_for(
+        path: PathBuf,
+        read_only: bool,
+        uploads_allowed: bool,
+        is_web_root: bool,
+    ) -> AppConfig {
         AppConfig {
             roots: vec![AllowedRoot {
                 root_id: RootId::new("home"),
@@ -360,7 +378,12 @@ mod tests {
         }
     }
 
-    fn begin_req(filename: &str, total_size: u64, chunk_size: usize, sha256: Option<String>) -> UploadBeginRequest {
+    fn begin_req(
+        filename: &str,
+        total_size: u64,
+        chunk_size: usize,
+        sha256: Option<String>,
+    ) -> UploadBeginRequest {
         UploadBeginRequest {
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(""),
@@ -386,7 +409,8 @@ mod tests {
         let sha256 = format!("{:x}", hasher.finalize());
 
         let req = begin_req("hello.txt", data.len() as u64, 10, Some(sha256.clone()));
-        let (mut active, begin_resp) = upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
+        let (mut active, begin_resp) =
+            upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
         assert_eq!(begin_resp.chunk_size, 10);
         assert_eq!(begin_resp.transfer_id, active.transfer_id);
 
@@ -413,11 +437,59 @@ mod tests {
             total_size: data.len() as u64,
             sha256: Some(sha256),
         };
-        let end_resp = upload_end_request(&user(), &active, end_req, &config, &helper).expect("end ok");
+        let end_resp =
+            upload_end_request(&user(), &active, end_req, &config, &helper).expect("end ok");
         assert_eq!(end_resp.bytes_written, data.len() as u64);
         assert_eq!(end_resp.sha256_verified, Some(true));
 
-        assert_eq!(fs::read(base.join("hello.txt")).expect("read uploaded"), data);
+        assert_eq!(
+            fs::read(base.join("hello.txt")).expect("read uploaded"),
+            data
+        );
+    }
+
+    #[test]
+    fn begin_hash_cannot_be_bypassed_and_end_failures_remove_staging() {
+        let base = temp_root();
+        let config = config_for(base.clone(), false, true, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        for (name, begin_hash, total_size) in
+            [("bad-hash", Some("0".repeat(64)), 3), ("bad-size", None, 4)]
+        {
+            let (mut active, _) =
+                upload_begin_request(&user(), begin_req(name, 3, 3, begin_hash), &config, &engine)
+                    .unwrap();
+            let transfer_id = active.transfer_id;
+            upload_chunk_request(
+                &mut active,
+                RawChunk {
+                    transfer_id,
+                    chunk_index: 0,
+                    offset: 0,
+                    chunk_bytes: b"abc".to_vec(),
+                },
+                &config,
+            )
+            .unwrap();
+            assert!(upload_end_request(
+                &user(),
+                &active,
+                UploadEndRequest {
+                    transfer_id: active.transfer_id,
+                    total_size,
+                    sha256: None
+                },
+                &config,
+                &helper
+            )
+            .is_err());
+            assert!(!active.staging_path.exists());
+            assert!(!base.join(name).exists());
+        }
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -450,8 +522,14 @@ mod tests {
         };
 
         let data = b"some data";
-        let req = begin_req("bad_hash.txt", data.len() as u64, 100, Some("0000000000000000".to_owned()));
-        let (mut active, _) = upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
+        let req = begin_req(
+            "bad_hash.txt",
+            data.len() as u64,
+            100,
+            Some("0000000000000000".to_owned()),
+        );
+        let (mut active, _) =
+            upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
 
         let chunk = RawChunk {
             transfer_id: active.transfer_id,
@@ -466,7 +544,8 @@ mod tests {
             total_size: data.len() as u64,
             sha256: Some("0000000000000000".to_owned()),
         };
-        let err = upload_end_request(&user(), &active, end_req, &config, &helper).expect_err("hash mismatch");
+        let err = upload_end_request(&user(), &active, end_req, &config, &helper)
+            .expect_err("hash mismatch");
         assert_eq!(err, TealDriveError::Validation);
         assert!(!base.join("bad_hash.txt").exists());
     }
@@ -478,7 +557,8 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("test.txt", 100, 50, None);
-        let (mut active, _) = upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
+        let (mut active, _) =
+            upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
 
         let chunk = RawChunk {
             transfer_id: active.transfer_id,
@@ -486,7 +566,10 @@ mod tests {
             offset: 10, // should be 0
             chunk_bytes: b"12345".to_vec(),
         };
-        assert_eq!(upload_chunk_request(&mut active, chunk, &config), Err(TealDriveError::Validation));
+        assert_eq!(
+            upload_chunk_request(&mut active, chunk, &config),
+            Err(TealDriveError::Validation)
+        );
     }
 
     #[test]
@@ -497,11 +580,36 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("existing.txt", 50, 50, None);
-        let (mut active,_) = upload_begin_request(&user(),req,&config,&engine).unwrap();
-        let id=active.transfer_id;
-        upload_chunk_request(&mut active, RawChunk { transfer_id:id,chunk_index:0,offset:0,chunk_bytes:vec![0;50] }, &config).unwrap();
-        let helper=InProcessHelper { roots:config.roots.clone() };
-        assert_eq!(upload_end_request(&user(),&active,UploadEndRequest { transfer_id:active.transfer_id,total_size:50,sha256:None },&config,&helper),Err(TealDriveError::AlreadyExists));
+        let (mut active, _) = upload_begin_request(&user(), req, &config, &engine).unwrap();
+        let id = active.transfer_id;
+        upload_chunk_request(
+            &mut active,
+            RawChunk {
+                transfer_id: id,
+                chunk_index: 0,
+                offset: 0,
+                chunk_bytes: vec![0; 50],
+            },
+            &config,
+        )
+        .unwrap();
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        assert_eq!(
+            upload_end_request(
+                &user(),
+                &active,
+                UploadEndRequest {
+                    transfer_id: active.transfer_id,
+                    total_size: 50,
+                    sha256: None
+                },
+                &config,
+                &helper
+            ),
+            Err(TealDriveError::AlreadyExists)
+        );
     }
 
     #[test]
@@ -511,7 +619,10 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("test.txt", 50, 50, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::PolicyDenied));
+        assert_eq!(
+            upload_begin_request(&user(), req, &config, &engine),
+            Err(TealDriveError::PolicyDenied)
+        );
     }
 
     #[test]
@@ -521,7 +632,10 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("test.txt", 50, 50, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::PolicyDenied));
+        assert_eq!(
+            upload_begin_request(&user(), req, &config, &engine),
+            Err(TealDriveError::PolicyDenied)
+        );
     }
 
     #[test]
@@ -531,7 +645,10 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req("bad.php", 50, 50, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::WebrootExecutableDenied));
+        assert_eq!(
+            upload_begin_request(&user(), req, &config, &engine),
+            Err(TealDriveError::WebrootExecutableDenied)
+        );
     }
 
     #[test]
@@ -541,7 +658,10 @@ mod tests {
         let engine = PolicyEngine::new(&config);
 
         let req = begin_req(".env", 50, 50, None);
-        assert_eq!(upload_begin_request(&user(), req, &config, &engine), Err(TealDriveError::PolicyDenied));
+        assert_eq!(
+            upload_begin_request(&user(), req, &config, &engine),
+            Err(TealDriveError::PolicyDenied)
+        );
     }
 
     #[test]
@@ -554,11 +674,36 @@ mod tests {
 
         // 80 existing + 30 new > 100 quota -> DiskFull
         let req = begin_req("toolarge.txt", 30, 30, None);
-        let (mut active,_) = upload_begin_request(&user(),req,&config,&engine).unwrap();
-        let id=active.transfer_id;
-        upload_chunk_request(&mut active, RawChunk { transfer_id:id,chunk_index:0,offset:0,chunk_bytes:vec![0;30] }, &config).unwrap();
-        let helper=InProcessHelper { roots:config.roots.clone() };
-        assert_eq!(upload_end_request(&user(),&active,UploadEndRequest { transfer_id:active.transfer_id,total_size:30,sha256:None },&config,&helper),Err(TealDriveError::DiskFull));
+        let (mut active, _) = upload_begin_request(&user(), req, &config, &engine).unwrap();
+        let id = active.transfer_id;
+        upload_chunk_request(
+            &mut active,
+            RawChunk {
+                transfer_id: id,
+                chunk_index: 0,
+                offset: 0,
+                chunk_bytes: vec![0; 30],
+            },
+            &config,
+        )
+        .unwrap();
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        assert_eq!(
+            upload_end_request(
+                &user(),
+                &active,
+                UploadEndRequest {
+                    transfer_id: active.transfer_id,
+                    total_size: 30,
+                    sha256: None
+                },
+                &config,
+                &helper
+            ),
+            Err(TealDriveError::DiskFull)
+        );
 
         // 80 existing + 15 new <= 100 quota -> Allowed to begin
         let req_ok = begin_req("fits.txt", 15, 15, None);

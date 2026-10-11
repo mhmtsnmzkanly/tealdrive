@@ -52,7 +52,10 @@ pub fn search_files_with_roots(
     let ext_filter = opts
         .and_then(|o| o.extension.as_deref())
         .map(|e| e.trim_start_matches('.').to_ascii_lowercase());
-    let max_results = opts.and_then(|o| o.max_results).unwrap_or(200).clamp(1, 1000);
+    let max_results = opts
+        .and_then(|o| o.max_results)
+        .unwrap_or(200)
+        .clamp(1, 1000);
     let include_hidden =
         opts.map(|o| o.include_hidden).unwrap_or(false) && root.hidden_files_allowed;
 
@@ -160,11 +163,11 @@ pub fn search_files_with_roots(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::PathBuf;
     use crate::config::RootId;
     use crate::helper::ipc::tests_support::sample_request;
     use crate::helper::types::HelperCommand;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn temp_test_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!("tdrv-search-test-{}", uuid::Uuid::new_v4()));
@@ -187,7 +190,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         };
 
         let mut req = sample_request(HelperCommand::SearchFiles);
@@ -201,9 +204,14 @@ mod tests {
             max_depth: None,
         });
 
-        let resp = search_files_with_roots(&req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        let resp = search_files_with_roots(
+            &req,
+            std::slice::from_ref(&root),
+            &SensitivePolicyConfig::default(),
+        );
         assert!(resp.success);
-        let crate::helper::types::HelperResponsePayload::SearchResults(results) = resp.payload else {
+        let crate::helper::types::HelperResponsePayload::SearchResults(results) = resp.payload
+        else {
             panic!("expected search results");
         };
         assert_eq!(results.matches.len(), 1);

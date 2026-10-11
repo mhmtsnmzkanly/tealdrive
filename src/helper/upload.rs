@@ -15,7 +15,10 @@ pub fn write_file_with_roots(
     roots: &[AllowedRoot],
     sensitive_config: &SensitivePolicyConfig,
 ) -> HelperResponse {
-    if !matches!(request.command, HelperCommand::WriteFile | HelperCommand::UploadCommit) {
+    if !matches!(
+        request.command,
+        HelperCommand::WriteFile | HelperCommand::UploadCommit
+    ) {
         return HelperResponse::not_implemented(request);
     }
     if request.uid == 0 {
@@ -40,7 +43,7 @@ pub fn write_file_with_roots(
         );
     }
 
-    if !root.uploads_allowed {
+    if request.command == HelperCommand::UploadCommit && !root.uploads_allowed {
         return helper_error(
             request,
             ErrorKind::PolicyDenied,
@@ -82,7 +85,10 @@ pub fn write_file_with_roots(
         Err(err) => return helper_error_from_tealdrive(request, err),
     };
 
-    match check_webroot_upload(root.is_web_root, &filename, &crate::config::WebRootPolicyConfig::default()) {
+    let webroot_policy = crate::helper::policy::current()
+        .map(|policy| policy.config.webroot_policy)
+        .unwrap_or_default();
+    match check_webroot_upload(root.is_web_root, &filename, &webroot_policy) {
         PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
         PolicyDecision::Deny(_) => {
             return helper_error(
@@ -101,13 +107,23 @@ pub fn write_file_with_roots(
     };
 
     if crate::fs::quota::check_quota(root, write_options.data.len() as u64).is_err() {
-        return helper_error(request, ErrorKind::DiskFull, "Storage quota exceeded.", "quota_exceeded");
+        return helper_error(
+            request,
+            ErrorKind::DiskFull,
+            "Storage quota exceeded.",
+            "quota_exceeded",
+        );
     }
-    let mut flags=libc::O_WRONLY|libc::O_CREAT;
-    if request.command==HelperCommand::UploadCommit { flags|=libc::O_EXCL; }
-    if write_options.truncate { flags|=libc::O_TRUNC; }
-    let mut file=match crate::helper::sandbox::open(root,&validated_path,flags,0o600) {
-        Ok(file)=>file,Err(err)=>return helper_error_from_io(request,err),
+    let mut flags = libc::O_WRONLY | libc::O_CREAT;
+    if request.command == HelperCommand::UploadCommit {
+        flags |= libc::O_EXCL;
+    }
+    if write_options.truncate {
+        flags |= libc::O_TRUNC;
+    }
+    let mut file = match crate::helper::sandbox::open(root, &validated_path, flags, 0o600) {
+        Ok(file) => file,
+        Err(err) => return helper_error_from_io(request, err),
     };
 
     if write_options.offset > 0 {
@@ -139,12 +155,18 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tealdrive-helper-upload-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-helper-upload-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
 
-    fn root(path: PathBuf, read_only: bool, uploads_allowed: bool, is_web_root: bool) -> AllowedRoot {
+    fn root(
+        path: PathBuf,
+        read_only: bool,
+        uploads_allowed: bool,
+        is_web_root: bool,
+    ) -> AllowedRoot {
         AllowedRoot {
             root_id: RootId::new("home"),
             base_path: path,
@@ -219,14 +241,17 @@ mod tests {
     }
 
     #[test]
-    fn helper_write_file_rejects_disallowed_uploads() {
+    fn upload_gate_does_not_disable_text_edits() {
         let base = temp_root();
-        let roots = vec![root(base, false, false, false)];
-        let request = write_request("test.txt", b"abc".to_vec(), 0, true);
-
+        let roots = vec![root(base.clone(), false, false, false)];
+        let mut request = write_request("upload.txt", b"abc".to_vec(), 0, true);
+        request.command = HelperCommand::UploadCommit;
         let response = write_file_with_roots(&request, &roots, &SensitivePolicyConfig::default());
         assert!(!response.success);
         assert_eq!(response.error_kind, Some(ErrorKind::PolicyDenied));
+        request.command = HelperCommand::WriteFile;
+        assert!(write_file_with_roots(&request, &roots, &SensitivePolicyConfig::default()).success);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

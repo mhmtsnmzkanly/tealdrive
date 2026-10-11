@@ -99,7 +99,7 @@ pub struct HelperListDirectoryOptions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperResponse {
     #[serde(default)]
-    pub policy_revision: Option<[u8;32]>,
+    pub policy_revision: Option<[u8; 32]>,
     pub success: bool,
     pub error_kind: Option<ErrorKind>,
     pub safe_message: Option<String>,
@@ -116,7 +116,11 @@ pub enum HelperResponsePayload {
     DirectoryList(HelperDirectoryList),
     FileMetadata(HelperDirectoryEntry),
     DownloadFile(HelperDownloadFile),
-    FileRange { total_size: u64, offset: u64, data: Vec<u8> },
+    FileRange {
+        total_size: u64,
+        offset: u64,
+        data: Vec<u8>,
+    },
     TextFileContent(HelperTextFileContent),
     TrashEntry(HelperTrashEntry),
     SearchResults(SearchResultsPayload),

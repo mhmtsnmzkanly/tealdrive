@@ -57,6 +57,7 @@ pub struct UserContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub session: SessionConfig,
@@ -115,52 +116,112 @@ impl AppConfig {
         Ok(config)
     }
 
-    pub fn load_or_default(explicit_path: Option<&Path>) -> Result<Self, TealDriveError> {
-        if let Some(path) = explicit_path {
-            return Self::from_file(path);
+    pub fn resolve_config_path(explicit: Option<&Path>) -> Option<PathBuf> {
+        if let Some(path) = explicit {
+            return Some(path.to_path_buf());
         }
-
-        if let Ok(env_path) = std::env::var("TEALDRIVE_CONFIG") {
-            let trimmed = env_path.trim();
-            if !trimmed.is_empty() {
-                return Self::from_file(Path::new(trimmed));
+        if let Ok(path) = std::env::var("TEALDRIVE_CONFIG") {
+            if !path.trim().is_empty() {
+                return Some(path.trim().into());
             }
         }
-
-        let candidates = [
+        [
             "tealdrive.toml",
             "config.toml",
             "/etc/tealdrive/config.toml",
             "/etc/tealdrive/tealdrive.toml",
-        ];
-
-        for candidate in &candidates {
-            let path = Path::new(candidate);
-            if path.exists() {
-                return Self::from_file(path);
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+    }
+    pub fn load_or_default(explicit_path: Option<&Path>) -> Result<Self, TealDriveError> {
+        match Self::resolve_config_path(explicit_path) {
+            Some(path) => Self::from_file(path),
+            None => {
+                let config = Self::default();
+                config.validate()?;
+                Ok(config)
             }
         }
-
-        let default_config = Self::default();
-        default_config.validate()?;
-        Ok(default_config)
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
         if self.roots.is_empty() {
             return Err(TealDriveError::Validation);
         }
-        if self.server.bind_addr.parse::<std::net::SocketAddr>().is_err() {
+        if self
+            .server
+            .bind_addr
+            .parse::<std::net::SocketAddr>()
+            .is_err()
+        {
             return Err(TealDriveError::Validation);
         }
-        if self.limits.max_chunk_size == 0 || self.limits.max_text_edit_size == 0 {
+        let l = &self.limits;
+        if l.max_chunk_size == 0
+            || l.max_chunk_size > crate::limits::MAX_CHUNK_SIZE
+            || l.max_frame_payload == 0
+            || l.max_frame_payload > crate::limits::MAX_FRAME_PAYLOAD
+            || l.max_control_payload == 0
+            || l.max_control_payload > l.max_frame_payload
+            || l.max_chunk_size + crate::protocol::chunk::RAW_CHUNK_HEADER_LEN > l.max_frame_payload
+            || l.max_text_edit_size == 0
+            || l.max_text_edit_size > l.max_control_payload / 2
+            || l.max_in_flight_upload == 0
+            || l.max_in_flight_upload > 3 * crate::limits::MIB
+            || l.max_directory_page_size == 0
+            || l.max_directory_page_size > crate::limits::MAX_DIRECTORY_PAGE_SIZE
+            || l.default_directory_page_size == 0
+            || l.default_directory_page_size > l.max_directory_page_size
+            || self.session.idle_timeout_seconds == 0
+            || self.session.absolute_timeout_seconds < self.session.idle_timeout_seconds
+            || self.rate_limit.max_login_failures == 0
+            || self.rate_limit.lockout_duration_seconds == 0
+            || self.helper.timeout_seconds == 0
+            || self.helper.timeout_seconds > 3600
+            || self.search.default_max_results == 0
+            || self.search.default_max_results > self.search.max_results_limit
+            || self.search.max_results_limit > 10000
+            || self.search.max_depth > 128
+        {
             return Err(TealDriveError::Validation);
         }
+        let mut ids = std::collections::HashSet::new();
+        for root in &self.roots {
+            if root.root_id.0.is_empty()
+                || !root
+                    .root_id
+                    .0
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                || !ids.insert(&root.root_id)
+                || !root.base_path.is_absolute()
+                || root
+                    .base_path
+                    .components()
+                    .any(|p| matches!(p, std::path::Component::ParentDir))
+            {
+                return Err(TealDriveError::Validation);
+            }
+        }
+        for origin in &self.security.allowed_origins {
+            let uri: axum::http::Uri = origin.parse().map_err(|_| TealDriveError::Validation)?;
+            if !matches!(uri.scheme_str(), Some("https" | "http"))
+                || uri.authority().is_none()
+                || uri.query().is_some()
+                || uri.path() != "/"
+            {
+                return Err(TealDriveError::Validation);
+            }
+        }
+
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
     pub bind_addr: String,
     pub behind_tls_proxy: bool,
@@ -179,7 +240,7 @@ impl Default for ServerConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SessionConfig {
     pub cookie_name: String,
     pub idle_timeout_seconds: u64,
@@ -207,6 +268,7 @@ pub enum SameSitePolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct SecurityConfig {
     pub production_wire_protocol: WireProtocol,
     pub allow_plain_ws_localhost_only: bool,
@@ -230,6 +292,7 @@ pub enum WireProtocol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AllowedRoot {
     pub root_id: RootId,
     pub base_path: PathBuf,
@@ -256,6 +319,7 @@ impl Default for AllowedRoot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct SensitivePolicyConfig {
     pub deny_edit_patterns: Vec<String>,
     pub warn_read_patterns: Vec<String>,
@@ -289,6 +353,7 @@ impl Default for SensitivePolicyConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct WebRootPolicyConfig {
     pub block_executable_uploads: bool,
     pub blocked_extensions: Vec<String>,
@@ -312,7 +377,7 @@ impl Default for WebRootPolicyConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AccountPolicyConfig {
     pub reject_root: bool,
     pub reject_system_accounts: bool,
@@ -336,16 +401,12 @@ impl Default for AccountPolicyConfig {
 
 impl AccountPolicyConfig {
     pub fn is_admin(&self, username: &str) -> bool {
-        if self.admin_users.is_empty() {
-            true // When unconfigured, backwards-compatible: allow authenticated users
-        } else {
-            self.admin_users.iter().any(|u| u.eq_ignore_ascii_case(username))
-        }
+        self.admin_users.iter().any(|user| user == username)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct RateLimitConfig {
     pub max_login_failures: u32,
     pub lockout_duration_seconds: u64,
@@ -361,7 +422,7 @@ impl Default for RateLimitConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct HelperConfig {
     pub timeout_seconds: u64,
 }
@@ -375,7 +436,7 @@ impl Default for HelperConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SearchConfig {
     pub max_depth: usize,
     pub default_max_results: usize,
@@ -393,12 +454,14 @@ impl Default for SearchConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub features: Option<FeatureFlags>,
+    pub features: Option<crate::config_patch::FeaturesPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limits: Option<Limits>,
+    pub limits: Option<crate::config_patch::LimitsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::config_patch::nullable")]
     pub trash_retention_days: Option<Option<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub roots: Option<Vec<AllowedRoot>>,
@@ -407,17 +470,18 @@ pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warn_read_patterns: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::config_patch::nullable")]
     pub static_dir: Option<Option<PathBuf>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session: Option<SessionConfig>,
+    pub session: Option<crate::config_patch::SessionPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub security: Option<SecurityConfig>,
+    pub security: Option<crate::config_patch::SecurityPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<RateLimitConfig>,
+    pub rate_limit: Option<crate::config_patch::RateLimitPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub helper: Option<HelperConfig>,
+    pub helper: Option<crate::config_patch::HelperPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub search: Option<SearchConfig>,
+    pub search: Option<crate::config_patch::SearchPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_users: Option<Vec<String>>,
 }
@@ -425,10 +489,10 @@ pub struct ConfigPatch {
 impl ConfigPatch {
     pub fn apply_to(&self, config: &mut AppConfig) {
         if let Some(ref features) = self.features {
-            config.features = features.clone();
+            features.apply_to(&mut config.features);
         }
         if let Some(ref limits) = self.limits {
-            config.limits = *limits;
+            limits.apply_to(&mut config.limits);
         }
         if let Some(trash_retention_days) = self.trash_retention_days {
             config.trash_retention_days = trash_retention_days;
@@ -446,19 +510,19 @@ impl ConfigPatch {
             config.server.static_dir = static_dir.clone();
         }
         if let Some(ref session) = self.session {
-            config.session = session.clone();
+            session.apply_to(&mut config.session);
         }
         if let Some(ref security) = self.security {
-            config.security = security.clone();
+            security.apply_to(&mut config.security);
         }
         if let Some(ref rate_limit) = self.rate_limit {
-            config.rate_limit = rate_limit.clone();
+            rate_limit.apply_to(&mut config.rate_limit);
         }
         if let Some(ref helper) = self.helper {
-            config.helper = helper.clone();
+            helper.apply_to(&mut config.helper);
         }
         if let Some(ref search) = self.search {
-            config.search = search.clone();
+            search.apply_to(&mut config.search);
         }
         if let Some(ref admin_users) = self.admin_users {
             config.account_policy.admin_users = admin_users.clone();
@@ -470,6 +534,7 @@ impl ConfigPatch {
 pub struct DynamicConfig {
     inner: Arc<ArcSwap<AppConfig>>,
     config_path: Option<PathBuf>,
+    mutation: Arc<std::sync::Mutex<()>>,
 }
 
 impl DynamicConfig {
@@ -477,6 +542,7 @@ impl DynamicConfig {
         Self {
             inner: Arc::new(ArcSwap::from_pointee(config)),
             config_path: path,
+            mutation: Arc::new(std::sync::Mutex::new(())),
         }
     }
 
@@ -497,6 +563,7 @@ impl DynamicConfig {
     }
 
     pub fn store(&self, new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
+        let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         new_config.validate()?;
         let arc = Arc::new(new_config);
         self.inner.store(arc.clone());
@@ -504,24 +571,63 @@ impl DynamicConfig {
     }
 
     pub fn reload(&self) -> Result<Arc<AppConfig>, TealDriveError> {
+        let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
-        let loaded = AppConfig::from_file(path)?;
-        self.store(loaded)
+        let loaded = Arc::new(AppConfig::from_file(path)?);
+        self.inner.store(loaded.clone());
+        Ok(loaded)
     }
 
     pub fn apply_patch(&self, patch: ConfigPatch) -> Result<Arc<AppConfig>, TealDriveError> {
-        let current = self.load_full();
-        let mut new_config = (*current).clone();
-        patch.apply_to(&mut new_config);
-        self.store(new_config)
+        self.apply_patch_saved(patch, false)
     }
-
+    pub fn apply_patch_saved(
+        &self,
+        patch: ConfigPatch,
+        save: bool,
+    ) -> Result<Arc<AppConfig>, TealDriveError> {
+        let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
+        let mut config = (*self.load_full()).clone();
+        patch.apply_to(&mut config);
+        config.validate()?;
+        if save {
+            self.persist(&config)?;
+        }
+        let config = Arc::new(config);
+        self.inner.store(config.clone());
+        Ok(config)
+    }
     pub fn save_to_file(&self) -> Result<(), TealDriveError> {
+        let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
+        self.persist(&self.load_full())
+    }
+    fn persist(&self, config: &AppConfig) -> Result<(), TealDriveError> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
         let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
-        let current = self.load_full();
-        let toml_str = toml::to_string_pretty(&*current).map_err(|_| TealDriveError::Internal)?;
-        std::fs::write(path, toml_str).map_err(|_| TealDriveError::Internal)?;
-        Ok(())
+        let content = if path.extension().and_then(|p| p.to_str()) == Some("json") {
+            serde_json::to_string_pretty(config).map_err(|_| TealDriveError::Internal)?
+        } else {
+            toml::to_string_pretty(config).map_err(|_| TealDriveError::Internal)?
+        };
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let temporary = parent.join(format!(".tealdrive-config-{}.tmp", uuid::Uuid::new_v4()));
+        let result = (|| -> std::io::Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&temporary)?;
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, path)?;
+            std::fs::File::open(parent)?.sync_all()
+        })();
+        let _ = std::fs::remove_file(temporary);
+        result.map_err(|_| TealDriveError::Internal)
     }
 }
 
@@ -610,10 +716,13 @@ mod tests {
 
         // Apply patch in memory
         let patch = ConfigPatch {
-            features: Some(FeatureFlags {
-                delete_permanently: true,
-                ..Default::default()
-            }),
+            features: Some(
+                FeatureFlags {
+                    delete_permanently: true,
+                    ..Default::default()
+                }
+                .into(),
+            ),
             trash_retention_days: Some(Some(14)),
             ..Default::default()
         };
@@ -625,7 +734,8 @@ mod tests {
         dynamic.save_to_file().expect("save to file");
 
         // External modification on disk
-        let mut on_disk: AppConfig = toml::from_str(&std::fs::read_to_string(&cfg_file).unwrap()).unwrap();
+        let mut on_disk: AppConfig =
+            toml::from_str(&std::fs::read_to_string(&cfg_file).unwrap()).unwrap();
         on_disk.trash_retention_days = Some(30);
         std::fs::write(&cfg_file, toml::to_string(&on_disk).unwrap()).unwrap();
 
@@ -634,5 +744,76 @@ mod tests {
         assert_eq!(dynamic.load().trash_retention_days, Some(30));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    #[test]
+    fn partial_updates_preserve_siblings_and_null_clears_optionals() {
+        let mut config = AppConfig::default();
+        config.features.chmod_file = true;
+        config.session.secure_cookies = false;
+        config.trash_retention_days = Some(30);
+        config.server.static_dir = Some("/tmp/assets".into());
+        let patch:ConfigPatch=serde_json::from_str(r#"{"features":{"save_text_file":true},"session":{"idle_timeout_seconds":60},"trash_retention_days":null,"static_dir":null}"#).unwrap();
+        patch.apply_to(&mut config);
+        assert!(config.features.chmod_file);
+        assert!(config.features.save_text_file);
+        assert!(!config.session.secure_cookies);
+        assert_eq!(config.session.idle_timeout_seconds, 60);
+        assert_eq!(config.trash_retention_days, None);
+        assert_eq!(config.server.static_dir, None);
+        assert!(serde_json::from_str::<ConfigPatch>(r#"{"features":{"upload":true}}"#).is_err());
+        assert!(toml::from_str::<AppConfig>("unknown_setting = true").is_err());
+    }
+    #[test]
+    fn administrator_membership_is_explicit_and_case_sensitive() {
+        let mut policy = AccountPolicyConfig::default();
+        assert!(!policy.is_admin("alice"));
+        policy.admin_users = vec!["Alice".into()];
+        assert!(policy.is_admin("Alice"));
+        assert!(!policy.is_admin("alice"));
+    }
+    #[test]
+    fn atomic_json_save_roundtrips_and_failure_preserves_live_config() {
+        let dir = std::env::temp_dir().join(format!("tdrv-config-save-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("config.json");
+        let state = DynamicConfig::new(AppConfig::default(), Some(path.clone()));
+        let patch: ConfigPatch =
+            serde_json::from_str(r#"{"features":{"chmod_file":true}}"#).unwrap();
+        state.apply_patch_saved(patch.clone(), true).unwrap();
+        assert!(AppConfig::from_file(&path).unwrap().features.chmod_file);
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let failed =
+            DynamicConfig::new(AppConfig::default(), Some(dir.join("missing/config.toml")));
+        assert!(failed.apply_patch_saved(patch, true).is_err());
+        assert!(!failed.load().features.chmod_file);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn nested_hidden_paths_and_invalid_limits_are_rejected() {
+        assert!(crate::fs::path::is_hidden_relative(&RelativePath::new(
+            "visible/.private/file"
+        )));
+        assert!(!crate::fs::path::is_hidden_relative(&RelativePath::new(
+            "visible/file.txt"
+        )));
+        let mut config = AppConfig::default();
+        config.limits.max_text_edit_size = 1024 * 1024;
+        assert!(config.validate().is_err());
+        config = AppConfig::default();
+        config.security.allowed_origins = vec!["*".into()];
+        assert!(config.validate().is_err());
+        config = AppConfig::default();
+        config.roots.push(config.roots[0].clone());
+        assert!(config.validate().is_err());
     }
 }

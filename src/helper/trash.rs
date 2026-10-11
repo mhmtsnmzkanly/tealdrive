@@ -316,7 +316,9 @@ pub fn delete_permanently_with_roots(
         );
     }
 
-    if crate::policy::sensitive::detect_sensitive(&request.relative_path, sensitive_config).is_sensitive {
+    if crate::policy::sensitive::detect_sensitive(&request.relative_path, sensitive_config)
+        .is_sensitive
+    {
         return helper_error(
             request,
             ErrorKind::PolicyDenied,
@@ -347,7 +349,9 @@ pub fn delete_permanently_with_roots(
 
     if source.resolved_path.starts_with(trash_dir.join("files")) {
         if let Some(file_name) = source.resolved_path.file_name() {
-            let info_file = trash_dir.join("info").join(format!("{}.msgpack", file_name.to_string_lossy()));
+            let info_file = trash_dir
+                .join("info")
+                .join(format!("{}.msgpack", file_name.to_string_lossy()));
             if let Ok(bytes) = fs::read(&info_file) {
                 if let Ok(entry_model) = rmp_serde::from_slice::<TrashEntry>(&bytes) {
                     if entry_model.uid != request.uid && request.uid != 0 {
@@ -375,7 +379,9 @@ pub fn delete_permanently_with_roots(
 
     if source.resolved_path.starts_with(trash_dir.join("files")) {
         if let Some(file_name) = source.resolved_path.file_name() {
-            let info_file = trash_dir.join("info").join(format!("{}.msgpack", file_name.to_string_lossy()));
+            let info_file = trash_dir
+                .join("info")
+                .join(format!("{}.msgpack", file_name.to_string_lossy()));
             let _ = fs::remove_file(info_file);
         }
     }
@@ -558,7 +564,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         }
     }
 
@@ -824,7 +830,8 @@ mod tests {
         // User A (uid: 1000) moves to trash
         let mut req_a = trash_request("secret_a.txt");
         req_a.uid = 1000;
-        let response = move_file_to_trash_with_roots(&req_a, &roots, &SensitivePolicyConfig::default());
+        let response =
+            move_file_to_trash_with_roots(&req_a, &roots, &SensitivePolicyConfig::default());
         assert!(response.success);
         let HelperResponsePayload::TrashEntry(ref entry) = response.payload else {
             panic!("expected TrashEntry payload");
@@ -839,12 +846,19 @@ mod tests {
         let HelperResponsePayload::TrashList(ref list) = list_resp.payload else {
             panic!("expected TrashList payload");
         };
-        assert!(list.items.is_empty(), "User B should not see User A's trash entries");
+        assert!(
+            list.items.is_empty(),
+            "User B should not see User A's trash entries"
+        );
 
         // User B attempts to restore User A's file
         let mut restore_b = restore_request(&trash_id);
         restore_b.uid = 1001;
-        let restore_resp = restore_file_from_trash_with_roots(&restore_b, &roots, &SensitivePolicyConfig::default());
+        let restore_resp = restore_file_from_trash_with_roots(
+            &restore_b,
+            &roots,
+            &SensitivePolicyConfig::default(),
+        );
         assert!(!restore_resp.success);
         assert_eq!(restore_resp.error_kind, Some(ErrorKind::PermissionDenied));
 
@@ -852,14 +866,19 @@ mod tests {
         let mut delete_b = sample_request(HelperCommand::DeletePermanently);
         delete_b.relative_path = RelativePath::new(format!(".tealdrive-trash/files/{trash_id}"));
         delete_b.uid = 1001;
-        let delete_resp = delete_permanently_with_roots(&delete_b, &roots, &SensitivePolicyConfig::default());
+        let delete_resp =
+            delete_permanently_with_roots(&delete_b, &roots, &SensitivePolicyConfig::default());
         assert!(!delete_resp.success);
         assert_eq!(delete_resp.error_kind, Some(ErrorKind::PermissionDenied));
 
         // User A restores file
         let mut restore_a = restore_request(&trash_id);
         restore_a.uid = 1000;
-        let restore_resp_a = restore_file_from_trash_with_roots(&restore_a, &roots, &SensitivePolicyConfig::default());
+        let restore_resp_a = restore_file_from_trash_with_roots(
+            &restore_a,
+            &roots,
+            &SensitivePolicyConfig::default(),
+        );
         assert!(restore_resp_a.success);
         assert!(base.join("secret_a.txt").exists());
     }

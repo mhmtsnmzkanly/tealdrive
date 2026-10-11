@@ -79,7 +79,8 @@ impl TdrvHeader {
         out[0..4].copy_from_slice(&self.magic);
         out[VERSION_OFFSET] = self.version;
         out[FLAGS_OFFSET..MESSAGE_TYPE_OFFSET].copy_from_slice(&self.flags.bits().to_be_bytes());
-        out[MESSAGE_TYPE_OFFSET..COMPRESSION_OFFSET].copy_from_slice(&u16::from(self.message_type).to_be_bytes());
+        out[MESSAGE_TYPE_OFFSET..COMPRESSION_OFFSET]
+            .copy_from_slice(&u16::from(self.message_type).to_be_bytes());
         out[COMPRESSION_OFFSET] = u8::from(self.compression);
         out[ENCODING_OFFSET] = u8::from(self.encoding);
         out[RESERVED_OFFSET] = self.reserved;

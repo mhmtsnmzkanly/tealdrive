@@ -12,8 +12,8 @@ use serde::Deserialize;
 
 use crate::audit::event::{AuditEvent, AuditReason, AuditStatus};
 use crate::config::{RelativePath, RootId, UserContext};
-use crate::fs::path::validate_relative_path;
 use crate::errors::TealDriveError;
+use crate::fs::path::validate_relative_path;
 use crate::policy::decision::{FileOperation, PolicyDecision, PolicyEngine};
 use crate::policy::roots::require_allowed_root;
 use crate::protocol::frame::RequestId;
@@ -80,42 +80,143 @@ pub fn parse_range_header(header: &str, file_size: u64) -> Option<Result<ByteRan
     }
 }
 
-fn range_request(user: &UserContext, root_id: &RootId, path: &RelativePath, offset: u64, length: usize) -> crate::helper::types::HelperRequest {
+fn range_request(
+    user: &UserContext,
+    root_id: &RootId,
+    path: &RelativePath,
+    offset: u64,
+    length: usize,
+) -> crate::helper::types::HelperRequest {
     use crate::helper::types::*;
-    HelperRequest { request_id:RequestId::new(),username:user.username.clone(),uid:user.uid,gid:user.gid,command:HelperCommand::ReadFileRange,
-        root_id:root_id.clone(),relative_path:path.clone(),target_relative_path:None,
-        policy_context:HelperPolicyContext{read_only_root:true,is_web_root:false},
-        limits:HelperLimits{max_directory_page_size:1,max_text_edit_size:1,max_chunk_size:length,max_download_helper_bytes:length},
-        list_options:None,write_options:Some(HelperWriteOptions{data:Vec::new(),offset,truncate:false}),chmod_mode:None,archive_source_paths:None,search_options:None }
-}
-fn read_range<H: WsHelperBackend>(helper: &H, request: &crate::helper::types::HelperRequest) -> Result<(u64,Vec<u8>),TealDriveError> {
-    let response=crate::download::transfer::DownloadHelper::execute_helper(helper,request)?;
-    if !response.success { return Err(crate::download::transfer::helper_response_to_error(&response)); }
-    match response.payload {
-        crate::helper::types::HelperResponsePayload::FileRange{total_size,data,..}=>Ok((total_size,data)),
-        _=>Err(TealDriveError::HelperMalformedResponse),
+    HelperRequest {
+        request_id: RequestId::new(),
+        username: user.username.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        command: HelperCommand::ReadFileRange,
+        root_id: root_id.clone(),
+        relative_path: path.clone(),
+        target_relative_path: None,
+        policy_context: HelperPolicyContext {
+            read_only_root: true,
+            is_web_root: false,
+        },
+        limits: HelperLimits {
+            max_directory_page_size: 1,
+            max_text_edit_size: 1,
+            max_chunk_size: length,
+            max_download_helper_bytes: length,
+        },
+        list_options: None,
+        write_options: Some(HelperWriteOptions {
+            data: Vec::new(),
+            offset,
+            truncate: false,
+        }),
+        chmod_mode: None,
+        archive_source_paths: None,
+        search_options: None,
     }
 }
-fn create_helper_stream<H: WsHelperBackend + 'static>(helper: std::sync::Arc<H>, mut request: crate::helper::types::HelperRequest, length: u64, policy: crate::config::AppConfig, lease: crate::session::lease::SessionLease, store: std::sync::Arc<tokio::sync::Mutex<InMemorySessionStore>>, session_id: crate::session::store::SessionId, slots:std::sync::Arc<tokio::sync::Semaphore>) -> axum::body::Body {
-    let stream=futures_util::stream::unfold((helper,request.clone(),length,policy,lease,store,session_id,slots), |(helper,mut request,remaining,policy,lease,store,session_id,slots)|async move {
-        if remaining==0 { return None; }
-        if !matches!(store.lock().await.touch_session(&session_id,InMemorySessionStore::now_epoch_seconds()),SessionLookupResult::Found(_)) {
-            lease.cancellation.cancel();
-            return Some((Err(std::io::Error::other("session revoked or expired")),(helper,request,0,policy,lease,store,session_id,slots)));
-        }
-        request.limits.max_chunk_size=(STREAM_CHUNK_SIZE as u64).min(remaining) as usize;
-        let req=request.clone(); let client=helper.clone(); let snapshot=policy.clone(); let token=lease.cancellation.clone();
-        let permit=match slots.clone().acquire_owned().await { Ok(p)=>p,Err(_)=>return None };
-        let result=tokio::task::spawn_blocking(move|| { let _permit=permit; crate::session::lease::with_cancellation(token,||crate::helper::policy::with_snapshot(&snapshot,||read_range(client.as_ref(),&req))) }).await;
-        match result {
-            Ok(Ok((_,data))) if !data.is_empty()=> {
-                let count=data.len() as u64; request.write_options.as_mut().unwrap().offset+=count;
-                Some((Ok::<_,std::io::Error>(Bytes::from(data)),(helper,request,remaining-count,policy,lease,store,session_id,slots)))
+fn read_range<H: WsHelperBackend>(
+    helper: &H,
+    request: &crate::helper::types::HelperRequest,
+) -> Result<(u64, Vec<u8>), TealDriveError> {
+    let response = crate::download::transfer::DownloadHelper::execute_helper(helper, request)?;
+    if !response.success {
+        return Err(crate::download::transfer::helper_response_to_error(
+            &response,
+        ));
+    }
+    match response.payload {
+        crate::helper::types::HelperResponsePayload::FileRange {
+            total_size, data, ..
+        } => Ok((total_size, data)),
+        _ => Err(TealDriveError::HelperMalformedResponse),
+    }
+}
+fn create_helper_stream<H: WsHelperBackend + 'static>(
+    state: &WsServerState<H>,
+    request: crate::helper::types::HelperRequest,
+    length: u64,
+    policy: crate::config::AppConfig,
+    lease: crate::session::lease::SessionLease,
+    session_id: crate::session::store::SessionId,
+) -> axum::body::Body {
+    let helper = state.helper_client.clone();
+    let store = state.session_store.clone();
+    let slots = state.operation_slots.clone();
+    let stream = futures_util::stream::unfold(
+        (
+            helper,
+            request.clone(),
+            length,
+            policy,
+            lease,
+            store,
+            session_id,
+            slots,
+        ),
+        |(helper, mut request, remaining, policy, lease, store, session_id, slots)| async move {
+            if remaining == 0 {
+                return None;
             }
-            _=>Some((Err(std::io::Error::other("helper stream failed")),(helper,request,0,policy,lease,store,session_id,slots))),
-        }
-    });
-    request.limits.max_chunk_size=STREAM_CHUNK_SIZE;
+            if !matches!(
+                store
+                    .lock()
+                    .await
+                    .touch_session(&session_id, InMemorySessionStore::now_epoch_seconds()),
+                SessionLookupResult::Found(_)
+            ) {
+                lease.cancellation.cancel();
+                return Some((
+                    Err(std::io::Error::other("session revoked or expired")),
+                    (helper, request, 0, policy, lease, store, session_id, slots),
+                ));
+            }
+            request.limits.max_chunk_size = (STREAM_CHUNK_SIZE as u64).min(remaining) as usize;
+            let req = request.clone();
+            let client = helper.clone();
+            let snapshot = policy.clone();
+            let token = lease.cancellation.clone();
+            let permit = match slots.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => return None,
+            };
+            let result = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                crate::session::lease::with_cancellation(token, || {
+                    crate::helper::policy::with_snapshot(&snapshot, || {
+                        read_range(client.as_ref(), &req)
+                    })
+                })
+            })
+            .await;
+            match result {
+                Ok(Ok((_, data))) if !data.is_empty() => {
+                    let count = data.len() as u64;
+                    request.write_options.as_mut().unwrap().offset += count;
+                    Some((
+                        Ok::<_, std::io::Error>(Bytes::from(data)),
+                        (
+                            helper,
+                            request,
+                            remaining - count,
+                            policy,
+                            lease,
+                            store,
+                            session_id,
+                            slots,
+                        ),
+                    ))
+                }
+                _ => Some((
+                    Err(std::io::Error::other("helper stream failed")),
+                    (helper, request, 0, policy, lease, store, session_id, slots),
+                )),
+            }
+        },
+    );
     axum::body::Body::from_stream(stream)
 }
 
@@ -221,20 +322,36 @@ where
         }
     }
 
-    let lease=crate::session::lease::SessionLease::new(state.session_store.clone(),session_id);
-    let probe=range_request(&user_context,&root_id,&relative_path,0,0);
-    let helper=state.helper_client.clone();
-    let policy=cfg.as_ref().clone();
-    let permit=match state.operation_slots.clone().acquire_owned().await {Ok(p)=>p,Err(_)=>return StatusCode::SERVICE_UNAVAILABLE.into_response()};
-    let file_size=match tokio::task::spawn_blocking(move|| { let _permit=permit; crate::helper::policy::with_snapshot(&policy,||read_range(helper.as_ref(),&probe)) }).await {
-        Ok(Ok((size,_)))=>size,
-        Ok(Err(TealDriveError::PermissionDenied | TealDriveError::PolicyDenied))=>return StatusCode::FORBIDDEN.into_response(),
-        _=>return StatusCode::NOT_FOUND.into_response(),
+    let lease = crate::session::lease::SessionLease::new(state.session_store.clone(), session_id);
+    let probe = range_request(&user_context, &root_id, &relative_path, 0, 0);
+    let helper = state.helper_client.clone();
+    let policy = cfg.as_ref().clone();
+    let permit = match state.operation_slots.clone().acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    if disposition_type=="inline" && file_size>cfg.limits.max_preview_size as u64 {
+    let file_size = match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        crate::helper::policy::with_snapshot(&policy, || read_range(helper.as_ref(), &probe))
+    })
+    .await
+    {
+        Ok(Ok((size, _))) => size,
+        Ok(Err(TealDriveError::PermissionDenied | TealDriveError::PolicyDenied)) => {
+            return StatusCode::FORBIDDEN.into_response()
+        }
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    if disposition_type == "inline" && file_size > cfg.limits.max_preview_size as u64 {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    let helper_request=range_request(&user_context,&root_id,&relative_path,0,STREAM_CHUNK_SIZE);
+    let helper_request = range_request(
+        &user_context,
+        &root_id,
+        &relative_path,
+        0,
+        STREAM_CHUNK_SIZE,
+    );
 
     let filename = Path::new(&relative_path.0)
         .file_name()
@@ -261,10 +378,17 @@ where
     let (status, body, content_range, content_length) = if let Some(range_str) = range_header {
         match parse_range_header(range_str, file_size) {
             Some(Ok(range)) => {
-                let mut helper_request=helper_request.clone();
-                helper_request.write_options.as_mut().unwrap().offset=range.start;
+                let mut helper_request = helper_request.clone();
+                helper_request.write_options.as_mut().unwrap().offset = range.start;
                 let length = range.end - range.start + 1;
-                let body = create_helper_stream(state.helper_client.clone(), helper_request, length, cfg.as_ref().clone(), lease, state.session_store.clone(),session_id,state.operation_slots.clone());
+                let body = create_helper_stream(
+                    state,
+                    helper_request,
+                    length,
+                    cfg.as_ref().clone(),
+                    lease,
+                    session_id,
+                );
                 let cr_val = format!("bytes {}-{}/{}", range.start, range.end, file_size);
                 (StatusCode::PARTIAL_CONTENT, body, Some(cr_val), length)
             }
@@ -277,12 +401,26 @@ where
                 return resp;
             }
             None => {
-                let body = create_helper_stream(state.helper_client.clone(), helper_request, file_size, cfg.as_ref().clone(), lease, state.session_store.clone(),session_id,state.operation_slots.clone());
+                let body = create_helper_stream(
+                    state,
+                    helper_request,
+                    file_size,
+                    cfg.as_ref().clone(),
+                    lease,
+                    session_id,
+                );
                 (StatusCode::OK, body, None, file_size)
             }
         }
     } else {
-        let body = create_helper_stream(state.helper_client.clone(), helper_request, file_size, cfg.as_ref().clone(), lease, state.session_store.clone(),session_id,state.operation_slots.clone());
+        let body = create_helper_stream(
+            state,
+            helper_request,
+            file_size,
+            cfg.as_ref().clone(),
+            lease,
+            session_id,
+        );
         (StatusCode::OK, body, None, file_size)
     };
 

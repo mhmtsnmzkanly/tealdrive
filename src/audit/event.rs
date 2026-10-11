@@ -3,6 +3,26 @@ use serde::{Deserialize, Serialize};
 use crate::config::{RelativePath, RootId, UserContext};
 use crate::protocol::frame::RequestId;
 
+fn utc_timestamp() -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs()) as libc::time_t;
+    let mut date = std::mem::MaybeUninit::<libc::tm>::uninit();
+    let mut buffer = [0u8; 32];
+    unsafe {
+        if libc::gmtime_r(&seconds, date.as_mut_ptr()).is_null() {
+            return seconds.to_string();
+        }
+        let length = libc::strftime(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            c"%Y-%m-%dT%H:%M:%SZ".as_ptr(),
+            date.as_ptr(),
+        );
+        String::from_utf8_lossy(&buffer[..length]).into_owned()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub timestamp: String,
@@ -33,7 +53,7 @@ impl AuditEvent {
         status: AuditStatus,
     ) -> Self {
         Self {
-            timestamp: "1970-01-01T00:00:00Z".to_owned(),
+            timestamp: utc_timestamp(),
             request_id,
             session_id_hash: String::new(),
             username: username.into(),
@@ -903,7 +923,10 @@ mod tests {
         );
 
         assert_eq!(event.action, AuditAction::Upload);
-        assert_eq!(event.relative_path, Some(RelativePath::new("uploads/file.png")));
+        assert_eq!(
+            event.relative_path,
+            Some(RelativePath::new("uploads/file.png"))
+        );
         assert_eq!(event.bytes_in, 4096);
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
@@ -927,7 +950,10 @@ mod tests {
         );
 
         assert_eq!(event.action, AuditAction::SaveTextFile);
-        assert_eq!(event.relative_path, Some(RelativePath::new("docs/notes.txt")));
+        assert_eq!(
+            event.relative_path,
+            Some(RelativePath::new("docs/notes.txt"))
+        );
         assert_eq!(event.bytes_in, 128);
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
@@ -972,7 +998,10 @@ mod tests {
         );
 
         assert_eq!(event.action, AuditAction::Chmod);
-        assert_eq!(event.relative_path, Some(RelativePath::new("docs/script.sh")));
+        assert_eq!(
+            event.relative_path,
+            Some(RelativePath::new("docs/script.sh"))
+        );
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
     }
@@ -993,7 +1022,10 @@ mod tests {
             None,
         );
         assert_eq!(zip_event.action, AuditAction::CompressZip);
-        assert_eq!(zip_event.target_relative_path, Some(RelativePath::new("out.zip")));
+        assert_eq!(
+            zip_event.target_relative_path,
+            Some(RelativePath::new("out.zip"))
+        );
 
         let targz_event = AuditEvent::compress_targz(
             RequestId::new(),
@@ -1004,7 +1036,10 @@ mod tests {
             None,
         );
         assert_eq!(targz_event.action, AuditAction::CompressTarGz);
-        assert_eq!(targz_event.target_relative_path, Some(RelativePath::new("out.tar.gz")));
+        assert_eq!(
+            targz_event.target_relative_path,
+            Some(RelativePath::new("out.tar.gz"))
+        );
 
         let extract_event = AuditEvent::extract_archive(
             RequestId::new(),
@@ -1016,7 +1051,24 @@ mod tests {
             None,
         );
         assert_eq!(extract_event.action, AuditAction::ExtractArchive);
-        assert_eq!(extract_event.relative_path, Some(RelativePath::new("in.zip")));
-        assert_eq!(extract_event.target_relative_path, Some(RelativePath::new("out_dir")));
+        assert_eq!(
+            extract_event.relative_path,
+            Some(RelativePath::new("in.zip"))
+        );
+        assert_eq!(
+            extract_event.target_relative_path,
+            Some(RelativePath::new("out_dir"))
+        );
+    }
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    #[test]
+    fn events_use_current_utc_timestamps() {
+        let timestamp = super::utc_timestamp();
+        assert_eq!(timestamp.len(), 20);
+        assert!(timestamp.ends_with('Z'));
+        assert_ne!(timestamp, "1970-01-01T00:00:00Z");
     }
 }

@@ -7,7 +7,7 @@ pub use account::{
     Authenticator, MockAuthenticator, MockUser,
 };
 pub use api::{
-    login_handler, logout_handler, session_handler, AuthErrorResponse, LoginPayload,
-    LoginResponse, LogoutResponse, RootSummary, SessionResponse,
+    login_handler, logout_handler, session_handler, AuthErrorResponse, LoginPayload, LoginResponse,
+    LogoutResponse, RootSummary, SessionResponse,
 };
 pub use pam::PamAuthenticator;

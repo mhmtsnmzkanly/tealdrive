@@ -13,7 +13,8 @@ use crate::helper::move_copy::{copy_file_with_roots, move_file_with_roots};
 use crate::helper::rename::rename_with_roots;
 use crate::helper::text::read_text_file_with_roots;
 use crate::helper::trash::{
-    delete_permanently_with_roots, move_file_to_trash_with_roots, restore_file_from_trash_with_roots,
+    delete_permanently_with_roots, move_file_to_trash_with_roots,
+    restore_file_from_trash_with_roots,
 };
 use crate::helper::types::{command_disabled_in_v1, HelperCommand, HelperRequest, HelperResponse};
 use crate::helper::upload::write_file_with_roots;
@@ -97,22 +98,39 @@ pub fn run_helper_once<R: Read, W: Write>(
 }
 
 pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
-    let config = crate::config::AppConfig { roots: allowed_roots_from_env(), features: crate::policy::feature_gate::FeatureFlags { save_text_file:true,chmod_file:true,extract_archive:true,delete_permanently:true,chown:false }, ..Default::default() };
+    let config = crate::config::AppConfig {
+        roots: allowed_roots_from_env(),
+        features: crate::policy::feature_gate::FeatureFlags {
+            save_text_file: true,
+            chmod_file: true,
+            extract_archive: true,
+            delete_permanently: true,
+            chown: false,
+        },
+        ..Default::default()
+    };
     handle_helper_request_with_config(request, &config)
 }
-pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate::config::AppConfig) -> HelperResponse {
+pub fn handle_helper_request_with_config(
+    request: &HelperRequest,
+    config: &crate::config::AppConfig,
+) -> HelperResponse {
     if request.uid == 0 {
         return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
     }
-    if crate::helper::policy::authorize(request,config).is_err() { return HelperResponse::permission_denied(request,"Operation denied by helper policy."); }
-    let disabled=match request.command {
-        HelperCommand::WriteFile=>!config.features.save_text_file,
-        HelperCommand::Chmod=>!config.features.chmod_file,
-        HelperCommand::ExtractArchive=>!config.features.extract_archive,
-        HelperCommand::DeletePermanently=>!config.features.delete_permanently,
-        _=>false,
+    if crate::helper::policy::authorize(request, config).is_err() {
+        return HelperResponse::permission_denied(request, "Operation denied by helper policy.");
+    }
+    let disabled = match request.command {
+        HelperCommand::WriteFile => !config.features.save_text_file,
+        HelperCommand::Chmod => !config.features.chmod_file,
+        HelperCommand::ExtractArchive => !config.features.extract_archive,
+        HelperCommand::DeletePermanently => !config.features.delete_permanently,
+        _ => false,
     };
-    if disabled { return HelperResponse::feature_disabled(request); }
+    if disabled {
+        return HelperResponse::feature_disabled(request);
+    }
     if command_disabled_in_v1(request.command) {
         return HelperResponse::feature_disabled(request);
     }
@@ -125,7 +143,11 @@ pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate
         return file_metadata_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::ReadFileRange {
-        return crate::helper::download::read_file_range(request, &config.roots, &config.sensitive_policy);
+        return crate::helper::download::read_file_range(
+            request,
+            &config.roots,
+            &config.sensitive_policy,
+        );
     }
     if request.command == HelperCommand::DownloadFile {
         let roots = &config.roots;
@@ -157,13 +179,12 @@ pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate
     }
     if request.command == HelperCommand::RestoreFromTrash {
         let roots = &config.roots;
-        return restore_file_from_trash_with_roots(
-            request,
-            roots,
-            &config.sensitive_policy,
-        );
+        return restore_file_from_trash_with_roots(request, roots, &config.sensitive_policy);
     }
-    if matches!(request.command, HelperCommand::WriteFile | HelperCommand::UploadCommit) {
+    if matches!(
+        request.command,
+        HelperCommand::WriteFile | HelperCommand::UploadCommit
+    ) {
         let roots = &config.roots;
         return write_file_with_roots(request, roots, &config.sensitive_policy);
     }
@@ -438,66 +459,177 @@ pub(crate) mod tests_support {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum HelperInvocation {
     Authenticate(crate::auth::account::AuthRequest),
-    Operation { request: Box<HelperRequest>, ticket: Option<crate::helper::security::IdentityTicket>, policy: Option<crate::helper::policy::PolicySnapshot> },
+    Operation {
+        request: Box<HelperRequest>,
+        ticket: Option<crate::helper::security::IdentityTicket>,
+        policy: Option<Box<crate::helper::policy::PolicySnapshot>>,
+    },
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct HelperAuthentication {
-    pub result: Result<(crate::auth::account::AuthSuccess, crate::helper::security::IdentityTicket), crate::auth::account::AuthFailure>,
+    pub result: Result<
+        (
+            crate::auth::account::AuthSuccess,
+            crate::helper::security::IdentityTicket,
+        ),
+        crate::auth::account::AuthFailure,
+    >,
 }
 pub fn encode_invocation(value: &HelperInvocation) -> Result<Vec<u8>, TealDriveError> {
-    encode_length_prefixed(value, MAX_HELPER_REQUEST_SIZE, TealDriveError::HelperRequestTooLarge)
+    encode_length_prefixed(
+        value,
+        MAX_HELPER_REQUEST_SIZE,
+        TealDriveError::HelperRequestTooLarge,
+    )
 }
-pub fn read_authentication<R: Read>(reader: &mut R) -> Result<HelperAuthentication, TealDriveError> {
-    let bytes=read_length_prefixed(reader, MAX_HELPER_RESPONSE_SIZE, TealDriveError::HelperResponseTooLarge)?;
-    rmp_serde::from_slice(&bytes).map_err(|_|TealDriveError::HelperDecodeFailed)
+pub fn read_authentication<R: Read>(
+    reader: &mut R,
+) -> Result<HelperAuthentication, TealDriveError> {
+    let bytes = read_length_prefixed(
+        reader,
+        MAX_HELPER_RESPONSE_SIZE,
+        TealDriveError::HelperResponseTooLarge,
+    )?;
+    rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)
 }
-pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Result<(), TealDriveError> {
-    let bytes=read_length_prefixed(reader, MAX_HELPER_REQUEST_SIZE, TealDriveError::HelperRequestTooLarge)?;
-    let invocation: HelperInvocation=rmp_serde::from_slice(&bytes).map_err(|_|TealDriveError::HelperDecodeFailed)?;
+pub fn run_secure_helper<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<(), TealDriveError> {
+    let bytes = read_length_prefixed(
+        reader,
+        MAX_HELPER_REQUEST_SIZE,
+        TealDriveError::HelperRequestTooLarge,
+    )?;
+    let invocation: HelperInvocation =
+        rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)?;
     match invocation {
-        HelperInvocation::Authenticate(request)=> {
-            let response=HelperAuthentication { result: crate::helper::security::issue(&request).map_err(|e|e.failure_kind()) };
-            let bytes=encode_length_prefixed(&response, MAX_HELPER_RESPONSE_SIZE, TealDriveError::HelperResponseTooLarge)?;
-            writer.write_all(&bytes).map_err(|_|TealDriveError::HelperStdoutFailed)
+        HelperInvocation::Authenticate(request) => {
+            let response = HelperAuthentication {
+                result: crate::helper::security::authenticate(&request)
+                    .map_err(|e| e.failure_kind()),
+            };
+            let bytes = encode_length_prefixed(
+                &response,
+                MAX_HELPER_RESPONSE_SIZE,
+                TealDriveError::HelperResponseTooLarge,
+            )?;
+            writer
+                .write_all(&bytes)
+                .map_err(|_| TealDriveError::HelperStdoutFailed)
         }
-        HelperInvocation::Operation { mut request,ticket,policy } => {
-            let elevated=unsafe { libc::geteuid()!=libc::getuid() };
-            let user=crate::config::UserContext { username:request.username.clone(),uid:request.uid,gid:request.gid };
-            let config=if elevated {
-                let ticket=ticket.ok_or(TealDriveError::PermissionDenied)?;
-                crate::helper::security::verify(&ticket,&user).map_err(|_|TealDriveError::PermissionDenied)?;
-                crate::helper::security::trusted_config().map_err(|_|TealDriveError::PermissionDenied)?
+        HelperInvocation::Operation {
+            mut request,
+            ticket,
+            policy,
+        } => {
+            let elevated = unsafe { libc::geteuid() != libc::getuid() };
+            let user = crate::config::UserContext {
+                username: request.username.clone(),
+                uid: request.uid,
+                gid: request.gid,
+            };
+            let config = if elevated {
+                let ticket = ticket.ok_or(TealDriveError::PermissionDenied)?;
+                crate::helper::security::verify(&ticket, &user)
+                    .map_err(|_| TealDriveError::PermissionDenied)?;
+                crate::helper::security::trusted_config()
+                    .map_err(|_| TealDriveError::PermissionDenied)?
             } else {
-                crate::config::AppConfig { roots:allowed_roots_from_env(), ..Default::default() }
+                crate::config::AppConfig {
+                    roots: allowed_roots_from_env(),
+                    ..Default::default()
+                }
             };
-            let config=match policy.as_ref() {
-                Some(snapshot) if elevated=>crate::helper::policy::restrict(snapshot,&config)?,
-                Some(snapshot)=> { snapshot.validate()?; snapshot.config.clone() },
-                None if elevated=>return Err(TealDriveError::PermissionDenied),
-                None=>config,
+            let config = match policy.as_ref() {
+                Some(snapshot) if elevated => crate::helper::policy::restrict(snapshot, &config)?,
+                Some(snapshot) => {
+                    snapshot.validate()?;
+                    snapshot.config.clone()
+                }
+                None if elevated => return Err(TealDriveError::PermissionDenied),
+                None => config,
             };
-            request.limits.max_chunk_size=request.limits.max_chunk_size.min(config.limits.max_chunk_size);
-            request.limits.max_text_edit_size=request.limits.max_text_edit_size.min(config.limits.max_text_edit_size);
-            request.limits.max_directory_page_size=request.limits.max_directory_page_size.min(config.limits.max_directory_page_size);
-            let root=config.roots.iter().find(|r|r.root_id==request.root_id).ok_or(TealDriveError::InvalidRootId)?;
+            request.limits.max_chunk_size = request
+                .limits
+                .max_chunk_size
+                .min(config.limits.max_chunk_size);
+            request.limits.max_text_edit_size = request
+                .limits
+                .max_text_edit_size
+                .min(config.limits.max_text_edit_size);
+            request.limits.max_directory_page_size = request
+                .limits
+                .max_directory_page_size
+                .min(config.limits.max_directory_page_size);
+            let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
+                return write_helper_response(
+                    writer,
+                    &HelperResponse::permission_denied(&request, "Unknown root."),
+                );
+            };
             // Validate first; privileged accounting never reads an untrusted root.
-            crate::helper::policy::authorize(&request,&config)?;
-            let reservation=if matches!(request.command,HelperCommand::ListDirectory|HelperCommand::FileMetadata|HelperCommand::ReadTextFile|HelperCommand::ReadFileRange|HelperCommand::DownloadFile|HelperCommand::ListTrash|HelperCommand::SearchFiles) { None }
-                else { Some(crate::helper::quota::Reservation::acquire(root).map_err(|_|TealDriveError::PermissionDenied)?) };
+            if crate::helper::policy::authorize(&request, &config).is_err() {
+                return write_helper_response(
+                    writer,
+                    &HelperResponse::permission_denied(
+                        &request,
+                        "Operation denied by helper policy.",
+                    ),
+                );
+            }
+            let reservation = if matches!(
+                request.command,
+                HelperCommand::ListDirectory
+                    | HelperCommand::FileMetadata
+                    | HelperCommand::ReadTextFile
+                    | HelperCommand::ReadFileRange
+                    | HelperCommand::DownloadFile
+                    | HelperCommand::ListTrash
+                    | HelperCommand::SearchFiles
+            ) {
+                None
+            } else {
+                Some(
+                    crate::helper::quota::Reservation::acquire(root)
+                        .map_err(|_| TealDriveError::PermissionDenied)?,
+                )
+            };
             if crate::helper::security::enter_identity(&user).is_err() {
-                return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Identity verification failed."));
+                return write_helper_response(
+                    writer,
+                    &HelperResponse::permission_denied(&request, "Identity verification failed."),
+                );
             }
-            let root=config.roots.iter().find(|r|r.root_id==request.root_id).ok_or(TealDriveError::InvalidRootId)?;
+            let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
+                return write_helper_response(
+                    writer,
+                    &HelperResponse::permission_denied(&request, "Unknown root."),
+                );
+            };
             if crate::helper::sandbox::confine(root).is_err() {
-                return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Kernel filesystem confinement is unavailable."));
+                return write_helper_response(
+                    writer,
+                    &HelperResponse::permission_denied(
+                        &request,
+                        "Kernel filesystem confinement is unavailable.",
+                    ),
+                );
             }
-            let mut response=crate::helper::quota::with_budget(reservation.as_ref().and_then(|r|r.available),||crate::helper::transaction::execute(&request,&config));
-            response.policy_revision=policy.map(|p|p.revision);
-            write_helper_response(writer,&response)
+            let mut response = crate::helper::quota::with_budget(
+                reservation.as_ref().and_then(|r| r.available),
+                || crate::helper::transaction::execute(&request, &config),
+            );
+            response.policy_revision = policy.map(|p| p.revision);
+            write_helper_response(writer, &response)
         }
     }
 }
 
-pub fn read_wire_payload<R:Read>(reader:&mut R)->Result<Vec<u8>,TealDriveError> {
-    read_length_prefixed(reader,MAX_HELPER_RESPONSE_SIZE,TealDriveError::HelperResponseTooLarge)
+pub fn read_wire_payload<R: Read>(reader: &mut R) -> Result<Vec<u8>, TealDriveError> {
+    read_length_prefixed(
+        reader,
+        MAX_HELPER_RESPONSE_SIZE,
+        TealDriveError::HelperResponseTooLarge,
+    )
 }

@@ -10,7 +10,6 @@ use crate::auth::account::{AuthError, AuthRequest};
 use crate::protocol::frame::RequestId;
 use crate::rate_limit::login::{LoginRateLimitDecision, LoginRateLimitKey};
 use crate::session::cookie::SessionCookieConfig;
-use crate::session::csrf::CsrfToken;
 use crate::session::store::{
     InMemorySessionStore, SessionCreateInput, SessionLookupResult, SessionStore,
 };
@@ -46,6 +45,7 @@ pub struct LoginResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionResponse {
     pub authenticated: bool,
+    pub is_admin: bool,
     pub username: Option<String>,
     pub uid: Option<u32>,
     pub gid: Option<u32>,
@@ -90,7 +90,9 @@ where
 
     {
         let limiter = state.rate_limiter.lock().await;
-        if limiter.check_at(&rate_key, max_failures, lockout_secs, now) == LoginRateLimitDecision::Limited {
+        if limiter.check_at(&rate_key, max_failures, lockout_secs, now)
+            == LoginRateLimitDecision::Limited
+        {
             let request_id = RequestId::new();
             let _ = state.audit_sink.emit(&AuditEvent::login_failure(
                 request_id,
@@ -114,9 +116,16 @@ where
         ip: client_ip.clone(),
     };
 
-    let permit=match state.operation_slots.clone().acquire_owned().await { Ok(p)=>p,Err(_)=>return StatusCode::SERVICE_UNAVAILABLE.into_response() };
-    let authenticator=state.authenticator.clone();
-    let auth_result=tokio::task::spawn_blocking(move|| { let _permit=permit; authenticator.authenticate(&auth_req) }).await;
+    let permit = match state.operation_slots.clone().acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let authenticator = state.authenticator.clone();
+    let auth_result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        authenticator.authenticate(&auth_req)
+    })
+    .await;
     let auth_success = match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {
         Ok(success) => success,
         Err(err) => {
@@ -149,6 +158,29 @@ where
         }
     };
 
+    let candidate = crate::auth::account::MockUser {
+        username: auth_success.username.clone(),
+        password: String::new(),
+        uid: auth_success.uid,
+        primary_gid: auth_success.primary_gid,
+        home_dir: auth_success.home_dir.clone(),
+        shell: auth_success.shell.clone(),
+        groups: auth_success.groups.clone(),
+        status: crate::auth::account::AccountStatus::Active,
+    };
+    if !matches!(
+        crate::auth::account::evaluate_account_policy(&candidate, &state.config().account_policy),
+        crate::auth::account::AccountPolicyResult::Allowed
+    ) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(AuthErrorResponse {
+                error: "Invalid username or password.".into(),
+                code: "INVALID_CREDENTIALS".into(),
+            }),
+        )
+            .into_response();
+    }
     {
         let mut limiter = state.rate_limiter.lock().await;
         limiter.record_success(&rate_key);
@@ -179,7 +211,7 @@ where
     let cfg = state.config.load();
     let cookie_config = SessionCookieConfig::from_session_config(&cfg.session);
     let cookie_val = cookie_config.build_set_cookie_value(&session.session_id);
-    let csrf_token = CsrfToken::generate();
+    let csrf_token = session.csrf_token.clone();
 
     let roots = cfg
         .allowed_roots()
@@ -221,6 +253,9 @@ where
         let mut store = state.session_store.lock().await;
         let now = InMemorySessionStore::now_epoch_seconds();
         if let SessionLookupResult::Found(session) = store.get_session(&session_id, now) {
+            if !crate::session::csrf::validate_header(&session, &headers) {
+                return StatusCode::FORBIDDEN.into_response();
+            }
             store.revoke_session(&session_id);
             let request_id = RequestId::new();
             let _ = state.audit_sink.emit(&AuditEvent::logout(
@@ -264,6 +299,7 @@ where
                 StatusCode::UNAUTHORIZED,
                 Json(SessionResponse {
                     authenticated: false,
+                    is_admin: false,
                     username: None,
                     uid: None,
                     gid: None,
@@ -283,7 +319,7 @@ where
 
     match lookup {
         SessionLookupResult::Found(session) => {
-            let csrf_token = CsrfToken::generate();
+            let csrf_token = session.csrf_token.clone();
             let roots = cfg
                 .allowed_roots()
                 .iter()
@@ -301,6 +337,7 @@ where
                 StatusCode::OK,
                 Json(SessionResponse {
                     authenticated: true,
+                    is_admin: cfg.account_policy.is_admin(&session.username),
                     username: Some(session.username),
                     uid: Some(session.uid),
                     gid: Some(session.gid),
@@ -318,6 +355,7 @@ where
                 StatusCode::UNAUTHORIZED,
                 Json(SessionResponse {
                     authenticated: false,
+                    is_admin: false,
                     username: None,
                     uid: None,
                     gid: None,
@@ -338,9 +376,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use axum::body::to_bytes;
-    use axum::http::header::COOKIE;
     use crate::audit::sink::JsonlAuditSink;
     use crate::auth::account::{MockAuthenticator, MockUser};
     use crate::config::{AccountPolicyConfig, AllowedRoot, AppConfig, RootId};
@@ -361,6 +396,9 @@ mod tests {
     use crate::rate_limit::login::InMemoryLoginRateLimiter;
     use crate::session::store::InMemorySessionStore;
     use crate::upload::transfer::UploadHelper;
+    use axum::body::to_bytes;
+    use axum::http::header::COOKIE;
+    use std::sync::Arc;
 
     #[derive(Clone, Debug)]
     struct DummyHelper;
@@ -368,7 +406,10 @@ mod tests {
     macro_rules! impl_dummy_helper {
         ($trait_name:ident) => {
             impl $trait_name for DummyHelper {
-                fn execute_helper(&self, _request: &HelperRequest) -> Result<HelperResponse, crate::errors::TealDriveError> {
+                fn execute_helper(
+                    &self,
+                    _request: &HelperRequest,
+                ) -> Result<HelperResponse, crate::errors::TealDriveError> {
                     Err(crate::errors::TealDriveError::HelperCommandNotImplemented)
                 }
             }
@@ -478,15 +519,30 @@ mod tests {
         };
 
         // Attempt 1 -> 401
-        let resp1 = login_handler(State(state.clone()), HeaderMap::new(), Json(payload.clone())).await;
+        let resp1 = login_handler(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(payload.clone()),
+        )
+        .await;
         assert_eq!(resp1.status(), StatusCode::UNAUTHORIZED);
 
         // Attempt 2 -> 401
-        let resp2 = login_handler(State(state.clone()), HeaderMap::new(), Json(payload.clone())).await;
+        let resp2 = login_handler(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(payload.clone()),
+        )
+        .await;
         assert_eq!(resp2.status(), StatusCode::UNAUTHORIZED);
 
         // Attempt 3 -> 429
-        let resp3 = login_handler(State(state.clone()), HeaderMap::new(), Json(payload.clone())).await;
+        let resp3 = login_handler(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(payload.clone()),
+        )
+        .await;
         assert_eq!(resp3.status(), StatusCode::TOO_MANY_REQUESTS);
 
         let body_bytes = to_bytes(resp3.into_body(), 4096).await.expect("bytes");
@@ -505,7 +561,13 @@ mod tests {
         // 1. Login
         let login_res = login_handler(State(state.clone()), HeaderMap::new(), Json(payload)).await;
         assert_eq!(login_res.status(), StatusCode::OK);
-        let cookie_raw = login_res.headers().get(SET_COOKIE).unwrap().to_str().unwrap().to_owned();
+        let cookie_raw = login_res
+            .headers()
+            .get(SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
 
         // Extract session cookie key-value
         let cookie_val = cookie_raw.split(';').next().unwrap().to_owned();
@@ -520,10 +582,19 @@ mod tests {
         assert!(session_data.authenticated);
         assert_eq!(session_data.username.as_deref(), Some("alice"));
 
+        auth_headers.insert(
+            "x-csrf-token",
+            session_data.csrf_token.unwrap().parse().unwrap(),
+        );
         // 3. Logout
         let logout_res = logout_handler(State(state.clone()), auth_headers.clone()).await;
         assert_eq!(logout_res.status(), StatusCode::OK);
-        let logout_cookie = logout_res.headers().get(SET_COOKIE).unwrap().to_str().unwrap();
+        let logout_cookie = logout_res
+            .headers()
+            .get(SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(logout_cookie.contains("Max-Age=0"));
 
         // 4. Check session again after logout

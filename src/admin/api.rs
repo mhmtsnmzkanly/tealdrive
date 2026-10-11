@@ -132,7 +132,10 @@ where
             .into_response();
     }
 
-    match state.config.apply_patch(patch) {
+    if !crate::session::csrf::validate_header(&session, &headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state.config.apply_patch_saved(patch, query.save) {
         Ok(updated) => {
             let _ = state.audit_sink.emit(&AuditEvent::config_patch(
                 RequestId::new(),
@@ -142,16 +145,14 @@ where
                 AuditStatus::Success,
             ));
 
-            if query.save {
-                let _ = state.config.save_to_file();
-            }
-
             // Sync live session store, helper timeout, and rate limiter
             {
                 let mut store = state.session_store.lock().await;
                 store.update_config(updated.session.clone());
             }
-            state.set_helper_timeout(std::time::Duration::from_secs(updated.helper.timeout_seconds));
+            state.set_helper_timeout(std::time::Duration::from_secs(
+                updated.helper.timeout_seconds,
+            ));
             {
                 let mut limiter = state.rate_limiter.lock().await;
                 limiter.set_limits(
@@ -171,10 +172,24 @@ where
                 AuditStatus::Failed,
             ));
             (
-                StatusCode::BAD_REQUEST,
+                if err == crate::errors::TealDriveError::Validation {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                },
                 Json(AdminErrorResponse {
-                    error: format!("Validation error: {err}"),
-                    code: "invalid_config".to_owned(),
+                    error: if err == crate::errors::TealDriveError::Validation {
+                        "Invalid configuration."
+                    } else {
+                        "Configuration could not be persisted."
+                    }
+                    .to_owned(),
+                    code: if err == crate::errors::TealDriveError::Validation {
+                        "invalid_config"
+                    } else {
+                        "config_save_failed"
+                    }
+                    .to_owned(),
                 }),
             )
                 .into_response()
@@ -233,6 +248,9 @@ where
             .into_response();
     }
 
+    if !crate::session::csrf::validate_header(&session, &headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     match state.config.reload() {
         Ok(reloaded) => {
             let _ = state.audit_sink.emit(&AuditEvent::config_reload(
@@ -248,7 +266,9 @@ where
                 let mut store = state.session_store.lock().await;
                 store.update_config(reloaded.session.clone());
             }
-            state.set_helper_timeout(std::time::Duration::from_secs(reloaded.helper.timeout_seconds));
+            state.set_helper_timeout(std::time::Duration::from_secs(
+                reloaded.helper.timeout_seconds,
+            ));
             {
                 let mut limiter = state.rate_limiter.lock().await;
                 limiter.set_limits(
@@ -282,13 +302,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use axum::body::to_bytes;
-    use axum::http::header::COOKIE;
     use crate::audit::sink::JsonlAuditSink;
     use crate::auth::account::{MockAuthenticator, MockUser};
     use crate::config::{AccountPolicyConfig, AllowedRoot, AppConfig, RootId};
-    use crate::policy::feature_gate::FeatureFlags;
     use crate::download::transfer::DownloadHelper;
     use crate::fs::archive::{CompressTarGzHelper, CompressZipHelper, ExtractArchiveHelper};
     use crate::fs::chmod::ChmodFileHelper;
@@ -303,9 +319,13 @@ mod tests {
         DeletePermanentlyHelper, ListTrashHelper, MoveToTrashHelper, RestoreFromTrashHelper,
     };
     use crate::helper::types::{HelperRequest, HelperResponse};
+    use crate::policy::feature_gate::FeatureFlags;
     use crate::rate_limit::login::InMemoryLoginRateLimiter;
     use crate::session::store::{InMemorySessionStore, SessionCreateInput};
     use crate::upload::transfer::UploadHelper;
+    use axum::body::to_bytes;
+    use axum::http::header::COOKIE;
+    use std::sync::Arc;
 
     #[derive(Clone, Debug)]
     struct DummyHelper;
@@ -313,7 +333,10 @@ mod tests {
     macro_rules! impl_dummy_helper {
         ($trait_name:ident) => {
             impl $trait_name for DummyHelper {
-                fn execute_helper(&self, _request: &HelperRequest) -> Result<HelperResponse, crate::errors::TealDriveError> {
+                fn execute_helper(
+                    &self,
+                    _request: &HelperRequest,
+                ) -> Result<HelperResponse, crate::errors::TealDriveError> {
                     Err(crate::errors::TealDriveError::HelperCommandNotImplemented)
                 }
             }
@@ -340,7 +363,9 @@ mod tests {
     impl_dummy_helper!(ExtractArchiveHelper);
     impl_dummy_helper!(SearchFilesHelper);
 
-    async fn test_state_with_session(config_path: Option<std::path::PathBuf>) -> (WsServerState<DummyHelper>, HeaderMap) {
+    async fn test_state_with_session(
+        config_path: Option<std::path::PathBuf>,
+    ) -> (WsServerState<DummyHelper>, HeaderMap) {
         let auth = MockAuthenticator::new(AccountPolicyConfig::default())
             .with_user(MockUser::regular("admin", "secret123"));
         let config = AppConfig {
@@ -353,6 +378,10 @@ mod tests {
                 is_web_root: false,
                 quota_bytes: None,
             }],
+            account_policy: AccountPolicyConfig {
+                admin_users: vec!["admin".into()],
+                ..Default::default()
+            },
             ..AppConfig::default()
         };
         let session_store = InMemorySessionStore::new(config.session.clone());
@@ -384,9 +413,12 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             COOKIE,
-            format!("tealdrive_session={}", session.session_id.0).parse().unwrap(),
+            format!("tealdrive_session={}", session.session_id.0)
+                .parse()
+                .unwrap(),
         );
 
+        headers.insert("x-csrf-token", session.csrf_token.0.parse().unwrap());
         (state, headers)
     }
 
@@ -411,7 +443,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_patch_and_reload_config() {
-        let temp_dir = std::env::temp_dir().join(format!("tdrv-admin-test-{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("tdrv-admin-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let config_file = temp_dir.join("config.toml");
 
@@ -423,26 +456,38 @@ mod tests {
 
         // 1. Patch config (features, trash_retention_days, rate_limit, helper, search) with save=true
         let patch = ConfigPatch {
-            features: Some(FeatureFlags {
-                save_text_file: false,
-                chmod_file: false,
-                extract_archive: true,
-                delete_permanently: false,
-                chown: false,
-            }),
+            features: Some(
+                FeatureFlags {
+                    save_text_file: false,
+                    chmod_file: false,
+                    extract_archive: true,
+                    delete_permanently: false,
+                    chown: false,
+                }
+                .into(),
+            ),
             trash_retention_days: Some(Some(45)),
-            rate_limit: Some(crate::config::RateLimitConfig {
-                max_login_failures: 8,
-                lockout_duration_seconds: 600,
-            }),
-            helper: Some(crate::config::HelperConfig {
-                timeout_seconds: 25,
-            }),
-            search: Some(crate::config::SearchConfig {
-                max_depth: 30,
-                default_max_results: 150,
-                max_results_limit: 2000,
-            }),
+            rate_limit: Some(
+                crate::config::RateLimitConfig {
+                    max_login_failures: 8,
+                    lockout_duration_seconds: 600,
+                }
+                .into(),
+            ),
+            helper: Some(
+                crate::config::HelperConfig {
+                    timeout_seconds: 25,
+                }
+                .into(),
+            ),
+            search: Some(
+                crate::config::SearchConfig {
+                    max_depth: 30,
+                    default_max_results: 150,
+                    max_results_limit: 2000,
+                }
+                .into(),
+            ),
             ..ConfigPatch::default()
         };
 
@@ -470,7 +515,8 @@ mod tests {
         assert!(disk_content.contains("timeout_seconds = 25"));
 
         // 2. Modify disk file externally and test reload endpoint
-        let modified_disk = disk_content.replace("trash_retention_days = 45", "trash_retention_days = 60");
+        let modified_disk =
+            disk_content.replace("trash_retention_days = 45", "trash_retention_days = 60");
         std::fs::write(&config_file, modified_disk).unwrap();
 
         let reload_resp = reload_config_handler(State(state.clone()), headers).await;

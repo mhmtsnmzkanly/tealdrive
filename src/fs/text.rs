@@ -239,8 +239,6 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
         Err(err) => return Err(err),
     }
 
-
-
     let helper_request = HelperRequest {
         request_id: RequestId::new(),
         username: user_context.username.clone(),
@@ -607,7 +605,11 @@ mod tests {
         assert_eq!(decoded, payload);
     }
 
-    fn save_request(path: &str, content: &str, expected_modified: Option<String>) -> SaveTextFileRequest {
+    fn save_request(
+        path: &str,
+        content: &str,
+        expected_modified: Option<String>,
+    ) -> SaveTextFileRequest {
         SaveTextFileRequest {
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(path),
@@ -636,7 +638,10 @@ mod tests {
         .expect("save ok");
 
         assert_eq!(result.operation, "SAVE_TEXT_FILE");
-        assert_eq!(fs::read_to_string(base.join("notes.txt")).expect("read"), "updated text");
+        assert_eq!(
+            fs::read_to_string(base.join("notes.txt")).expect("read"),
+            "updated text"
+        );
     }
 
     #[test]
@@ -658,7 +663,10 @@ mod tests {
         .expect("save ok");
 
         assert_eq!(result.operation, "SAVE_TEXT_FILE");
-        assert_eq!(fs::read_to_string(base.join("new_file.txt")).expect("read"), "brand new");
+        assert_eq!(
+            fs::read_to_string(base.join("new_file.txt")).expect("read"),
+            "brand new"
+        );
     }
 
     #[test]
@@ -674,7 +682,11 @@ mod tests {
         assert_eq!(
             save_text_file_request(
                 &user(),
-                save_request("notes.txt", "updated", Some("1999-01-01T00:00:00Z".to_owned())),
+                save_request(
+                    "notes.txt",
+                    "updated",
+                    Some("1999-01-01T00:00:00Z".to_owned())
+                ),
                 &config,
                 &engine,
                 &helper,

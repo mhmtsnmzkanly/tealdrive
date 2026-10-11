@@ -12,8 +12,8 @@ use crate::policy::roots::require_allowed_root;
 use crate::policy::sensitive::detect_sensitive;
 use crate::protocol::frame::RequestId;
 use crate::protocol::payload::{
-    DeletePermanentlyRequest, ListTrashRequest, MoveToTrashPayload, MoveToTrashRequest, OperationDonePayload,
-    RestoreFromTrashRequest, TrashListPayload,
+    DeletePermanentlyRequest, ListTrashRequest, MoveToTrashPayload, MoveToTrashRequest,
+    OperationDonePayload, RestoreFromTrashRequest, TrashListPayload,
 };
 
 pub trait ListTrashHelper {
@@ -128,7 +128,6 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
         HelperResponsePayload::TrashEntry(e) => e,
         _ => return Err(TealDriveError::HelperCommandNotImplemented),
     };
-
 
     Ok(MoveToTrashPayload {
         request_id: helper_request.request_id,
@@ -868,7 +867,13 @@ mod tests {
         };
 
         assert_eq!(
-            delete_permanently_request(&user(), delete_req("readonly.txt"), &config, &engine, &helper),
+            delete_permanently_request(
+                &user(),
+                delete_req("readonly.txt"),
+                &config,
+                &engine,
+                &helper
+            ),
             Err(TealDriveError::ReadOnlyRoot)
         );
     }

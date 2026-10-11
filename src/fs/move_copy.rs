@@ -4,7 +4,10 @@ use std::fs;
 use crate::config::{AppConfig, RelativePath, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{authorize_existing_path as resolve_existing_path, authorize_new_target as resolve_new_target, validate_relative_path};
+use crate::fs::path::{
+    authorize_existing_path as resolve_existing_path, authorize_new_target as resolve_new_target,
+    validate_relative_path,
+};
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
@@ -57,7 +60,6 @@ pub fn move_file_request<H: MoveHelper>(
     let target_name = SafeFileName::parse(target_name_str)?;
     let target_parent = RelativePath::new(target_parent_str);
     let _target = resolve_new_target(root, &target_parent, &target_name.0)?;
-
 
     if detect_sensitive(&source.relative_path, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);
@@ -151,7 +153,6 @@ pub fn copy_file_request<H: CopyHelper>(
     let target_name = SafeFileName::parse(target_name_str)?;
     let target_parent = RelativePath::new(target_parent_str);
     let _target = resolve_new_target(root, &target_parent, &target_name.0)?;
-
 
     if detect_sensitive(&source.relative_path, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);

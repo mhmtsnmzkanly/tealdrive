@@ -55,15 +55,16 @@ impl MessageType {
         use MessageType::*;
         match self {
             ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile | SaveTextFile
-            | SearchFiles | ListTrash | UploadBegin | UploadChunk | UploadEnd | UploadAbort | DownloadBegin
-            | CreateFolder | RenameFile | MoveFile | CopyFile | MoveToTrash | RestoreFromTrash
-            | DeletePermanently | ChmodFile | CompressZip | CompressTarGz | ExtractArchive => {
-                MessageTypeDirection::ClientToServer
-            }
+            | SearchFiles | ListTrash | UploadBegin | UploadChunk | UploadEnd | UploadAbort
+            | DownloadBegin | CreateFolder | RenameFile | MoveFile | CopyFile | MoveToTrash
+            | RestoreFromTrash | DeletePermanently | ChmodFile | CompressZip | CompressTarGz
+            | ExtractArchive => MessageTypeDirection::ClientToServer,
             ServerHello | ProtocolReady | ConnectionStatus | DirectoryList | FileMetadata
-            | TextFileContent | SearchResults | TrashList | DownloadChunk | DownloadEnd | OperationStarted
-            | OperationProgress | OperationDone | OperationFailed | PermissionDenied
-            | PolicyDenied | ValidationError => MessageTypeDirection::ServerToClient,
+            | TextFileContent | SearchResults | TrashList | DownloadChunk | DownloadEnd
+            | OperationStarted | OperationProgress | OperationDone | OperationFailed
+            | PermissionDenied | PolicyDenied | ValidationError => {
+                MessageTypeDirection::ServerToClient
+            }
             Error => MessageTypeDirection::ServerToClient,
         }
     }

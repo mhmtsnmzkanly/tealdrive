@@ -39,9 +39,9 @@ impl ServerArgs {
                     parsed.bind_addr = Some(val);
                 }
                 "--static-dir" | "--assets-dir" => {
-                    let val = iter
-                        .next()
-                        .ok_or_else(|| "--static-dir / --assets-dir requires a path argument".to_owned())?;
+                    let val = iter.next().ok_or_else(|| {
+                        "--static-dir / --assets-dir requires a path argument".to_owned()
+                    })?;
                     parsed.static_dir = Some(PathBuf::from(val));
                 }
                 "--helper-bin" => {
@@ -112,7 +112,8 @@ async fn main() {
 }
 
 async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
-    let mut config = AppConfig::load_or_default(args.config_path.as_deref())?;
+    let config_path = AppConfig::resolve_config_path(args.config_path.as_deref());
+    let mut config = AppConfig::load_or_default(config_path.as_deref())?;
 
     if let Some(bind_override) = args.bind_addr {
         config.server.bind_addr = bind_override;
@@ -152,11 +153,13 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     );
     let state = WsServerState::with_authenticator_and_path(
         config,
-        args.config_path,
+        config_path,
         session_store,
         helper_client,
         audit_sink,
-        std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::with_helper(helper_client_clone.clone())),
+        std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::with_helper(
+            helper_client_clone.clone(),
+        )),
         rate_limiter,
     )
     .with_timeout_updater(move |d| helper_client_clone.set_timeout(d));
@@ -166,6 +169,7 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     #[cfg(unix)]
     {
         let config_clone = state.config.clone();
+        let runtime_state = state.clone();
         let audit_sink_clone = state.audit_sink.clone();
         tokio::spawn(async move {
             use tokio::signal::unix::{signal, SignalKind};
@@ -173,14 +177,17 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
                 while sighup.recv().await.is_some() {
                     eprintln!("Received SIGHUP, reloading configuration...");
                     match config_clone.reload() {
-                        Ok(_) => {
-                            let _ = audit_sink_clone.emit(&tealdrive::audit::event::AuditEvent::config_reload(
-                                tealdrive::protocol::frame::RequestId::new(),
-                                "sighup",
-                                0,
-                                0,
-                                tealdrive::audit::event::AuditStatus::Success,
-                            ));
+                        Ok(updated) => {
+                            runtime_state.sync_runtime_config(&updated).await;
+                            let _ = audit_sink_clone.emit(
+                                &tealdrive::audit::event::AuditEvent::config_reload(
+                                    tealdrive::protocol::frame::RequestId::new(),
+                                    "sighup",
+                                    0,
+                                    0,
+                                    tealdrive::audit::event::AuditStatus::Success,
+                                ),
+                            );
                             eprintln!("Configuration reloaded successfully via SIGHUP.");
                         }
                         Err(err) => {
@@ -229,10 +236,7 @@ mod tests {
             Some(PathBuf::from("/etc/tealdrive.toml"))
         );
         assert_eq!(parsed.bind_addr.as_deref(), Some("0.0.0.0:8080"));
-        assert_eq!(
-            parsed.static_dir,
-            Some(PathBuf::from("/var/www/tealdrive"))
-        );
+        assert_eq!(parsed.static_dir, Some(PathBuf::from("/var/www/tealdrive")));
         assert_eq!(
             parsed.helper_bin,
             Some(PathBuf::from("/usr/lib/tealdrive/helper"))

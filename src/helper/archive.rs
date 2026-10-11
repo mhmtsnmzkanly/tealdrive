@@ -5,12 +5,65 @@ use std::path::{Component, Path, PathBuf};
 use crate::config::{AllowedRoot, RelativePath, SensitivePolicyConfig};
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::filename::SafeFileName;
-use crate::fs::path::{resolve_existing_path, resolve_new_target, resolve_root, validate_relative_path};
+use crate::fs::path::{
+    resolve_existing_path, resolve_new_target, resolve_root, validate_relative_path,
+};
 use crate::helper::listing::{helper_error, helper_error_from_io, helper_error_from_tealdrive};
 use crate::helper::types::{HelperCommand, HelperRequest, HelperResponse};
 use crate::policy::decision::PolicyDecision;
 use crate::policy::sensitive::detect_sensitive;
 use crate::policy::webroot::check_webroot_archive_extract;
+
+fn archive_hidden_allowed(request: &HelperRequest) -> bool {
+    crate::helper::policy::current()
+        .and_then(|p| {
+            p.config
+                .roots
+                .iter()
+                .find(|r| r.root_id == request.root_id)
+                .map(|r| r.hidden_files_allowed)
+        })
+        .unwrap_or(false)
+}
+fn add_dir_to_tar<W: Write>(
+    tar: &mut tar::Builder<W>,
+    directory: &Path,
+    prefix: &str,
+    root: &AllowedRoot,
+    sensitive: &SensitivePolicyConfig,
+    allow_hidden: bool,
+) -> std::io::Result<()> {
+    if prefix.split('/').count() > 128 {
+        return Err(std::io::Error::other("archive depth exceeded"));
+    }
+    tar.append_dir(prefix, directory)?;
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let metadata = fs::symlink_metadata(&path)?;
+        let relative = RelativePath::new(
+            path.strip_prefix(&root.base_path)
+                .map_err(std::io::Error::other)?
+                .to_string_lossy(),
+        );
+        if metadata.is_symlink()
+            || (!allow_hidden && name.starts_with('.'))
+            || detect_sensitive(&relative, sensitive).is_sensitive
+        {
+            continue;
+        }
+        let archive_path = format!("{prefix}/{name}");
+        if metadata.is_dir() {
+            add_dir_to_tar(tar, &path, &archive_path, root, sensitive, allow_hidden)?;
+        } else if metadata.is_file() {
+            let mut file = crate::helper::sandbox::open(root, &relative, libc::O_RDONLY, 0)?;
+            tar.append_file(archive_path, &mut file)?;
+        }
+    }
+    Ok(())
+}
 
 pub const MAX_ARCHIVE_EXTRACT_BYTES: u64 = 500 * 1024 * 1024; // 500 MB maximum decompressed size
 
@@ -171,6 +224,7 @@ pub fn compress_zip_with_roots(
                 options,
                 sensitive_config,
                 &target.root.canonical_base,
+                archive_hidden_allowed(request),
             ) {
                 let _ = fs::remove_file(&target.resolved_path);
                 return helper_error_from_tealdrive(request, err);
@@ -178,7 +232,12 @@ pub fn compress_zip_with_roots(
         } else {
             if zip.start_file(entry_name, options).is_err() {
                 let _ = fs::remove_file(&target.resolved_path);
-                return helper_error(request, ErrorKind::InternalError, "Failed to write zip entry.", "zip_error");
+                return helper_error(
+                    request,
+                    ErrorKind::InternalError,
+                    "Failed to write zip entry.",
+                    "zip_error",
+                );
             }
             let mut f = match File::open(&res_path.resolved_path) {
                 Ok(f) => f,
@@ -196,7 +255,12 @@ pub fn compress_zip_with_roots(
 
     if zip.finish().is_err() {
         let _ = fs::remove_file(&target.resolved_path);
-        return helper_error(request, ErrorKind::InternalError, "Failed to finalize zip archive.", "zip_finish_error");
+        return helper_error(
+            request,
+            ErrorKind::InternalError,
+            "Failed to finalize zip archive.",
+            "zip_finish_error",
+        );
     }
 
     HelperResponse::operation_done(request, "Archive created.")
@@ -209,8 +273,13 @@ fn add_dir_to_zip<W: Write + Seek>(
     options: zip::write::SimpleFileOptions,
     sensitive_config: &SensitivePolicyConfig,
     canonical_base: &Path,
+    allow_hidden: bool,
 ) -> Result<(), TealDriveError> {
-    let _ = zip.add_directory(prefix_in_zip, options);
+    if prefix_in_zip.split('/').count() > 128 {
+        return Err(TealDriveError::Validation);
+    }
+    zip.add_directory(prefix_in_zip, options)
+        .map_err(|_| TealDriveError::Internal)?;
 
     let entries = fs::read_dir(dir_path).map_err(|_| TealDriveError::InvalidPath)?;
     for entry in entries {
@@ -218,21 +287,44 @@ fn add_dir_to_zip<W: Write + Seek>(
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
         let in_zip_name = format!("{prefix_in_zip}/{name}");
+        let metadata = fs::symlink_metadata(&path).map_err(|_| TealDriveError::Internal)?;
+        if metadata.is_symlink() || (!allow_hidden && name.starts_with('.')) {
+            continue;
+        }
 
         // Sensitive check
         if let Ok(rel) = path.strip_prefix(canonical_base) {
             let rel_str = rel.to_string_lossy();
-            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive {
+            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive
+            {
                 continue;
             }
         }
 
-        if path.is_dir() {
-            add_dir_to_zip(zip, &path, &in_zip_name, options, sensitive_config, canonical_base)?;
-        } else if path.is_file() {
+        if metadata.is_dir() {
+            add_dir_to_zip(
+                zip,
+                &path,
+                &in_zip_name,
+                options,
+                sensitive_config,
+                canonical_base,
+                allow_hidden,
+            )?;
+        } else if metadata.is_file() {
             zip.start_file(&in_zip_name, options)
                 .map_err(|_| TealDriveError::Internal)?;
-            let mut f = File::open(&path).map_err(|_| TealDriveError::Internal)?;
+            let root = AllowedRoot {
+                base_path: canonical_base.to_path_buf(),
+                ..Default::default()
+            };
+            let relative = RelativePath::new(
+                path.strip_prefix(canonical_base)
+                    .map_err(|_| TealDriveError::InvalidPath)?
+                    .to_string_lossy(),
+            );
+            let mut f = crate::helper::sandbox::open(&root, &relative, libc::O_RDONLY, 0)
+                .map_err(|_| TealDriveError::Internal)?;
             std::io::copy(&mut f, zip).map_err(|_| TealDriveError::Internal)?;
         }
     }
@@ -380,7 +472,10 @@ pub fn compress_targz_with_roots(
         Err(err) => return helper_error_from_io(request, err),
     };
 
-    let enc = flate2::write::GzEncoder::new(crate::helper::quota::BudgetWriter::new(out_file), flate2::Compression::default());
+    let enc = flate2::write::GzEncoder::new(
+        crate::helper::quota::BudgetWriter::new(out_file),
+        flate2::Compression::default(),
+    );
     let mut tar = tar::Builder::new(enc);
 
     for (rel_path, res_path) in validated_sources {
@@ -390,7 +485,14 @@ pub fn compress_targz_with_roots(
         };
 
         if res_path.resolved_path.is_dir() {
-            if let Err(err) = tar.append_dir_all(entry_name, &res_path.resolved_path) {
+            if let Err(err) = add_dir_to_tar(
+                &mut tar,
+                &res_path.resolved_path,
+                entry_name,
+                root,
+                sensitive_config,
+                archive_hidden_allowed(request),
+            ) {
                 let _ = fs::remove_file(&target.resolved_path);
                 return helper_error_from_io(request, err);
             }
@@ -409,7 +511,11 @@ pub fn compress_targz_with_roots(
         }
     }
 
-    if let Err(err) = tar.finish() {
+    let finish = tar
+        .into_inner()
+        .and_then(|encoder| encoder.finish())
+        .and_then(|mut output| output.flush());
+    if let Err(err) = finish {
         let _ = fs::remove_file(&target.resolved_path);
         return helper_error_from_io(request, err);
     }
@@ -541,9 +647,25 @@ pub fn extract_archive_with_roots(
 
     let lower_name = validated_archive.0.to_ascii_lowercase();
     if lower_name.ends_with(".zip") {
-        extract_zip(&archive_res.resolved_path, &canonical_dest, &resolved_root.canonical_base, sensitive_config, request)
-    } else if lower_name.ends_with(".tar.gz") || lower_name.ends_with(".tgz") || lower_name.ends_with(".tar") {
-        extract_tar(&archive_res.resolved_path, &canonical_dest, &resolved_root.canonical_base, sensitive_config, &lower_name, request)
+        extract_zip(
+            &archive_res.resolved_path,
+            &canonical_dest,
+            &resolved_root.canonical_base,
+            sensitive_config,
+            request,
+        )
+    } else if lower_name.ends_with(".tar.gz")
+        || lower_name.ends_with(".tgz")
+        || lower_name.ends_with(".tar")
+    {
+        extract_tar(
+            &archive_res.resolved_path,
+            &canonical_dest,
+            &resolved_root.canonical_base,
+            sensitive_config,
+            &lower_name,
+            request,
+        )
     } else {
         helper_error(
             request,
@@ -568,7 +690,14 @@ fn extract_zip(
 
     let mut zip = match zip::ZipArchive::new(file) {
         Ok(z) => z,
-        Err(_) => return helper_error(request, ErrorKind::ValidationError, "Corrupted archive file.", "corrupted_archive"),
+        Err(_) => {
+            return helper_error(
+                request,
+                ErrorKind::ValidationError,
+                "Corrupted archive file.",
+                "corrupted_archive",
+            )
+        }
     };
 
     let mut total_extracted: u64 = 0;
@@ -576,7 +705,14 @@ fn extract_zip(
     for i in 0..zip.len() {
         let mut file = match zip.by_index(i) {
             Ok(f) => f,
-            Err(_) => return helper_error(request, ErrorKind::ValidationError, "Failed to read zip entry.", "zip_read_error"),
+            Err(_) => {
+                return helper_error(
+                    request,
+                    ErrorKind::ValidationError,
+                    "Failed to read zip entry.",
+                    "zip_read_error",
+                )
+            }
         };
 
         #[cfg(unix)]
@@ -596,6 +732,11 @@ fn extract_zip(
             );
         };
 
+        if !archive_hidden_allowed(request)
+            && crate::fs::path::is_hidden_relative(&RelativePath::new(enclosed.to_string_lossy()))
+        {
+            return HelperResponse::permission_denied(request, "Hidden archive entry denied.");
+        }
         let outpath = dest_dir.join(enclosed);
         if !outpath.starts_with(dest_dir) {
             return helper_error(
@@ -608,7 +749,8 @@ fn extract_zip(
 
         if let Ok(rel) = outpath.strip_prefix(canonical_base) {
             let rel_str = rel.to_string_lossy();
-            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive {
+            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive
+            {
                 return helper_error(
                     request,
                     ErrorKind::PolicyDenied,
@@ -667,14 +809,18 @@ fn extract_zip(
                 Err(err) => return helper_error_from_io(request, err),
             };
 
-            let remaining_budget = MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)).saturating_sub(total_extracted);
+            let remaining_budget = MAX_ARCHIVE_EXTRACT_BYTES
+                .min(crate::helper::quota::budget().unwrap_or(u64::MAX))
+                .saturating_sub(total_extracted);
             let mut limited = (&mut file).take(remaining_budget + 1);
             let written = match std::io::copy(&mut limited, &mut outfile) {
                 Ok(n) => n,
                 Err(err) => return helper_error_from_io(request, err),
             };
             total_extracted += written;
-            if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)) {
+            if total_extracted
+                > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX))
+            {
                 return helper_error(
                     request,
                     ErrorKind::FileTooLarge,
@@ -710,11 +856,12 @@ fn extract_tar(
         Err(err) => return helper_error_from_io(request, err),
     };
 
-    let tar_reader: Box<dyn Read> = if lower_name.ends_with(".tar.gz") || lower_name.ends_with(".tgz") {
-        Box::new(flate2::read::GzDecoder::new(file))
-    } else {
-        Box::new(file)
-    };
+    let tar_reader: Box<dyn Read> =
+        if lower_name.ends_with(".tar.gz") || lower_name.ends_with(".tgz") {
+            Box::new(flate2::read::GzDecoder::new(file))
+        } else {
+            Box::new(file)
+        };
 
     let mut archive = tar::Archive::new(tar_reader);
     let entries = match archive.entries() {
@@ -727,7 +874,14 @@ fn extract_tar(
     for entry in entries {
         let mut entry = match entry {
             Ok(e) => e,
-            Err(_) => return helper_error(request, ErrorKind::ValidationError, "Failed to read tar entry.", "tar_read_error"),
+            Err(_) => {
+                return helper_error(
+                    request,
+                    ErrorKind::ValidationError,
+                    "Failed to read tar entry.",
+                    "tar_read_error",
+                )
+            }
         };
 
         let path = match entry.path() {
@@ -745,7 +899,10 @@ fn extract_tar(
         }
 
         for component in path.components() {
-            if matches!(component, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
+            if matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            ) {
                 return helper_error(
                     request,
                     ErrorKind::PolicyDenied,
@@ -755,6 +912,11 @@ fn extract_tar(
             }
         }
 
+        if !archive_hidden_allowed(request)
+            && crate::fs::path::is_hidden_relative(&RelativePath::new(path.to_string_lossy()))
+        {
+            return HelperResponse::permission_denied(request, "Hidden archive entry denied.");
+        }
         let outpath = dest_dir.join(&path);
         if !outpath.starts_with(dest_dir) {
             return helper_error(
@@ -767,7 +929,8 @@ fn extract_tar(
 
         if let Ok(rel) = outpath.strip_prefix(canonical_base) {
             let rel_str = rel.to_string_lossy();
-            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive {
+            if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive
+            {
                 return helper_error(
                     request,
                     ErrorKind::PolicyDenied,
@@ -819,7 +982,9 @@ fn extract_tar(
 
         let entry_size = entry.header().size().unwrap_or(0);
         total_extracted += entry_size;
-        if total_extracted > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX)) {
+        if total_extracted
+            > MAX_ARCHIVE_EXTRACT_BYTES.min(crate::helper::quota::budget().unwrap_or(u64::MAX))
+        {
             return helper_error(
                 request,
                 ErrorKind::FileTooLarge,
@@ -846,12 +1011,18 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tealdrive-archive-helper-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("tealdrive-archive-helper-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
 
-    fn sample_request(command: HelperCommand, archive_rel: &str, target_rel: &str, sources: Option<Vec<&str>>) -> HelperRequest {
+    fn sample_request(
+        command: HelperCommand,
+        archive_rel: &str,
+        target_rel: &str,
+        sources: Option<Vec<&str>>,
+    ) -> HelperRequest {
         HelperRequest {
             request_id: RequestId::new(),
             username: "alice".to_owned(),
@@ -893,7 +1064,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         };
 
         // Compress
@@ -903,7 +1074,11 @@ mod tests {
             "bundle.zip",
             Some(vec!["hello.txt", "subdir"]),
         );
-        let resp = compress_zip_with_roots(&req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        let resp = compress_zip_with_roots(
+            &req,
+            std::slice::from_ref(&root),
+            &SensitivePolicyConfig::default(),
+        );
         assert!(resp.success, "compress failed: {:?}", resp.safe_message);
         assert!(base.join("bundle.zip").is_file());
 
@@ -914,8 +1089,13 @@ mod tests {
             "extracted",
             None,
         );
-        let ext_resp = extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
-        assert!(ext_resp.success, "extract failed: {:?}", ext_resp.safe_message);
+        let ext_resp =
+            extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
+        assert!(
+            ext_resp.success,
+            "extract failed: {:?}",
+            ext_resp.safe_message
+        );
 
         assert_eq!(
             fs::read_to_string(base.join("extracted/hello.txt")).expect("read"),
@@ -939,7 +1119,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         };
 
         // Compress
@@ -949,7 +1129,11 @@ mod tests {
             "archive.tar.gz",
             Some(vec!["data.txt"]),
         );
-        let resp = compress_targz_with_roots(&req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        let resp = compress_targz_with_roots(
+            &req,
+            std::slice::from_ref(&root),
+            &SensitivePolicyConfig::default(),
+        );
         assert!(resp.success, "compress failed: {:?}", resp.safe_message);
         assert!(base.join("archive.tar.gz").is_file());
 
@@ -960,8 +1144,13 @@ mod tests {
             "tar_out",
             None,
         );
-        let ext_resp = extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
-        assert!(ext_resp.success, "extract failed: {:?}", ext_resp.safe_message);
+        let ext_resp =
+            extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
+        assert!(
+            ext_resp.success,
+            "extract failed: {:?}",
+            ext_resp.safe_message
+        );
 
         assert_eq!(
             fs::read_to_string(base.join("tar_out/data.txt")).expect("read"),
@@ -981,15 +1170,10 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: true,
-                quota_bytes: None,
+            quota_bytes: None,
         };
 
-        let req = sample_request(
-            HelperCommand::ExtractArchive,
-            "bundle.zip",
-            "out",
-            None,
-        );
+        let req = sample_request(HelperCommand::ExtractArchive, "bundle.zip", "out", None);
         let resp = extract_archive_with_roots(&req, &[root], &SensitivePolicyConfig::default());
         assert!(!resp.success);
         assert_eq!(resp.error_kind, Some(ErrorKind::PolicyDenied));
@@ -1007,7 +1191,7 @@ mod tests {
             uploads_allowed: true,
             hidden_files_allowed: false,
             is_web_root: false,
-                quota_bytes: None,
+            quota_bytes: None,
         };
 
         let req = sample_request(
@@ -1046,7 +1230,11 @@ mod tests {
             "test.zip",
             Some(vec!["data.txt"]),
         );
-        let comp_resp = compress_zip_with_roots(&comp_req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());
+        let comp_resp = compress_zip_with_roots(
+            &comp_req,
+            std::slice::from_ref(&root),
+            &SensitivePolicyConfig::default(),
+        );
         assert!(comp_resp.success);
 
         #[cfg(unix)]
@@ -1061,7 +1249,8 @@ mod tests {
                 "escape_dir",
                 None,
             );
-            let ext_resp = extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
+            let ext_resp =
+                extract_archive_with_roots(&ext_req, &[root], &SensitivePolicyConfig::default());
             assert!(!ext_resp.success);
             assert_eq!(ext_resp.error_kind, Some(ErrorKind::PolicyDenied));
         }

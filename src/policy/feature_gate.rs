@@ -4,6 +4,7 @@ use crate::errors::PolicyReason;
 use crate::protocol::message_type::MessageType;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct FeatureFlags {
     pub save_text_file: bool,
     pub chmod_file: bool,

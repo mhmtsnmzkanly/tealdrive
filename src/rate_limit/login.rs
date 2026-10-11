@@ -54,7 +54,9 @@ impl InMemoryLoginRateLimiter {
         now: u64,
     ) -> LoginRateLimitDecision {
         if let Some(&(count, last_failed_at)) = self.failures.get(key) {
-            if now >= last_failed_at && now.saturating_sub(last_failed_at) > lockout_duration_seconds {
+            if now >= last_failed_at
+                && now.saturating_sub(last_failed_at) > lockout_duration_seconds
+            {
                 LoginRateLimitDecision::Allowed
             } else if count >= max_failures {
                 LoginRateLimitDecision::Limited

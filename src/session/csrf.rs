@@ -14,6 +14,23 @@ impl CsrfToken {
     }
 }
 
+pub fn validate_header(
+    session: &crate::session::store::Session,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    let Some(provided) = headers.get("x-csrf-token").and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let expected = session.csrf_token.0.as_bytes();
+    let actual = provided.as_bytes();
+    expected.len() == actual.len()
+        && expected
+            .iter()
+            .zip(actual)
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

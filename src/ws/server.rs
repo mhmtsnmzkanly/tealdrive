@@ -194,12 +194,17 @@ impl<H> WsServerState<H> {
         authenticator: Arc<dyn Authenticator>,
         rate_limiter: InMemoryLoginRateLimiter,
     ) -> Self {
+        let audit_sink = Arc::new(audit_sink);
+        let mut config = config;
+        if config.audit.path.is_none() {
+            config.audit.path = Some(audit_sink.path());
+        }
         Self {
-            config: DynamicConfig::new(config, config_path),
+            config: DynamicConfig::new(config, config_path).with_audit_sink(audit_sink.clone()),
             operation_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
-            audit_sink: Arc::new(audit_sink),
+            audit_sink,
             authenticator,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
             helper_timeout_updater: None,

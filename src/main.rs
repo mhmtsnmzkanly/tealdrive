@@ -145,7 +145,8 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         Duration::from_secs(config.helper.timeout_seconds),
     );
     let helper_client_clone = helper_client.clone();
-    let audit_sink = JsonlAuditSink::open_default().map_err(|_| TealDriveError::Internal)?;
+    let audit_sink =
+        JsonlAuditSink::open_config(&config.audit).map_err(|_| TealDriveError::Internal)?;
     let session_store = InMemorySessionStore::new(config.session.clone());
     let rate_limiter = tealdrive::rate_limit::login::InMemoryLoginRateLimiter::with_lockout(
         config.rate_limit.max_login_failures,

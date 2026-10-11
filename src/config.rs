@@ -60,6 +60,7 @@ pub struct UserContext {
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
     pub server: ServerConfig,
+    pub audit: AuditConfig,
     pub session: SessionConfig,
     pub security: SecurityConfig,
     pub roots: Vec<AllowedRoot>,
@@ -82,6 +83,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig::default(),
+            audit: AuditConfig::default(),
             session: SessionConfig::default(),
             security: SecurityConfig::default(),
             roots: vec![AllowedRoot::default()],
@@ -158,6 +160,23 @@ impl AppConfig {
         {
             return Err(TealDriveError::Validation);
         }
+        if self.audit.max_file_bytes < 1024
+            || self.audit.max_file_bytes > 1024 * 1024 * 1024
+            || self.audit.max_archives > 1000
+            || self
+                .audit
+                .retention_days
+                .is_some_and(|days| days == 0 || days > 36500)
+            || self.audit.path.as_ref().is_some_and(|path| {
+                !path.is_absolute()
+                    || path.file_name().is_none()
+                    || path
+                        .components()
+                        .any(|p| matches!(p, std::path::Component::ParentDir))
+            })
+        {
+            return Err(TealDriveError::Validation);
+        }
         let l = &self.limits;
         if l.max_chunk_size == 0
             || l.max_chunk_size > crate::limits::MAX_CHUNK_SIZE
@@ -217,6 +236,40 @@ impl AppConfig {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditConfig {
+    pub path: Option<PathBuf>,
+    pub max_file_bytes: u64,
+    pub max_archives: usize,
+    #[serde(
+        serialize_with = "audit_retention_serialize",
+        deserialize_with = "audit_retention_deserialize"
+    )]
+    pub retention_days: Option<u32>,
+}
+fn audit_retention_serialize<S: serde::Serializer>(
+    value: &Option<u32>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u32(value.unwrap_or(0))
+}
+fn audit_retention_deserialize<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    Option::<u32>::deserialize(deserializer).map(|value| value.filter(|days| *days != 0))
+}
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            path: None,
+            max_file_bytes: 10 * 1024 * 1024,
+            max_archives: 5,
+            retention_days: Some(30),
+        }
     }
 }
 
@@ -457,6 +510,8 @@ impl Default for SearchConfig {
 #[serde(deny_unknown_fields)]
 pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<crate::config_patch::AuditPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub features: Option<crate::config_patch::FeaturesPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limits: Option<crate::config_patch::LimitsPatch>,
@@ -488,6 +543,9 @@ pub struct ConfigPatch {
 
 impl ConfigPatch {
     pub fn apply_to(&self, config: &mut AppConfig) {
+        if let Some(audit) = &self.audit {
+            audit.apply_to(&mut config.audit);
+        }
         if let Some(ref features) = self.features {
             features.apply_to(&mut config.features);
         }
@@ -535,6 +593,7 @@ pub struct DynamicConfig {
     inner: Arc<ArcSwap<AppConfig>>,
     config_path: Option<PathBuf>,
     mutation: Arc<std::sync::Mutex<()>>,
+    audit_sink: Option<Arc<crate::audit::sink::JsonlAuditSink>>,
 }
 
 impl DynamicConfig {
@@ -543,9 +602,42 @@ impl DynamicConfig {
             inner: Arc::new(ArcSwap::from_pointee(config)),
             config_path: path,
             mutation: Arc::new(std::sync::Mutex::new(())),
+            audit_sink: None,
         }
     }
 
+    pub fn with_audit_sink(mut self, sink: Arc<crate::audit::sink::JsonlAuditSink>) -> Self {
+        self.audit_sink = Some(sink);
+        self
+    }
+    fn prepare_audit(
+        &self,
+        config: &mut AppConfig,
+    ) -> Result<Option<crate::audit::sink::PreparedAudit>, TealDriveError> {
+        if config.audit.path.is_none() {
+            if let Some(sink) = &self.audit_sink {
+                config.audit.path = Some(sink.path());
+            }
+        }
+        if config
+            .audit
+            .path
+            .as_ref()
+            .is_some_and(|path| self.config_path.as_ref() == Some(path))
+        {
+            return Err(TealDriveError::Validation);
+        }
+        self.audit_sink
+            .as_ref()
+            .map(|sink| sink.prepare(&config.audit))
+            .transpose()
+            .map_err(|_| TealDriveError::Internal)
+    }
+    fn commit_audit(&self, prepared: Option<crate::audit::sink::PreparedAudit>) {
+        if let (Some(sink), Some(prepared)) = (&self.audit_sink, prepared) {
+            sink.apply(prepared);
+        }
+    }
     pub fn load(&self) -> arc_swap::Guard<Arc<AppConfig>> {
         self.inner.load()
     }
@@ -562,10 +654,12 @@ impl DynamicConfig {
         self.config_path = Some(path);
     }
 
-    pub fn store(&self, new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
+    pub fn store(&self, mut new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         new_config.validate()?;
+        let prepared = self.prepare_audit(&mut new_config)?;
         let arc = Arc::new(new_config);
+        self.commit_audit(prepared);
         self.inner.store(arc.clone());
         Ok(arc)
     }
@@ -573,7 +667,10 @@ impl DynamicConfig {
     pub fn reload(&self) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
-        let loaded = Arc::new(AppConfig::from_file(path)?);
+        let mut loaded = AppConfig::from_file(path)?;
+        let prepared = self.prepare_audit(&mut loaded)?;
+        let loaded = Arc::new(loaded);
+        self.commit_audit(prepared);
         self.inner.store(loaded.clone());
         Ok(loaded)
     }
@@ -590,10 +687,12 @@ impl DynamicConfig {
         let mut config = (*self.load_full()).clone();
         patch.apply_to(&mut config);
         config.validate()?;
+        let prepared = self.prepare_audit(&mut config)?;
         if save {
             self.persist(&config)?;
         }
         let config = Arc::new(config);
+        self.commit_audit(prepared);
         self.inner.store(config.clone());
         Ok(config)
     }

@@ -181,7 +181,7 @@ where
                     error: if err == crate::errors::TealDriveError::Validation {
                         "Invalid configuration."
                     } else {
-                        "Configuration could not be persisted."
+                        "Configuration could not be applied or persisted. Check the log path and file permissions."
                     }
                     .to_owned(),
                     code: if err == crate::errors::TealDriveError::Validation {

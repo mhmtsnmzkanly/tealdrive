@@ -310,6 +310,15 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
         </div>
 
         <div class="settings-section">
+          <h4>Audit Logs</h4>
+          <div class="settings-row"><label for="cfgAuditPath">Log file path:</label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
+          <div class="settings-row"><label for="cfgAuditMaxMB">Maximum file size (MiB):</label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
+          <div class="settings-row"><label for="cfgAuditArchives">Archives to keep:</label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
+          <div class="settings-row"><label for="cfgAuditDays">Delete archives older than (days):</label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="36500" step="1" placeholder="No age limit"></div>
+          <p class="muted">Archives use .1, .2, …; .1 is newest. Leave days empty for no age limit. Cleanup runs when logs are written. A new path must be writable by the service; existing logs stay at their old path.</p>
+        </div>
+
+        <div class="settings-section">
           <h4>Retention &amp; Limits</h4>
           <div class="settings-row">
             <label for="cfgTrashRetention">Trash Retention (automatic cleanup unavailable):</label>
@@ -1145,6 +1154,10 @@ pub const APP_JS: &str = r##"
     cfgFeatChmod: document.getElementById('cfgFeatChmod'),
     cfgFeatArchive: document.getElementById('cfgFeatArchive'),
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
+    cfgAuditPath: document.getElementById('cfgAuditPath'),
+    cfgAuditMaxMB: document.getElementById('cfgAuditMaxMB'),
+    cfgAuditArchives: document.getElementById('cfgAuditArchives'),
+    cfgAuditDays: document.getElementById('cfgAuditDays'),
     cfgMaxUploadBytes: document.getElementById('cfgMaxUploadBytes'),
     cfgMaxEditTextBytes: document.getElementById('cfgMaxEditTextBytes'),
     cfgMaxPreviewBytes: document.getElementById('cfgMaxPreviewBytes'),
@@ -1847,6 +1860,10 @@ pub const APP_JS: &str = r##"
         el.cfgFeatChmod.checked = !!cfg.features.chmod_file;
         el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
+      el.cfgAuditPath.value=cfg.audit?.path||'';
+      el.cfgAuditMaxMB.value=(cfg.audit?.max_file_bytes??10485760)/1048576;
+      el.cfgAuditArchives.value=cfg.audit?.max_archives??5;
+      el.cfgAuditDays.value=cfg.audit?.retention_days||'';
       el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
       if (cfg.limits) {
         el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_in_flight_upload || 1024 * 1024) / (1024 * 1024));
@@ -1874,7 +1891,12 @@ pub const APP_JS: &str = r##"
   }
 
   async function saveSettings() {
+    const auditMB=Number(el.cfgAuditMaxMB.value);
+    const archives=Number(el.cfgAuditArchives.value);
+    const dayText=el.cfgAuditDays.value.trim();const days=dayText===''?null:Number(dayText);
+    if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>36500))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
     const patch = {
+      audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_days:days},
       features: {
         ...(currentAdminConfig?.features||{}),
         save_text_file: el.cfgFeatEdit.checked,

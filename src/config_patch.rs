@@ -21,3 +21,32 @@ pub fn nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(deserializer).map(Some)
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_file_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_archives: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "nullable")]
+    pub retention_days: Option<Option<u32>>,
+}
+impl AuditPatch {
+    pub fn apply_to(&self, target: &mut crate::config::AuditConfig) {
+        if let Some(path) = &self.path {
+            target.path = Some(path.clone());
+        }
+        if let Some(value) = self.max_file_bytes {
+            target.max_file_bytes = value;
+        }
+        if let Some(value) = self.max_archives {
+            target.max_archives = value;
+        }
+        if let Some(value) = self.retention_days {
+            target.retention_days = value.filter(|days| *days != 0);
+        }
+    }
+}

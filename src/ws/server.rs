@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,18 +7,18 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use uuid::Uuid;
 
-use crate::audit::event::{AuditEvent, AuditReason};
+use crate::audit::event::{AuditEvent, AuditReason, AuditStatus};
 use crate::audit::sink::JsonlAuditSink;
 use crate::auth::account::Authenticator;
 use crate::auth::api::{login_handler, logout_handler, session_handler};
-use crate::config::AppConfig;
+use crate::config::{AppConfig, DynamicConfig};
 use crate::download::transfer::DownloadHelper;
 use crate::errors::{ErrorKind, TealDriveError};
 use crate::fs::archive::{CompressTarGzHelper, CompressZipHelper, ExtractArchiveHelper};
@@ -95,7 +96,7 @@ impl<T> WsHelperBackend for T where
 }
 
 pub struct WsServerState<H> {
-    pub config: Arc<AppConfig>,
+    pub config: DynamicConfig,
     pub session_store: Arc<Mutex<InMemorySessionStore>>,
     pub helper_client: Arc<H>,
     pub audit_sink: Arc<JsonlAuditSink>,
@@ -117,6 +118,10 @@ impl<H: std::fmt::Debug> std::fmt::Debug for WsServerState<H> {
 }
 
 impl<H> WsServerState<H> {
+    pub fn config(&self) -> Arc<AppConfig> {
+        self.config.load_full()
+    }
+
     pub fn new(
         config: AppConfig,
         session_store: InMemorySessionStore,
@@ -141,8 +146,28 @@ impl<H> WsServerState<H> {
         authenticator: Arc<dyn Authenticator>,
         rate_limiter: InMemoryLoginRateLimiter,
     ) -> Self {
+        Self::with_authenticator_and_path(
+            config,
+            None,
+            session_store,
+            helper_client,
+            audit_sink,
+            authenticator,
+            rate_limiter,
+        )
+    }
+
+    pub fn with_authenticator_and_path(
+        config: AppConfig,
+        config_path: Option<PathBuf>,
+        session_store: InMemorySessionStore,
+        helper_client: H,
+        audit_sink: JsonlAuditSink,
+        authenticator: Arc<dyn Authenticator>,
+        rate_limiter: InMemoryLoginRateLimiter,
+    ) -> Self {
         Self {
-            config: Arc::new(config),
+            config: DynamicConfig::new(config, config_path),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
             audit_sink: Arc::new(audit_sink),
@@ -172,10 +197,10 @@ where
     Router::new()
         .route("/", get(crate::ui::serve_index::<H>))
         .route("/index.html", get(crate::ui::serve_index::<H>))
-        .route("/style.css", get(crate::ui::serve_style))
-        .route("/app.js", get(crate::ui::serve_app))
-        .route("/favicon.svg", get(crate::ui::serve_favicon))
-        .route("/favicon.ico", get(crate::ui::serve_favicon))
+        .route("/style.css", get(crate::ui::serve_style::<H>))
+        .route("/app.js", get(crate::ui::serve_app::<H>))
+        .route("/favicon.svg", get(crate::ui::serve_favicon::<H>))
+        .route("/favicon.ico", get(crate::ui::serve_favicon::<H>))
         .route("/static/*path", get(crate::ui::serve_static_asset::<H>))
         .route("/api/health", get(health_check))
         .route("/api/login", post(login_handler::<H>))
@@ -183,6 +208,9 @@ where
         .route("/api/session", get(session_handler::<H>))
         .route("/api/download", get(crate::download::api::download_handler::<H>))
         .route("/api/preview", get(crate::download::api::preview_handler::<H>))
+        .route("/api/admin/config", get(crate::admin::api::get_config_handler::<H>))
+        .route("/api/admin/config", patch(crate::admin::api::patch_config_handler::<H>))
+        .route("/api/admin/config/reload", post(crate::admin::api::reload_config_handler::<H>))
         .route("/ws", get(websocket_upgrade::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .with_state(state)
@@ -231,12 +259,16 @@ where
         }
     };
 
+    let (security_cfg, features_cfg) = {
+        let cfg = state.config.load();
+        (cfg.security.clone(), cfg.features.clone())
+    };
     let context = {
         let store = state.session_store.lock().await;
         match accept_session_bound_upgrade(
             &*store,
-            &state.config.security,
-            state.config.features.clone(),
+            &security_cfg,
+            features_cfg,
             upgrade_request,
         ) {
             Ok(context) => context,
@@ -281,7 +313,8 @@ fn build_upgrade_request<H>(
     headers: &HeaderMap,
     now: u64,
 ) -> Result<WsUpgradeRequest, TealDriveError> {
-    let session_id = extract_session_id(headers, &state.config.session.cookie_name)?;
+    let cookie_name = state.config.load().session.cookie_name.clone();
+    let session_id = extract_session_id(headers, &cookie_name)?;
     Ok(WsUpgradeRequest {
         session_id: Some(session_id),
         origin: headers
@@ -355,7 +388,7 @@ fn audit_reason_for_upgrade_error(error: &TealDriveError) -> AuditReason {
 
 async fn handle_socket_connection<H>(
     socket: WebSocket,
-    config: Arc<AppConfig>,
+    config: DynamicConfig,
     session_store: Arc<Mutex<InMemorySessionStore>>,
     helper_client: Arc<H>,
     audit_sink: Arc<JsonlAuditSink>,
@@ -364,8 +397,9 @@ async fn handle_socket_connection<H>(
 where
     H: WsHelperBackend + 'static,
 {
+    let initial_config = config.load_full();
     let (mut sender, mut receiver) = socket.split();
-    let server_hello = create_server_hello_frame(&config)?;
+    let server_hello = create_server_hello_frame(&initial_config)?;
     send_frame(&mut sender, &server_hello).await?;
 
     let _ = audit_sink.emit(&AuditEvent::websocket_connect(
@@ -375,10 +409,10 @@ where
         context.gid,
     ));
 
-    let idle_timeout = Duration::from_secs(config.session.idle_timeout_seconds);
     let mut handshake_completed = false;
 
     loop {
+        let idle_timeout = Duration::from_secs(config.load().session.idle_timeout_seconds);
         let message = match timeout(idle_timeout, receiver.next()).await {
             Ok(Some(message)) => message,
             Ok(None) => break,
@@ -405,10 +439,12 @@ where
                 };
 
                 let request_id = frame.header.request_id;
+                let current_config = config.load_full();
+                context.features = current_config.features.clone();
                 match handle_decoded_frame_with_service(
                     &mut context,
                     frame.clone(),
-                    &config,
+                    &current_config,
                     helper_client.as_ref(),
                 ) {
                     Ok(DispatchDecision::Outbound(frames)) => {
@@ -597,6 +633,84 @@ fn audit_reason_for_socket_error(error: &TealDriveError) -> AuditReason {
         }
         _ => AuditReason::HandshakeFailed,
     }
+}
+
+pub fn spawn_config_watcher<H: 'static>(
+    state: &WsServerState<H>,
+) -> Option<notify::RecommendedWatcher> {
+    let config_path = state.config.config_path()?.to_path_buf();
+    let config = state.config.clone();
+    let audit_sink = state.audit_sink.clone();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
+
+    let watcher_res = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+        if let Ok(event) = res {
+            use notify::EventKind;
+            match event.kind {
+                EventKind::Modify(_) | EventKind::Create(_) => {
+                    let _ = tx.blocking_send(());
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let mut watcher = match watcher_res {
+        Ok(w) => w,
+        Err(err) => {
+            eprintln!(
+                "Failed to initialize file watcher for {}: {}",
+                config_path.display(),
+                err
+            );
+            return None;
+        }
+    };
+
+    use notify::Watcher;
+    if let Err(err) = watcher.watch(&config_path, notify::RecursiveMode::NonRecursive) {
+        eprintln!(
+            "Failed to watch config path {}: {}",
+            config_path.display(),
+            err
+        );
+        return None;
+    }
+
+    tokio::spawn(async move {
+        while rx.recv().await.is_some() {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            while rx.try_recv().is_ok() {}
+
+            match config.reload() {
+                Ok(_) => {
+                    let _ = audit_sink.emit(&AuditEvent::config_reload(
+                        RequestId::new(),
+                        "config_watcher",
+                        0,
+                        0,
+                        AuditStatus::Success,
+                    ));
+                    eprintln!("Config successfully reloaded from {}", config_path.display());
+                }
+                Err(err) => {
+                    let mut ev = AuditEvent::config_reload(
+                        RequestId::new(),
+                        "config_watcher",
+                        0,
+                        0,
+                        AuditStatus::Failed,
+                    );
+                    ev.reason = Some(AuditReason::InvalidConfig);
+                    let _ = audit_sink.emit(&ev);
+                    eprintln!("Config reload failed: {}", err);
+                }
+            }
+        }
+    });
+
+    Some(watcher)
 }
 
 #[cfg(test)]

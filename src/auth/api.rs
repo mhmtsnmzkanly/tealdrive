@@ -168,12 +168,12 @@ where
         auth_success.primary_gid,
     ));
 
-    let cookie_config = SessionCookieConfig::from_session_config(&state.config.session);
+    let cfg = state.config.load();
+    let cookie_config = SessionCookieConfig::from_session_config(&cfg.session);
     let cookie_val = cookie_config.build_set_cookie_value(&session.session_id);
     let csrf_token = CsrfToken::generate();
 
-    let roots = state
-        .config
+    let roots = cfg
         .allowed_roots()
         .iter()
         .map(|r| RootSummary {
@@ -208,7 +208,8 @@ pub async fn logout_handler<H>(
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Ok(session_id) = extract_session_id(&headers, &state.config.session.cookie_name) {
+    let cfg = state.config.load();
+    if let Ok(session_id) = extract_session_id(&headers, &cfg.session.cookie_name) {
         let mut store = state.session_store.lock().await;
         let now = InMemorySessionStore::now_epoch_seconds();
         if let SessionLookupResult::Found(session) = store.get_session(&session_id, now) {
@@ -223,7 +224,7 @@ where
         }
     }
 
-    let cookie_config = SessionCookieConfig::from_session_config(&state.config.session);
+    let cookie_config = SessionCookieConfig::from_session_config(&cfg.session);
     let clear_val = cookie_config.build_clear_cookie_value();
 
     let mut response = (
@@ -247,7 +248,8 @@ pub async fn session_handler<H>(
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    let session_id = match extract_session_id(&headers, &state.config.session.cookie_name) {
+    let cfg = state.config.load();
+    let session_id = match extract_session_id(&headers, &cfg.session.cookie_name) {
         Ok(id) => id,
         Err(_) => {
             return (
@@ -274,8 +276,7 @@ where
     match lookup {
         SessionLookupResult::Found(session) => {
             let csrf_token = CsrfToken::generate();
-            let roots = state
-                .config
+            let roots = cfg
                 .allowed_roots()
                 .iter()
                 .map(|r| RootSummary {
@@ -302,7 +303,7 @@ where
                 .into_response()
         }
         _ => {
-            let cookie_config = SessionCookieConfig::from_session_config(&state.config.session);
+            let cookie_config = SessionCookieConfig::from_session_config(&cfg.session);
             let clear_val = cookie_config.build_clear_cookie_value();
 
             let mut response = (

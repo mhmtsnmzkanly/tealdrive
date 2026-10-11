@@ -30,6 +30,7 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
         <div id="userInfo" class="user-info hidden">
           <span class="user-badge" id="userBadge">user</span>
+          <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings">Settings</button>
           <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</button>
         </div>
       </div>
@@ -276,6 +277,60 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
       <div class="modal-footer">
         <a id="lightboxDownloadBtn" href="#" class="btn btn-secondary" target="_blank">Download</a>
         <button type="button" id="lightboxDoneBtn" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Server Settings Modal -->
+  <div id="settingsModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>Server Settings &amp; Dynamic Config</h3>
+        <button class="modal-close" id="settingsCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body settings-body">
+        <div class="settings-section">
+          <h4>Feature Gates</h4>
+          <div class="settings-grid">
+            <label><input type="checkbox" id="cfgFeatUpload"> Allow Uploads</label>
+            <label><input type="checkbox" id="cfgFeatDownload"> Allow Downloads</label>
+            <label><input type="checkbox" id="cfgFeatEdit"> Allow File Editing</label>
+            <label><input type="checkbox" id="cfgFeatDelete"> Allow File Deletions</label>
+            <label><input type="checkbox" id="cfgFeatRename"> Allow Rename &amp; Move</label>
+            <label><input type="checkbox" id="cfgFeatTrash"> Enable Trash System</label>
+            <label><input type="checkbox" id="cfgFeatChmod"> Allow Chmod Permissions</label>
+            <label><input type="checkbox" id="cfgFeatArchive"> Allow Compression / Extraction</label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Retention &amp; Limits</h4>
+          <div class="settings-row">
+            <label for="cfgTrashRetention">Trash Retention (Days):</label>
+            <input type="number" id="cfgTrashRetention" class="form-input" min="0" max="365">
+          </div>
+          <div class="settings-row">
+            <label for="cfgMaxUploadBytes">Max Upload (MB):</label>
+            <input type="number" id="cfgMaxUploadBytes" class="form-input" min="1">
+          </div>
+          <div class="settings-row">
+            <label for="cfgMaxEditTextBytes">Max Text Edit (KB):</label>
+            <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="cfgPersistDisk" checked> Persist changes to disk config file
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="cfgReloadBtn" class="btn btn-secondary">Reload from Disk</button>
+        <div class="modal-actions">
+          <button type="button" id="settingsCancelBtn" class="btn btn-secondary">Close</button>
+          <button type="button" id="cfgSaveBtn" class="btn btn-primary">Save Settings</button>
+        </div>
       </div>
     </div>
   </div>
@@ -877,6 +932,61 @@ body {
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Settings Modal Styles */
+.settings-body {
+  overflow-y: auto;
+  max-height: calc(80vh - 140px);
+}
+
+.settings-section {
+  background-color: var(--slate-900);
+  border: 1px solid var(--slate-700);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.settings-section h4 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  color: var(--teal-100);
+  font-size: 0.95rem;
+  border-bottom: 1px solid var(--slate-700);
+  padding-bottom: 0.4rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.6rem;
+}
+
+.settings-grid label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  gap: 1rem;
+}
+
+.settings-row label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.settings-row .form-input {
+  width: 140px;
+}
 "##;
 
 pub const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
@@ -970,6 +1080,24 @@ pub const APP_JS: &str = r##"
     uploadProgressBar: document.getElementById('uploadProgressBar'),
     searchInput: document.getElementById('searchInput'),
     searchClearBtn: document.getElementById('searchClearBtn'),
+    settingsBtn: document.getElementById('settingsBtn'),
+    settingsModal: document.getElementById('settingsModal'),
+    settingsCloseBtn: document.getElementById('settingsCloseBtn'),
+    settingsCancelBtn: document.getElementById('settingsCancelBtn'),
+    cfgSaveBtn: document.getElementById('cfgSaveBtn'),
+    cfgReloadBtn: document.getElementById('cfgReloadBtn'),
+    cfgFeatUpload: document.getElementById('cfgFeatUpload'),
+    cfgFeatDownload: document.getElementById('cfgFeatDownload'),
+    cfgFeatEdit: document.getElementById('cfgFeatEdit'),
+    cfgFeatDelete: document.getElementById('cfgFeatDelete'),
+    cfgFeatRename: document.getElementById('cfgFeatRename'),
+    cfgFeatTrash: document.getElementById('cfgFeatTrash'),
+    cfgFeatChmod: document.getElementById('cfgFeatChmod'),
+    cfgFeatArchive: document.getElementById('cfgFeatArchive'),
+    cfgTrashRetention: document.getElementById('cfgTrashRetention'),
+    cfgMaxUploadBytes: document.getElementById('cfgMaxUploadBytes'),
+    cfgMaxEditTextBytes: document.getElementById('cfgMaxEditTextBytes'),
+    cfgPersistDisk: document.getElementById('cfgPersistDisk'),
   };
 
   // --- MessagePack Pure JS Minimal Codec ---
@@ -1908,8 +2036,100 @@ pub const APP_JS: &str = r##"
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // --- Admin Settings & Dynamic Config ---
+  async function openSettingsModal() {
+    try {
+      const resp = await fetch('/api/admin/config', { credentials: 'same-origin' });
+      if (!resp.ok) {
+        showToast('Failed to fetch server configuration', 'error');
+        return;
+      }
+      const data = await resp.json();
+      const cfg = data.config || data;
+      if (cfg && cfg.features) {
+        el.cfgFeatUpload.checked = !!cfg.features.allow_upload;
+        el.cfgFeatDownload.checked = !!cfg.features.allow_download;
+        el.cfgFeatEdit.checked = !!cfg.features.allow_edit_text;
+        el.cfgFeatDelete.checked = !!cfg.features.allow_delete;
+        el.cfgFeatRename.checked = !!cfg.features.allow_rename_move;
+        el.cfgFeatTrash.checked = !!cfg.features.allow_trash;
+        el.cfgFeatChmod.checked = !!cfg.features.allow_chmod;
+        el.cfgFeatArchive.checked = !!cfg.features.allow_archive;
+      }
+      el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
+      if (cfg.limits) {
+        el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_upload_bytes || 0) / (1024 * 1024));
+        el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_edit_text_bytes || 0) / 1024);
+      }
+      el.settingsModal.classList.remove('hidden');
+    } catch(e) {
+      showToast('Error connecting to admin config API', 'error');
+    }
+  }
+
+  async function saveSettings() {
+    const patch = {
+      features: {
+        allow_upload: el.cfgFeatUpload.checked,
+        allow_download: el.cfgFeatDownload.checked,
+        allow_edit_text: el.cfgFeatEdit.checked,
+        allow_delete: el.cfgFeatDelete.checked,
+        allow_rename_move: el.cfgFeatRename.checked,
+        allow_trash: el.cfgFeatTrash.checked,
+        allow_chmod: el.cfgFeatChmod.checked,
+        allow_archive: el.cfgFeatArchive.checked,
+      },
+      trash_retention_days: parseInt(el.cfgTrashRetention.value, 10) || 30,
+      limits: {
+        max_upload_bytes: (parseInt(el.cfgMaxUploadBytes.value, 10) || 1024) * 1024 * 1024,
+        max_edit_text_bytes: (parseInt(el.cfgMaxEditTextBytes.value, 10) || 512) * 1024,
+      }
+    };
+    const persist = el.cfgPersistDisk.checked ? '?save=true' : '';
+    try {
+      const resp = await fetch('/api/admin/config' + persist, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+        credentials: 'same-origin'
+      });
+      if (resp.ok) {
+        showToast('Settings saved and hot-reloaded successfully!', 'success');
+        el.settingsModal.classList.add('hidden');
+      } else {
+        const err = await resp.json().catch(() => ({ error: 'Failed to update config' }));
+        showToast(err.error || 'Failed to update config', 'error');
+      }
+    } catch(e) {
+      showToast('Network error saving settings', 'error');
+    }
+  }
+
+  async function reloadSettingsFromDisk() {
+    try {
+      const resp = await fetch('/api/admin/config/reload', {
+        method: 'POST',
+        credentials: 'same-origin'
+      });
+      if (resp.ok) {
+        showToast('Config reloaded from disk!', 'success');
+        await openSettingsModal();
+      } else {
+        const err = await resp.json().catch(() => ({ error: 'Reload failed' }));
+        showToast(err.error || 'Failed to reload config', 'error');
+      }
+    } catch(e) {
+      showToast('Network error reloading config', 'error');
+    }
+  }
+
   // --- Event Listeners Setup ---
   function setupEvents() {
+    el.settingsBtn.onclick = openSettingsModal;
+    el.settingsCloseBtn.onclick = () => el.settingsModal.classList.add('hidden');
+    el.settingsCancelBtn.onclick = () => el.settingsModal.classList.add('hidden');
+    el.cfgSaveBtn.onclick = saveSettings;
+    el.cfgReloadBtn.onclick = reloadSettingsFromDisk;
     el.loginForm.onsubmit = (e) => {
       e.preventDefault();
       performLogin(el.usernameInput.value.trim(), el.passwordInput.value);
@@ -2013,6 +2233,9 @@ pub const APP_JS: &str = r##"
         }
         if (!el.editorModal.classList.contains('hidden')) {
           el.editorModal.classList.add('hidden');
+        }
+        if (!el.settingsModal.classList.contains('hidden')) {
+          el.settingsModal.classList.add('hidden');
         }
       }
     });

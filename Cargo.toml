@@ -30,6 +30,8 @@ flate2 = "1.0"
 tar = "0.4"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 toml = "0.8"
+arc-swap = "1.9.2"
+notify = "8.2.0"
 
 [features]
 default = []

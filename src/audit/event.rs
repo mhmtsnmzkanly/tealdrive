@@ -585,6 +585,40 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn config_reload(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+        status: AuditStatus,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::ConfigReload,
+            status,
+        )
+    }
+
+    pub fn config_patch(
+        request_id: RequestId,
+        username: impl Into<String>,
+        uid: u32,
+        gid: u32,
+        status: AuditStatus,
+    ) -> Self {
+        Self::new(
+            request_id,
+            username,
+            uid,
+            gid,
+            AuditAction::ConfigPatch,
+            status,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -622,6 +656,8 @@ pub enum AuditAction {
     CompressTarGz,
     ExtractArchive,
     FeatureDisabledAttempt,
+    ConfigReload,
+    ConfigPatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -643,6 +679,7 @@ pub enum AuditReason {
     OperationBeforeReady,
     InvalidMessageDirection,
     RateLimited,
+    InvalidConfig,
 }
 
 #[cfg(test)]

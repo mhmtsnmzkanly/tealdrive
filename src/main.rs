@@ -38,10 +38,10 @@ impl ServerArgs {
                         .ok_or_else(|| "--bind requires an address argument".to_owned())?;
                     parsed.bind_addr = Some(val);
                 }
-                "--static-dir" => {
+                "--static-dir" | "--assets-dir" => {
                     let val = iter
                         .next()
-                        .ok_or_else(|| "--static-dir requires a path argument".to_owned())?;
+                        .ok_or_else(|| "--static-dir / --assets-dir requires a path argument".to_owned())?;
                     parsed.static_dir = Some(PathBuf::from(val));
                 }
                 "--helper-bin" => {
@@ -75,6 +75,7 @@ impl ServerArgs {
                -c, --config <PATH>       Path to TOML or JSON configuration file\n\
                -b, --bind <ADDR>         Override server listen address (e.g. 127.0.0.1:3000)\n\
                    --static-dir <PATH>   Path to static frontend assets directory\n\
+                   --assets-dir <PATH>   Alias for --static-dir\n\
                    --helper-bin <PATH>   Path to tealdrive-helper binary\n\
                    --check-config        Validate configuration file and exit\n\
                -v, --version             Print version information\n\
@@ -137,7 +138,55 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     let helper_client = HelperProcessClient::new(helper_path, Duration::from_secs(10));
     let audit_sink = JsonlAuditSink::open_default().map_err(|_| TealDriveError::Internal)?;
     let session_store = InMemorySessionStore::new(config.session.clone());
-    let state = WsServerState::new(config, session_store, helper_client, audit_sink);
+    let state = WsServerState::with_authenticator_and_path(
+        config,
+        args.config_path,
+        session_store,
+        helper_client,
+        audit_sink,
+        std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::new()),
+        tealdrive::rate_limit::login::InMemoryLoginRateLimiter::new(5),
+    );
+
+    let _watcher = tealdrive::ws::server::spawn_config_watcher(&state);
+
+    #[cfg(unix)]
+    {
+        let config_clone = state.config.clone();
+        let audit_sink_clone = state.audit_sink.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            if let Ok(mut sighup) = signal(SignalKind::hangup()) {
+                while sighup.recv().await.is_some() {
+                    eprintln!("Received SIGHUP, reloading configuration...");
+                    match config_clone.reload() {
+                        Ok(_) => {
+                            let _ = audit_sink_clone.emit(&tealdrive::audit::event::AuditEvent::config_reload(
+                                tealdrive::protocol::frame::RequestId::new(),
+                                "sighup",
+                                0,
+                                0,
+                                tealdrive::audit::event::AuditStatus::Success,
+                            ));
+                            eprintln!("Configuration reloaded successfully via SIGHUP.");
+                        }
+                        Err(err) => {
+                            let mut ev = tealdrive::audit::event::AuditEvent::config_reload(
+                                tealdrive::protocol::frame::RequestId::new(),
+                                "sighup",
+                                0,
+                                0,
+                                tealdrive::audit::event::AuditStatus::Failed,
+                            );
+                            ev.reason = Some(tealdrive::audit::event::AuditReason::InvalidConfig);
+                            let _ = audit_sink_clone.emit(&ev);
+                            eprintln!("Failed to reload configuration on SIGHUP: {err}");
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     run_server(bind_addr, state).await
 }
@@ -201,5 +250,16 @@ mod tests {
     fn test_parse_args_unknown_option_errors() {
         let args = vec!["tealdrive-server".to_owned(), "--foo".to_owned()];
         assert!(ServerArgs::parse(args).is_err());
+    }
+
+    #[test]
+    fn test_parse_args_assets_dir_alias() {
+        let args = vec![
+            "tealdrive-server".to_owned(),
+            "--assets-dir".to_owned(),
+            "/srv/frontend".to_owned(),
+        ];
+        let parsed = ServerArgs::parse(args).expect("parsed");
+        assert_eq!(parsed.static_dir, Some(PathBuf::from("/srv/frontend")));
     }
 }

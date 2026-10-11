@@ -78,7 +78,7 @@ pub async fn serve_index<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref static_dir) = state.config.server.static_dir {
+    if let Some(ref static_dir) = state.config.load().server.static_dir {
         if let Some(target) = resolve_safe_static_path(static_dir, "index.html") {
             if let Ok(content) = fs::read(&target) {
                 let mut response = content.into_response();
@@ -93,19 +93,58 @@ where
     response
 }
 
-pub async fn serve_style() -> Response {
+pub async fn serve_style<H>(State(state): State<WsServerState<H>>) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    if let Some(ref static_dir) = state.config.load().server.static_dir {
+        if let Some(target) = resolve_safe_static_path(static_dir, "style.css") {
+            if let Ok(content) = fs::read(&target) {
+                let mut response = content.into_response();
+                apply_security_headers(response.headers_mut(), "text/css; charset=utf-8");
+                return response;
+            }
+        }
+    }
+
     let mut response = STYLE_CSS.into_response();
     apply_security_headers(response.headers_mut(), "text/css; charset=utf-8");
     response
 }
 
-pub async fn serve_app() -> Response {
+pub async fn serve_app<H>(State(state): State<WsServerState<H>>) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    if let Some(ref static_dir) = state.config.load().server.static_dir {
+        if let Some(target) = resolve_safe_static_path(static_dir, "app.js") {
+            if let Ok(content) = fs::read(&target) {
+                let mut response = content.into_response();
+                apply_security_headers(response.headers_mut(), "application/javascript; charset=utf-8");
+                return response;
+            }
+        }
+    }
+
     let mut response = APP_JS.into_response();
     apply_security_headers(response.headers_mut(), "application/javascript; charset=utf-8");
     response
 }
 
-pub async fn serve_favicon() -> Response {
+pub async fn serve_favicon<H>(State(state): State<WsServerState<H>>) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    if let Some(ref static_dir) = state.config.load().server.static_dir {
+        if let Some(target) = resolve_safe_static_path(static_dir, "favicon.svg") {
+            if let Ok(content) = fs::read(&target) {
+                let mut response = content.into_response();
+                apply_security_headers(response.headers_mut(), "image/svg+xml");
+                return response;
+            }
+        }
+    }
+
     let mut response = FAVICON_SVG.into_response();
     apply_security_headers(response.headers_mut(), "image/svg+xml");
     response
@@ -120,7 +159,7 @@ where
 {
     let clean = path.trim_start_matches('/');
 
-    if let Some(ref static_dir) = state.config.server.static_dir {
+    if let Some(ref static_dir) = state.config.load().server.static_dir {
         if let Some(safe_path) = resolve_safe_static_path(static_dir, clean) {
             if let Ok(bytes) = fs::read(&safe_path) {
                 let mime = mime_for_path(&safe_path);
@@ -132,9 +171,9 @@ where
     }
 
     match clean {
-        "style.css" => serve_style().await,
-        "app.js" => serve_app().await,
-        "favicon.svg" | "favicon.ico" => serve_favicon().await,
+        "style.css" => serve_style::<H>(State(state)).await,
+        "app.js" => serve_app::<H>(State(state)).await,
+        "favicon.svg" | "favicon.ico" => serve_favicon::<H>(State(state)).await,
         "index.html" => serve_index::<H>(State(state)).await,
         _ => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }
@@ -195,11 +234,14 @@ mod tests {
         assert!(INDEX_HTML.contains(r#"meta name="status" content="ok""#));
         assert!(INDEX_HTML.contains("TealDrive"));
         assert!(INDEX_HTML.contains("lightboxModal"));
+        assert!(INDEX_HTML.contains("settingsModal"));
         assert!(STYLE_CSS.contains("--teal-500"));
         assert!(STYLE_CSS.contains("modal-lightbox"));
+        assert!(STYLE_CSS.contains("settings-body"));
         assert!(APP_JS.contains("TDRV"));
         assert!(APP_JS.contains("/api/preview"));
         assert!(APP_JS.contains("openLightbox"));
+        assert!(APP_JS.contains("/api/admin/config"));
         assert!(FAVICON_SVG.contains("<svg"));
     }
 }

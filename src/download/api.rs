@@ -148,8 +148,9 @@ async fn serve_file_http<H>(
 where
     H: WsHelperBackend + Clone + 'static,
 {
+    let cfg = state.config.load();
     let now = InMemorySessionStore::now_epoch_seconds();
-    let session_id = match extract_session_id(headers, &state.config.session.cookie_name) {
+    let session_id = match extract_session_id(headers, &cfg.session.cookie_name) {
         Ok(id) => id,
         Err(_) => {
             return (StatusCode::UNAUTHORIZED, r#"{"error":"unauthorized"}"#).into_response();
@@ -179,7 +180,7 @@ where
     };
 
     let root_id = RootId::new(root_name);
-    let root = match require_allowed_root(state.config.allowed_roots(), &root_id) {
+    let root = match require_allowed_root(cfg.allowed_roots(), &root_id) {
         Ok(root) => root,
         Err(_) => {
             return (StatusCode::NOT_FOUND, r#"{"error":"root_not_found"}"#).into_response();
@@ -193,7 +194,7 @@ where
         }
     };
 
-    let policy_engine = PolicyEngine::new(&state.config);
+    let policy_engine = PolicyEngine::new(&cfg);
 
     match policy_engine.check_operation(
         FileOperation::DownloadFile,

@@ -1,5 +1,7 @@
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::errors::TealDriveError;
 use crate::limits::Limits;
@@ -315,6 +317,115 @@ impl Default for AccountPolicyConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ConfigPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<FeatureFlags>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<Limits>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trash_retention_days: Option<Option<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roots: Option<Vec<AllowedRoot>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deny_edit_patterns: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warn_read_patterns: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_dir: Option<Option<PathBuf>>,
+}
+
+impl ConfigPatch {
+    pub fn apply_to(&self, config: &mut AppConfig) {
+        if let Some(ref features) = self.features {
+            config.features = features.clone();
+        }
+        if let Some(ref limits) = self.limits {
+            config.limits = *limits;
+        }
+        if let Some(trash_retention_days) = self.trash_retention_days {
+            config.trash_retention_days = trash_retention_days;
+        }
+        if let Some(ref roots) = self.roots {
+            config.roots = roots.clone();
+        }
+        if let Some(ref deny_edit) = self.deny_edit_patterns {
+            config.sensitive_policy.deny_edit_patterns = deny_edit.clone();
+        }
+        if let Some(ref warn_read) = self.warn_read_patterns {
+            config.sensitive_policy.warn_read_patterns = warn_read.clone();
+        }
+        if let Some(ref static_dir) = self.static_dir {
+            config.server.static_dir = static_dir.clone();
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DynamicConfig {
+    inner: Arc<ArcSwap<AppConfig>>,
+    config_path: Option<PathBuf>,
+}
+
+impl DynamicConfig {
+    pub fn new(config: AppConfig, path: Option<PathBuf>) -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::from_pointee(config)),
+            config_path: path,
+        }
+    }
+
+    pub fn load(&self) -> arc_swap::Guard<Arc<AppConfig>> {
+        self.inner.load()
+    }
+
+    pub fn load_full(&self) -> Arc<AppConfig> {
+        self.inner.load_full()
+    }
+
+    pub fn config_path(&self) -> Option<&Path> {
+        self.config_path.as_deref()
+    }
+
+    pub fn set_config_path(&mut self, path: PathBuf) {
+        self.config_path = Some(path);
+    }
+
+    pub fn store(&self, new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
+        new_config.validate()?;
+        let arc = Arc::new(new_config);
+        self.inner.store(arc.clone());
+        Ok(arc)
+    }
+
+    pub fn reload(&self) -> Result<Arc<AppConfig>, TealDriveError> {
+        let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
+        let loaded = AppConfig::from_file(path)?;
+        self.store(loaded)
+    }
+
+    pub fn apply_patch(&self, patch: ConfigPatch) -> Result<Arc<AppConfig>, TealDriveError> {
+        let current = self.load_full();
+        let mut new_config = (*current).clone();
+        patch.apply_to(&mut new_config);
+        self.store(new_config)
+    }
+
+    pub fn save_to_file(&self) -> Result<(), TealDriveError> {
+        let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
+        let current = self.load_full();
+        let toml_str = toml::to_string_pretty(&*current).map_err(|_| TealDriveError::Internal)?;
+        std::fs::write(path, toml_str).map_err(|_| TealDriveError::Internal)?;
+        Ok(())
+    }
+}
+
+impl Default for DynamicConfig {
+    fn default() -> Self {
+        Self::new(AppConfig::default(), None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +490,44 @@ mod tests {
         let mut config = AppConfig::default();
         config.server.bind_addr = "not-an-ip-or-port".to_owned();
         assert_eq!(config.validate(), Err(TealDriveError::Validation));
+    }
+
+    #[test]
+    fn dynamic_config_patch_and_hot_reload_test() {
+        let dir = std::env::temp_dir().join(format!("tealdrive-dyn-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_file = dir.join("config.toml");
+        let initial_cfg = AppConfig::default();
+        std::fs::write(&cfg_file, toml::to_string(&initial_cfg).unwrap()).unwrap();
+
+        let dynamic = DynamicConfig::new(initial_cfg, Some(cfg_file.clone()));
+        assert!(!dynamic.load().features.delete_permanently);
+
+        // Apply patch in memory
+        let patch = ConfigPatch {
+            features: Some(FeatureFlags {
+                delete_permanently: true,
+                ..Default::default()
+            }),
+            trash_retention_days: Some(Some(14)),
+            ..Default::default()
+        };
+        dynamic.apply_patch(patch).expect("apply patch");
+        assert!(dynamic.load().features.delete_permanently);
+        assert_eq!(dynamic.load().trash_retention_days, Some(14));
+
+        // Save to file
+        dynamic.save_to_file().expect("save to file");
+
+        // External modification on disk
+        let mut on_disk: AppConfig = toml::from_str(&std::fs::read_to_string(&cfg_file).unwrap()).unwrap();
+        on_disk.trash_retention_days = Some(30);
+        std::fs::write(&cfg_file, toml::to_string(&on_disk).unwrap()).unwrap();
+
+        // Hot reload from disk
+        dynamic.reload().expect("reload from disk");
+        assert_eq!(dynamic.load().trash_retention_days, Some(30));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

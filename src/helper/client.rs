@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::errors::TealDriveError;
-use crate::helper::ipc::{encode_helper_request, read_helper_response};
+use crate::helper::ipc::{encode_invocation, read_helper_response, HelperInvocation};
 use crate::helper::types::{HelperRequest, HelperResponse};
 
 #[derive(Debug, Clone)]
@@ -15,6 +15,7 @@ pub struct HelperProcessClient {
     helper_path: PathBuf,
     timeout_millis: Arc<AtomicU64>,
     env_vars: Vec<(String, String)>,
+    tickets: Arc<std::sync::Mutex<std::collections::HashMap<String, crate::helper::security::IdentityTicket>>>,
 }
 
 impl PartialEq for HelperProcessClient {
@@ -34,6 +35,7 @@ impl HelperProcessClient {
             helper_path: helper_path.into(),
             timeout_millis: Arc::new(AtomicU64::new(timeout.as_millis() as u64)),
             env_vars: Vec::new(),
+            tickets: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -51,8 +53,24 @@ impl HelperProcessClient {
         self
     }
 
+    pub fn authenticate(&self, request: &crate::auth::account::AuthRequest) -> Result<crate::auth::account::AuthSuccess, crate::auth::account::AuthError> {
+        use crate::auth::account::AuthError;
+        let bytes=encode_invocation(&HelperInvocation::Authenticate(request.clone())).map_err(|_|AuthError::AuthBackendUnavailable)?;
+        let mut child=Command::new(&self.helper_path).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+            .spawn().map_err(|_|AuthError::AuthBackendUnavailable)?;
+        child.stdin.take().ok_or(AuthError::AuthBackendUnavailable)?.write_all(&bytes).map_err(|_|AuthError::AuthBackendUnavailable)?;
+        let output=child.wait_with_output().map_err(|_|AuthError::AuthBackendUnavailable)?;
+        let response=crate::helper::ipc::read_authentication(&mut output.stdout.as_slice()).map_err(|_|AuthError::AuthBackendUnavailable)?;
+        match response.result {
+            Ok((success,ticket))=> { self.tickets.lock().map_err(|_|AuthError::AuthBackendUnavailable)?.insert(success.username.clone(),ticket); Ok(success) }
+            Err(crate::auth::account::AuthFailure::AuthBackendUnavailable)=>Err(AuthError::AuthBackendUnavailable),
+            Err(_)=>Err(AuthError::InvalidCredentials),
+        }
+    }
+
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
-        let request_bytes = encode_helper_request(request)?;
+        let ticket = self.tickets.lock().map_err(|_|TealDriveError::Internal)?.get(&request.username).cloned();
+        let request_bytes = encode_invocation(&HelperInvocation::Operation { request: Box::new(request.clone()), ticket })?;
         let mut cmd = Command::new(&self.helper_path);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -134,6 +134,10 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         .parse::<SocketAddr>()
         .map_err(|_| TealDriveError::Internal)?;
 
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("Run tealdrive-server as an unprivileged account; only tealdrive-helper may be privileged.");
+        return Err(TealDriveError::PermissionDenied);
+    }
     let helper_path = args.helper_bin.unwrap_or_else(default_helper_binary_path);
     let helper_client = HelperProcessClient::new(
         helper_path,
@@ -152,7 +156,7 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         session_store,
         helper_client,
         audit_sink,
-        std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::new()),
+        std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::with_helper(helper_client_clone.clone())),
         rate_limiter,
     )
     .with_timeout_updater(move |d| helper_client_clone.set_timeout(d));

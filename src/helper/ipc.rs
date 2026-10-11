@@ -1,6 +1,5 @@
 use std::io::{Read, Write};
 
-use crate::config::SensitivePolicyConfig;
 use crate::errors::TealDriveError;
 use crate::helper::archive::{
     compress_targz_with_roots, compress_zip_with_roots, extract_archive_with_roots,
@@ -98,6 +97,10 @@ pub fn run_helper_once<R: Read, W: Write>(
 }
 
 pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
+    let config = crate::config::AppConfig { roots: allowed_roots_from_env(), ..Default::default() };
+    handle_helper_request_with_config(request, &config)
+}
+pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate::config::AppConfig) -> HelperResponse {
     if request.uid == 0 {
         return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
     }
@@ -105,87 +108,87 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
         return HelperResponse::feature_disabled(request);
     }
     if request.command == HelperCommand::ListDirectory {
-        let roots = allowed_roots_from_env();
-        return list_directory_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return list_directory_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::FileMetadata {
-        let roots = allowed_roots_from_env();
-        return file_metadata_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return file_metadata_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::DownloadFile {
-        let roots = allowed_roots_from_env();
-        return download_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return download_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::ReadTextFile {
-        let roots = allowed_roots_from_env();
-        return read_text_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return read_text_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::CreateFolder {
-        let roots = allowed_roots_from_env();
-        return create_folder_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return create_folder_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::Rename {
-        let roots = allowed_roots_from_env();
-        return rename_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return rename_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::Move {
-        let roots = allowed_roots_from_env();
-        return move_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return move_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::Copy {
-        let roots = allowed_roots_from_env();
-        return copy_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return copy_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::MoveToTrash {
-        let roots = allowed_roots_from_env();
-        return move_file_to_trash_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return move_file_to_trash_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::RestoreFromTrash {
-        let roots = allowed_roots_from_env();
+        let roots = &config.roots;
         return restore_file_from_trash_with_roots(
             request,
-            &roots,
-            &SensitivePolicyConfig::default(),
+            roots,
+            &config.sensitive_policy,
         );
     }
     if request.command == HelperCommand::WriteFile {
-        let roots = allowed_roots_from_env();
-        return write_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return write_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::DeletePermanently {
-        let roots = allowed_roots_from_env();
-        return delete_permanently_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return delete_permanently_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::Chmod {
-        let roots = allowed_roots_from_env();
-        return chmod_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return chmod_file_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::CompressZip {
-        let roots = allowed_roots_from_env();
-        return compress_zip_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return compress_zip_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::CompressTarGz {
-        let roots = allowed_roots_from_env();
-        return compress_targz_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return compress_targz_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::ExtractArchive {
-        let roots = allowed_roots_from_env();
-        return extract_archive_with_roots(request, &roots, &SensitivePolicyConfig::default());
+        let roots = &config.roots;
+        return extract_archive_with_roots(request, roots, &config.sensitive_policy);
     }
     if request.command == HelperCommand::SearchFiles {
-        let roots = allowed_roots_from_env();
+        let roots = &config.roots;
         return crate::helper::search::search_files_with_roots(
             request,
-            &roots,
-            &SensitivePolicyConfig::default(),
+            roots,
+            &config.sensitive_policy,
         );
     }
     if request.command == HelperCommand::ListTrash {
-        let roots = allowed_roots_from_env();
+        let roots = &config.roots;
         return crate::helper::trash::list_trash_with_roots(
             request,
-            &roots,
-            &SensitivePolicyConfig::default(),
+            roots,
+            &config.sensitive_policy,
         );
     }
     HelperResponse::not_implemented(request)
@@ -416,6 +419,49 @@ pub(crate) mod tests_support {
             chmod_mode: None,
             archive_source_paths: None,
             search_options: None,
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub enum HelperInvocation {
+    Authenticate(crate::auth::account::AuthRequest),
+    Operation { request: Box<HelperRequest>, ticket: Option<crate::helper::security::IdentityTicket> },
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct HelperAuthentication {
+    pub result: Result<(crate::auth::account::AuthSuccess, crate::helper::security::IdentityTicket), crate::auth::account::AuthFailure>,
+}
+pub fn encode_invocation(value: &HelperInvocation) -> Result<Vec<u8>, TealDriveError> {
+    encode_length_prefixed(value, MAX_HELPER_REQUEST_SIZE, TealDriveError::HelperRequestTooLarge)
+}
+pub fn read_authentication<R: Read>(reader: &mut R) -> Result<HelperAuthentication, TealDriveError> {
+    let bytes=read_length_prefixed(reader, MAX_HELPER_RESPONSE_SIZE, TealDriveError::HelperResponseTooLarge)?;
+    rmp_serde::from_slice(&bytes).map_err(|_|TealDriveError::HelperDecodeFailed)
+}
+pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Result<(), TealDriveError> {
+    let bytes=read_length_prefixed(reader, MAX_HELPER_REQUEST_SIZE, TealDriveError::HelperRequestTooLarge)?;
+    let invocation: HelperInvocation=rmp_serde::from_slice(&bytes).map_err(|_|TealDriveError::HelperDecodeFailed)?;
+    match invocation {
+        HelperInvocation::Authenticate(request)=> {
+            let response=HelperAuthentication { result: crate::helper::security::issue(&request).map_err(|e|e.failure_kind()) };
+            let bytes=encode_length_prefixed(&response, MAX_HELPER_RESPONSE_SIZE, TealDriveError::HelperResponseTooLarge)?;
+            writer.write_all(&bytes).map_err(|_|TealDriveError::HelperStdoutFailed)
+        }
+        HelperInvocation::Operation { request,ticket } => {
+            let elevated=unsafe { libc::geteuid()!=libc::getuid() };
+            let user=crate::config::UserContext { username:request.username.clone(),uid:request.uid,gid:request.gid };
+            let config=if elevated {
+                let ticket=ticket.ok_or(TealDriveError::PermissionDenied)?;
+                crate::helper::security::verify(&ticket,&user).map_err(|_|TealDriveError::PermissionDenied)?;
+                crate::helper::security::trusted_config().map_err(|_|TealDriveError::PermissionDenied)?
+            } else {
+                crate::config::AppConfig { roots:allowed_roots_from_env(), ..Default::default() }
+            };
+            if crate::helper::security::enter_identity(&user).is_err() {
+                return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Identity verification failed."));
+            }
+            write_helper_response(writer,&handle_helper_request_with_config(&request,&config))
         }
     }
 }

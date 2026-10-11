@@ -986,6 +986,7 @@ dependencies = [
  "axum",
  "flate2",
  "futures-util",
+ "libc",
  "notify",
  "rmp-serde",
  "serde",

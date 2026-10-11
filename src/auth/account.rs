@@ -11,7 +11,7 @@ pub trait Authenticator: Send + Sync {
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError>;
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthRequest {
     pub username: String,
     pub password: String,

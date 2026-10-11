@@ -485,5 +485,20 @@ async fn test_e2e_http_streaming_download_and_range_requests() {
     let traversal_resp = String::from_utf8_lossy(&buf);
     assert!(traversal_resp.contains("HTTP/1.1 400 Bad Request"));
 
+    // 6. Preview request with inline disposition & media mime type
+    fs::write(base_dir.join("photo.png"), b"\x89PNG\r\n\x1a\nfakeimagebytes").expect("write png");
+    let mut stream = TcpStream::connect(addr).await.expect("connect");
+    let prev_req = format!(
+        "GET /api/preview?root_id=home&path=photo.png HTTP/1.1\r\nHost: localhost\r\nCookie: {}\r\nConnection: close\r\n\r\n",
+        cookie
+    );
+    stream.write_all(prev_req.as_bytes()).await.expect("write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read");
+    let prev_resp = String::from_utf8_lossy(&buf);
+    assert!(prev_resp.contains("HTTP/1.1 200 OK"));
+    assert!(prev_resp.contains("content-disposition: inline; filename=\"photo.png\""));
+    assert!(prev_resp.contains("content-type: image/png"));
+
     let _ = fs::remove_dir_all(base_dir);
 }

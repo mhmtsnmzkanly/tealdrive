@@ -263,6 +263,23 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- 7. Lightbox Preview Modal -->
+  <div id="lightboxModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lightbox">
+      <div class="modal-header">
+        <h3 id="lightboxTitle">File Preview</h3>
+        <button class="modal-close" id="lightboxCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body lightbox-body">
+        <div id="lightboxContent" class="lightbox-content"></div>
+      </div>
+      <div class="modal-footer">
+        <a id="lightboxDownloadBtn" href="#" class="btn btn-secondary" target="_blank">Download</a>
+        <button type="button" id="lightboxDoneBtn" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
@@ -695,6 +712,45 @@ body {
   flex-direction: column;
 }
 
+.modal-lightbox {
+  max-width: 900px;
+  width: 90%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--slate-900);
+  padding: 1rem;
+  overflow: auto;
+  max-height: calc(85vh - 130px);
+}
+
+.lightbox-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.lightbox-content img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.lightbox-content video, .lightbox-content audio {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
 .modal-header {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--slate-700);
@@ -902,6 +958,12 @@ pub const APP_JS: &str = r##"
     trashCloseBtn: document.getElementById('trashCloseBtn'),
     trashDoneBtn: document.getElementById('trashDoneBtn'),
     trashTableBody: document.getElementById('trashTableBody'),
+    lightboxModal: document.getElementById('lightboxModal'),
+    lightboxTitle: document.getElementById('lightboxTitle'),
+    lightboxContent: document.getElementById('lightboxContent'),
+    lightboxCloseBtn: document.getElementById('lightboxCloseBtn'),
+    lightboxDoneBtn: document.getElementById('lightboxDoneBtn'),
+    lightboxDownloadBtn: document.getElementById('lightboxDownloadBtn'),
     uploadProgressContainer: document.getElementById('uploadProgressContainer'),
     uploadFileName: document.getElementById('uploadFileName'),
     uploadPercent: document.getElementById('uploadPercent'),
@@ -1321,6 +1383,8 @@ pub const APP_JS: &str = r##"
         const subPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
         if (item.is_dir) {
           loadDirectory(subPath);
+        } else if (isMediaFile(item.name)) {
+          openLightbox(subPath);
         } else {
           viewOrEditFile(subPath);
         }
@@ -1350,8 +1414,13 @@ pub const APP_JS: &str = r##"
           window.location.href = url;
         });
         tdAct.appendChild(dlBtn);
-        const editBtn = createActionButton('Edit', () => viewOrEditFile(itemRelPath));
-        tdAct.appendChild(editBtn);
+        if (isMediaFile(item.name)) {
+          const prevBtn = createActionButton('Preview', () => openLightbox(itemRelPath));
+          tdAct.appendChild(prevBtn);
+        } else {
+          const editBtn = createActionButton('Edit', () => viewOrEditFile(itemRelPath));
+          tdAct.appendChild(editBtn);
+        }
       }
 
       const chmodBtn = createActionButton('Mode', () => openChmodModal(itemRelPath, item.mode));
@@ -1398,6 +1467,8 @@ pub const APP_JS: &str = r##"
         e.preventDefault();
         if (item.is_dir) {
           loadDirectory(relPath);
+        } else if (isMediaFile(item.name)) {
+          openLightbox(relPath);
         } else {
           viewOrEditFile(relPath);
         }
@@ -1426,8 +1497,13 @@ pub const APP_JS: &str = r##"
           window.location.href = url;
         });
         tdAct.appendChild(dlBtn);
-        const editBtn = createActionButton('Edit', () => viewOrEditFile(relPath));
-        tdAct.appendChild(editBtn);
+        if (isMediaFile(item.name)) {
+          const prevBtn = createActionButton('Preview', () => openLightbox(relPath));
+          tdAct.appendChild(prevBtn);
+        } else {
+          const editBtn = createActionButton('Edit', () => viewOrEditFile(relPath));
+          tdAct.appendChild(editBtn);
+        }
       }
 
       const trashBtn = createActionButton('Trash', () => moveToTrash(relPath), 'btn-danger');
@@ -1453,8 +1529,79 @@ pub const APP_JS: &str = r##"
     return btn;
   }
 
+  // --- Media & Lightbox Preview ---
+  function isImageFile(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext);
+  }
+
+  function isVideoFile(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    return ['mp4', 'webm', 'ogg'].includes(ext);
+  }
+
+  function isAudioFile(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    return ['mp3', 'wav'].includes(ext);
+  }
+
+  function isPdfFile(filename) {
+    return filename.toLowerCase().endsWith('.pdf');
+  }
+
+  function isMediaFile(filename) {
+    return isImageFile(filename) || isVideoFile(filename) || isAudioFile(filename) || isPdfFile(filename);
+  }
+
+  function openLightbox(relPath) {
+    el.lightboxTitle.textContent = relPath;
+    const url = `/api/preview?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
+    const dlUrl = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
+    el.lightboxDownloadBtn.href = dlUrl;
+
+    el.lightboxContent.innerHTML = '';
+    if (isImageFile(relPath)) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = relPath;
+      el.lightboxContent.appendChild(img);
+    } else if (isVideoFile(relPath)) {
+      const video = document.createElement('video');
+      video.src = url;
+      video.controls = true;
+      video.autoplay = false;
+      el.lightboxContent.appendChild(video);
+    } else if (isAudioFile(relPath)) {
+      const audio = document.createElement('audio');
+      audio.src = url;
+      audio.controls = true;
+      audio.autoplay = false;
+      el.lightboxContent.appendChild(audio);
+    } else if (isPdfFile(relPath)) {
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.style.width = '100%';
+      iframe.style.height = '65vh';
+      iframe.style.border = 'none';
+      el.lightboxContent.appendChild(iframe);
+    } else {
+      el.lightboxContent.innerHTML = '<p class="muted">Cannot preview this file type directly.</p>';
+    }
+
+    el.lightboxModal.classList.remove('hidden');
+  }
+
+  function closeLightbox() {
+    el.lightboxContent.innerHTML = '';
+    el.lightboxModal.classList.add('hidden');
+  }
+
   // --- File Editor ---
   function viewOrEditFile(relPath) {
+    if (isMediaFile(relPath)) {
+      openLightbox(relPath);
+      return;
+    }
     state.currentEditorFile = relPath;
     el.editorTitle.textContent = `Loading ${relPath}...`;
     el.editorTextarea.value = '';
@@ -1750,7 +1897,10 @@ pub const APP_JS: &str = r##"
     const ext = name.split('.').pop().toLowerCase();
     if (['txt', 'md', 'rs', 'js', 'json', 'toml', 'html', 'css', 'py'].includes(ext)) return '📄';
     if (['zip', 'tar', 'gz', 'tgz', 'rar', '7z'].includes(ext)) return '🗜️';
-    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return '🖼️';
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)) return '🖼️';
+    if (['mp4', 'webm', 'ogg', 'mov', 'mkv'].includes(ext)) return '🎬';
+    if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) return '🎵';
+    if (['pdf'].includes(ext)) return '📕';
     return '📄';
   }
 
@@ -1843,6 +1993,29 @@ pub const APP_JS: &str = r##"
     el.trashDoneBtn.onclick = () => {
       el.trashModal.classList.add('hidden');
     };
+
+    // Lightbox modal
+    el.lightboxCloseBtn.onclick = () => {
+      closeLightbox();
+    };
+    el.lightboxDoneBtn.onclick = () => {
+      closeLightbox();
+    };
+
+    // Global keyboard shortcuts (Escape to close modals)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (!el.lightboxModal.classList.contains('hidden')) {
+          closeLightbox();
+        }
+        if (!el.trashModal.classList.contains('hidden')) {
+          el.trashModal.classList.add('hidden');
+        }
+        if (!el.editorModal.classList.contains('hidden')) {
+          el.editorModal.classList.add('hidden');
+        }
+      }
+    });
 
     // Search
     let searchDebounceTimer = null;

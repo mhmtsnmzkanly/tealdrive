@@ -49,6 +49,12 @@ pub fn mime_for_path(path: &Path) -> &'static str {
         Some("woff2") => "font/woff2",
         Some("ttf") => "font/ttf",
         Some("txt") | Some("md") => "text/plain; charset=utf-8",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("mp3") => "audio/mpeg",
+        Some("ogg") => "audio/ogg",
+        Some("wav") => "audio/wav",
+        Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
 }
@@ -160,6 +166,10 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("data.json")), "application/json; charset=utf-8");
         assert_eq!(mime_for_path(Path::new("logo.svg")), "image/svg+xml");
         assert_eq!(mime_for_path(Path::new("icon.png")), "image/png");
+        assert_eq!(mime_for_path(Path::new("picture.jpg")), "image/jpeg");
+        assert_eq!(mime_for_path(Path::new("video.mp4")), "video/mp4");
+        assert_eq!(mime_for_path(Path::new("song.mp3")), "audio/mpeg");
+        assert_eq!(mime_for_path(Path::new("doc.pdf")), "application/pdf");
         assert_eq!(mime_for_path(Path::new("favicon.ico")), "image/x-icon");
         assert_eq!(mime_for_path(Path::new("unknown.xyz")), "application/octet-stream");
     }
@@ -184,8 +194,12 @@ mod tests {
     fn embedded_assets_contain_expected_markers() {
         assert!(INDEX_HTML.contains(r#"meta name="status" content="ok""#));
         assert!(INDEX_HTML.contains("TealDrive"));
+        assert!(INDEX_HTML.contains("lightboxModal"));
         assert!(STYLE_CSS.contains("--teal-500"));
+        assert!(STYLE_CSS.contains("modal-lightbox"));
         assert!(APP_JS.contains("TDRV"));
+        assert!(APP_JS.contains("/api/preview"));
+        assert!(APP_JS.contains("openLightbox"));
         assert!(FAVICON_SVG.contains("<svg"));
     }
 }

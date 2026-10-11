@@ -79,10 +79,11 @@ pub fn read_text_file_with_roots(
     let entry = directory_entry_from_metadata(entry_name, &metadata, root, sensitive_config);
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     if let Err(error) =
-        fs::File::open(&resolution.resolved_path).and_then(|mut file| file.read_to_end(&mut bytes))
+        crate::helper::sandbox::open(root,&request.relative_path,libc::O_RDONLY,0).and_then(|file| file.take(request.limits.max_text_edit_size as u64 + 1).read_to_end(&mut bytes))
     {
         return helper_error_from_io(request, error);
     }
+    if bytes.len()>request.limits.max_text_edit_size { return helper_error(request,ErrorKind::FileTooLarge,"File grew beyond text limit.","file_too_large"); }
     if bytes.contains(&0) || too_many_control_chars(&bytes) {
         return helper_error(
             request,

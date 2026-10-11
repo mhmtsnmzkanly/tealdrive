@@ -83,7 +83,7 @@ pub fn chmod_file_with_roots(
         }
     }
 
-    let target = match resolve_existing_path(root, &validated_path, false) {
+    let _target = match resolve_existing_path(root, &validated_path, false) {
         Ok(target) => target,
         Err(TealDriveError::SymlinkDenied) => {
             return helper_error(
@@ -106,7 +106,8 @@ pub fn chmod_file_with_roots(
     }
 
     let permissions = std::fs::Permissions::from_mode(mode.0 & 0o0777);
-    match std::fs::set_permissions(&target.resolved_path, permissions) {
+    let file=match crate::helper::sandbox::open(root,&validated_path,libc::O_RDONLY,0) { Ok(f)=>f,Err(e)=>return helper_error_from_io(request,e) };
+    match file.set_permissions(permissions) {
         Ok(()) => HelperResponse::operation_done(request, "Permissions changed."),
         Err(err) => helper_error_from_io(request, err),
     }

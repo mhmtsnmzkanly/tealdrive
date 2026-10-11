@@ -1,4 +1,3 @@
-use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom, Write};
 
 use crate::config::{AllowedRoot, RelativePath, SensitivePolicyConfig};
@@ -96,7 +95,7 @@ pub fn write_file_with_roots(
     }
 
     let parent_rel = RelativePath::new(parent_str);
-    let target = match resolve_new_target(root, &parent_rel, &filename.0) {
+    let _target = match resolve_new_target(root, &parent_rel, &filename.0) {
         Ok(target) => target,
         Err(err) => return helper_error_from_tealdrive(request, err),
     };
@@ -104,16 +103,11 @@ pub fn write_file_with_roots(
     if crate::fs::quota::check_quota(root, write_options.data.len() as u64).is_err() {
         return helper_error(request, ErrorKind::DiskFull, "Storage quota exceeded.", "quota_exceeded");
     }
-    let mut open_options = OpenOptions::new();
-    open_options.write(true);
-    if request.command == HelperCommand::UploadCommit { open_options.create_new(true); } else { open_options.create(true); }
-    if write_options.truncate {
-        open_options.truncate(true);
-    }
-
-    let mut file = match open_options.open(&target.resolved_path) {
-        Ok(file) => file,
-        Err(err) => return helper_error_from_io(request, err),
+    let mut flags=libc::O_WRONLY|libc::O_CREAT;
+    if request.command==HelperCommand::UploadCommit { flags|=libc::O_EXCL; }
+    if write_options.truncate { flags|=libc::O_TRUNC; }
+    let mut file=match crate::helper::sandbox::open(root,&validated_path,flags,0o600) {
+        Ok(file)=>file,Err(err)=>return helper_error_from_io(request,err),
     };
 
     if write_options.offset > 0 {

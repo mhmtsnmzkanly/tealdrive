@@ -464,6 +464,10 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             if crate::helper::security::enter_identity(&user).is_err() {
                 return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Identity verification failed."));
             }
+            let root=config.roots.iter().find(|r|r.root_id==request.root_id).ok_or(TealDriveError::InvalidRootId)?;
+            if crate::helper::sandbox::confine(root).is_err() {
+                return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Kernel filesystem confinement is unavailable."));
+            }
             write_helper_response(writer,&handle_helper_request_with_config(&request,&config))
         }
     }

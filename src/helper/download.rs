@@ -71,7 +71,7 @@ pub fn download_file_with_roots(
         );
     }
 
-    match read_download_file(request, &resolution.resolved_path, metadata.len()) {
+    match read_download_file(request, root, metadata.len()) {
         Ok(download) => HelperResponse::download_file(request, download),
         Err(error) => helper_error_from_io(request, error),
     }
@@ -79,14 +79,14 @@ pub fn download_file_with_roots(
 
 fn read_download_file(
     request: &HelperRequest,
-    path: &std::path::Path,
+    root: &AllowedRoot,
     total_bytes: u64,
 ) -> io::Result<HelperDownloadFile> {
     let chunk_size = request
         .limits
         .max_chunk_size
         .clamp(1, crate::limits::MAX_CHUNK_SIZE);
-    let mut file = fs::File::open(path)?;
+    let mut file = crate::helper::sandbox::open(root,&request.relative_path,libc::O_RDONLY,0)?.take(request.limits.max_download_helper_bytes as u64 + 1);
     let mut chunks = Vec::new();
     let mut offset = 0_u64;
     let mut chunk_index = 0_u32;
@@ -103,6 +103,7 @@ fn read_download_file(
             chunk_bytes: buffer,
         });
         offset += read as u64;
+        if offset>request.limits.max_download_helper_bytes as u64 { return Err(io::Error::other("download grew beyond limit")); }
         chunk_index = chunk_index
             .checked_add(1)
             .ok_or_else(|| io::Error::other("too many chunks"))?;
@@ -227,10 +228,10 @@ pub fn read_file_range(request: &HelperRequest, roots: &[AllowedRoot], sensitive
         || (!root.hidden_files_allowed && crate::fs::path::is_hidden_relative(&request.relative_path)) {
         return HelperResponse::permission_denied(request,"Read denied by policy.");
     }
-    let resolution=match resolve_existing_path(root,&request.relative_path,false) {
+    let _resolution=match resolve_existing_path(root,&request.relative_path,false) {
         Ok(p)=>p,Err(e)=>return helper_error_from_tealdrive(request,e),
     };
-    let mut file=match fs::File::open(&resolution.resolved_path) { Ok(f)=>f,Err(e)=>return helper_error_from_io(request,e) };
+    let mut file=match crate::helper::sandbox::open(root,&request.relative_path,libc::O_RDONLY,0) { Ok(f)=>f,Err(e)=>return helper_error_from_io(request,e) };
     let metadata=match file.metadata() { Ok(m) if m.is_file()=>m, _=>return HelperResponse::permission_denied(request,"Not a regular file.") };
     let offset=request.write_options.as_ref().map_or(0,|o|o.offset);
     let length=request.limits.max_chunk_size.min(crate::limits::MAX_CHUNK_SIZE);

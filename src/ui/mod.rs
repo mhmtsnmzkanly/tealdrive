@@ -90,7 +90,24 @@ where
         }
     }
 
-    let mut response = Html(INDEX_HTML).into_response();
+    static ASSET_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let version = ASSET_VERSION.get_or_init(|| {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        for content in [
+            STYLE_CSS,
+            APP_JS,
+            include_str!("protocol.js"),
+            crate::protocol::JAVASCRIPT_CONTRACT,
+        ] {
+            digest.update(content.as_bytes());
+        }
+        format!("{:x}", digest.finalize())
+    });
+    let html = INDEX_HTML
+        .replace("/style.css", &format!("/style.css?v={version}"))
+        .replace("/app.js", &format!("/app.js?v={version}"));
+    let mut response = Html(html).into_response();
     apply_security_headers(response.headers_mut(), "text/html; charset=utf-8");
     response
 }

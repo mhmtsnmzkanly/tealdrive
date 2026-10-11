@@ -158,3 +158,9 @@ JavaScript davranış kontrolleri (0644, 0755, checkbox değişikliği, 0000, ha
 kodlar ve hatadan toparlanma), browser contract testi, Clippy ve release build
 başarılıdır. Yeni server binary canlı servise yüklenmiş ve HTTPS üzerinden yeni
 HTML/JavaScript'in sunulduğu doğrulanmıştır.
+
+Canlı kontrolde eski CDN JavaScript cache'i görüldüğü için gömülü HTML artık CSS
+ve JavaScript URL'lerine içerik hash'i ekler. Yeni build yeni asset adresleri üretir;
+canlı HTTPS üzerinden HTML'in referans verdiği sürümlü CSS/JS içinde izin seçici
+kodunun bulunduğu doğrulanmıştır. Browser contract/HTTP entegrasyon testleri,
+Clippy ve release build tekrar başarılıdır.

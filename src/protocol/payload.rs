@@ -180,6 +180,15 @@ pub struct SaveTextFileRequest {
     pub expected_modified: Option<String>,
 }
 
+impl SaveTextFileRequest {
+    pub fn validate(&self, limits: &Limits) -> Result<(), TealDriveError> {
+        if self.content.len() > limits.max_text_edit_size {
+            return Err(TealDriveError::Validation);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UploadBeginRequest {
     pub root_id: RootId,
@@ -765,6 +774,35 @@ mod tests {
             total_size: 1048576,
             chunk_size: MAX_CHUNK_SIZE + 1,
             sha256: None,
+        };
+
+        assert!(matches!(
+            request.validate(&Limits::default()),
+            Err(TealDriveError::Validation)
+        ));
+    }
+
+    #[test]
+    fn msgpack_save_text_file_request_roundtrip() {
+        let value = SaveTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            content: "hello world".to_owned(),
+            expected_modified: Some("2026-05-29T00:00:00Z".to_owned()),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: SaveTextFileRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn save_text_file_too_large_content_rejected() {
+        let request = SaveTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("notes.txt"),
+            content: "a".repeat(Limits::default().max_text_edit_size + 1),
+            expected_modified: None,
         };
 
         assert!(matches!(

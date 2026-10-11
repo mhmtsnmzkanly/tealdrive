@@ -1,16 +1,21 @@
 use crate::config::{AppConfig, UserContext};
 use crate::errors::{ErrorKind, TealDriveError};
+use crate::fs::filename::SafeFileName;
 use crate::fs::metadata::{file_metadata_request, MetadataHelper};
 use crate::fs::path::validate_relative_path;
 use crate::helper::client::HelperProcessClient;
 use crate::helper::types::{
     HelperCommand, HelperLimits, HelperPolicyContext, HelperRequest, HelperResponse,
-    HelperResponsePayload,
+    HelperResponsePayload, HelperWriteOptions,
 };
 use crate::policy::decision::{FileOperation, PolicyAuditMetadata, PolicyDecision, PolicyEngine};
 use crate::policy::roots::require_allowed_root;
+use crate::policy::webroot::check_webroot_upload;
 use crate::protocol::frame::RequestId;
-use crate::protocol::payload::{FileMetadataRequest, ReadTextFileRequest, TextFileContentPayload};
+use crate::protocol::payload::{
+    FileMetadataRequest, OperationDonePayload, ReadTextFileRequest, SaveTextFileRequest,
+    TextFileContentPayload,
+};
 use crate::protocol::schema::FileKind;
 
 pub trait TextPreviewHelper {
@@ -18,6 +23,16 @@ pub trait TextPreviewHelper {
 }
 
 impl TextPreviewHelper for HelperProcessClient {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        self.execute(request)
+    }
+}
+
+pub trait SaveTextFileHelper {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
+}
+
+impl SaveTextFileHelper for HelperProcessClient {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         self.execute(request)
     }
@@ -136,6 +151,130 @@ pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
     })
 }
 
+pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
+    user_context: &UserContext,
+    request: SaveTextFileRequest,
+    config: &AppConfig,
+    policy_engine: &PolicyEngine<'_>,
+    helper_client: &H,
+) -> Result<OperationDonePayload, TealDriveError> {
+    request.validate(&config.limits)?;
+    let relative_path = validate_relative_path(&request.relative_path)?;
+    let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
+
+    if root.read_only {
+        return Err(TealDriveError::ReadOnlyRoot);
+    }
+
+    match policy_engine.check_operation(
+        FileOperation::SaveTextFile,
+        &request.root_id,
+        &relative_path,
+        None,
+        None,
+        root.hidden_files_allowed,
+    )? {
+        PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
+        PolicyDecision::Deny(crate::errors::PolicyReason::FeatureDisabled) => {
+            return Err(TealDriveError::FeatureDisabled);
+        }
+        PolicyDecision::Deny(crate::errors::PolicyReason::ReadOnlyRoot) => {
+            return Err(TealDriveError::ReadOnlyRoot);
+        }
+        PolicyDecision::Deny(reason) => {
+            let _audit = PolicyAuditMetadata {
+                action: FileOperation::SaveTextFile,
+                root_id: request.root_id.clone(),
+                relative_path: relative_path.clone(),
+                target_relative_path: None,
+                reason,
+                safe_message: "Save text file denied by TealDrive policy.".to_owned(),
+            };
+            return Err(TealDriveError::PolicyDenied);
+        }
+    }
+
+    let filename_str = match relative_path.0.rsplit_once('/') {
+        Some((_, f)) => f,
+        None => relative_path.0.as_str(),
+    };
+    let filename = SafeFileName::parse(filename_str)?;
+
+    match check_webroot_upload(root.is_web_root, &filename, &config.webroot_policy) {
+        PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
+        PolicyDecision::Deny(_) => return Err(TealDriveError::WebrootExecutableDenied),
+    }
+
+    match file_metadata_request(
+        user_context,
+        FileMetadataRequest {
+            root_id: request.root_id.clone(),
+            relative_path: relative_path.clone(),
+        },
+        config,
+        policy_engine,
+        helper_client,
+    ) {
+        Ok(metadata) => {
+            if metadata.entry.file_type == FileKind::Directory {
+                return Err(TealDriveError::InvalidTarget);
+            }
+            if metadata.entry.is_symlink || metadata.entry.is_sensitive {
+                return Err(TealDriveError::PolicyDenied);
+            }
+            if let Some(ref expected) = request.expected_modified {
+                if metadata.entry.modified.as_deref() != Some(expected.as_str()) {
+                    return Err(TealDriveError::Validation);
+                }
+            }
+        }
+        Err(TealDriveError::NotFound) => {
+            if request.expected_modified.is_some() {
+                return Err(TealDriveError::NotFound);
+            }
+        }
+        Err(err) => return Err(err),
+    }
+
+    let helper_request = HelperRequest {
+        request_id: RequestId::new(),
+        username: user_context.username.clone(),
+        uid: user_context.uid,
+        gid: user_context.gid,
+        command: HelperCommand::WriteFile,
+        root_id: request.root_id.clone(),
+        relative_path: relative_path.clone(),
+        target_relative_path: None,
+        policy_context: HelperPolicyContext {
+            read_only_root: root.read_only,
+            is_web_root: root.is_web_root,
+        },
+        limits: HelperLimits {
+            max_directory_page_size: config.limits.max_directory_page_size,
+            max_text_edit_size: config.limits.max_text_edit_size,
+            max_chunk_size: config.limits.max_chunk_size,
+            max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
+        },
+        list_options: None,
+        write_options: Some(HelperWriteOptions {
+            data: request.content.into_bytes(),
+            offset: 0,
+            truncate: true,
+        }),
+    };
+
+    let response = SaveTextFileHelper::execute_helper(helper_client, &helper_request)?;
+    if !response.success {
+        return Err(helper_response_to_error(&response));
+    }
+
+    Ok(OperationDonePayload {
+        request_id: RequestId::new(),
+        operation: "SAVE_TEXT_FILE".to_owned(),
+        safe_message: Some("File saved successfully.".to_owned()),
+    })
+}
+
 fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
     match response.error_kind {
         Some(ErrorKind::PermissionDenied) => TealDriveError::PermissionDenied,
@@ -144,6 +283,7 @@ fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
         Some(ErrorKind::InvalidPath) => TealDriveError::InvalidPath,
         Some(ErrorKind::InvalidTarget) => TealDriveError::InvalidTarget,
         Some(ErrorKind::FileTooLarge) => TealDriveError::FileTooLarge,
+        Some(ErrorKind::ReadOnlyFilesystem) => TealDriveError::ReadOnlyRoot,
         Some(ErrorKind::UnsupportedBinaryFile) => TealDriveError::UnsupportedBinaryFile,
         Some(ErrorKind::InvalidTextEncoding) => TealDriveError::InvalidTextEncoding,
         _ => TealDriveError::HelperCommandNotImplemented,
@@ -192,6 +332,19 @@ mod tests {
         }
     }
 
+    impl SaveTextFileHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::upload::write_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
     fn temp_root() -> PathBuf {
         let path =
             std::env::temp_dir().join(format!("tealdrive-service-text-{}", uuid::Uuid::new_v4()));
@@ -209,6 +362,10 @@ mod tests {
                 hidden_files_allowed: hidden_allowed,
                 is_web_root: false,
             }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                save_text_file: true,
+                ..Default::default()
+            },
             ..AppConfig::default()
         }
     }
@@ -439,5 +596,145 @@ mod tests {
         let decoded: TextFileContentPayload = decode_msgpack(&bytes).expect("decoded");
 
         assert_eq!(decoded, payload);
+    }
+
+    fn save_request(path: &str, content: &str, expected_modified: Option<String>) -> SaveTextFileRequest {
+        SaveTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+            content: content.to_owned(),
+            expected_modified,
+        }
+    }
+
+    #[test]
+    fn save_text_file_updates_existing_content() {
+        let base = temp_root();
+        fs::write(base.join("notes.txt"), b"initial content").expect("file");
+        let config = config_for(base.clone(), false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let result = save_text_file_request(
+            &user(),
+            save_request("notes.txt", "updated text", None),
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("save ok");
+
+        assert_eq!(result.operation, "SAVE_TEXT_FILE");
+        assert_eq!(fs::read_to_string(base.join("notes.txt")).expect("read"), "updated text");
+    }
+
+    #[test]
+    fn save_text_file_creates_new_file() {
+        let base = temp_root();
+        let config = config_for(base.clone(), false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        let result = save_text_file_request(
+            &user(),
+            save_request("new_file.txt", "brand new", None),
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("save ok");
+
+        assert_eq!(result.operation, "SAVE_TEXT_FILE");
+        assert_eq!(fs::read_to_string(base.join("new_file.txt")).expect("read"), "brand new");
+    }
+
+    #[test]
+    fn save_text_file_expected_modified_mismatch_rejected() {
+        let base = temp_root();
+        fs::write(base.join("notes.txt"), b"initial content").expect("file");
+        let config = config_for(base, false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            save_text_file_request(
+                &user(),
+                save_request("notes.txt", "updated", Some("1999-01-01T00:00:00Z".to_owned())),
+                &config,
+                &engine,
+                &helper,
+            ),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn save_text_file_to_directory_rejected() {
+        let base = temp_root();
+        fs::create_dir_all(base.join("subfolder")).expect("dir");
+        let config = config_for(base, false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            save_text_file_request(
+                &user(),
+                save_request("subfolder", "data", None),
+                &config,
+                &engine,
+                &helper,
+            ),
+            Err(TealDriveError::InvalidTarget)
+        );
+    }
+
+    #[test]
+    fn save_text_file_to_read_only_root_rejected() {
+        let base = temp_root();
+        let config = config_for(base, true, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            save_text_file_request(
+                &user(),
+                save_request("notes.txt", "data", None),
+                &config,
+                &engine,
+                &helper,
+            ),
+            Err(TealDriveError::ReadOnlyRoot)
+        );
+    }
+
+    #[test]
+    fn save_text_file_sensitive_path_rejected() {
+        let base = temp_root();
+        let config = config_for(base, false, false);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        assert_eq!(
+            save_text_file_request(
+                &user(),
+                save_request(".env", "SECRET=123", None),
+                &config,
+                &engine,
+                &helper,
+            ),
+            Err(TealDriveError::PolicyDenied)
+        );
     }
 }

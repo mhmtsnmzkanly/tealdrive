@@ -449,6 +449,30 @@ impl AuditEvent {
         event.bytes_in = bytes_in;
         event
     }
+
+    pub fn save_text_file(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+        bytes_in: u64,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::SaveTextFile,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event.bytes_in = bytes_in;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,6 +503,7 @@ pub enum AuditAction {
     CopyFile,
     MoveToTrash,
     RestoreFromTrash,
+    SaveTextFile,
     FeatureDisabledAttempt,
 }
 
@@ -725,6 +750,30 @@ mod tests {
         assert_eq!(event.action, AuditAction::Upload);
         assert_eq!(event.relative_path, Some(RelativePath::new("uploads/file.png")));
         assert_eq!(event.bytes_in, 4096);
+        assert_eq!(event.status, AuditStatus::Success);
+        assert_eq!(event.reason, None);
+    }
+
+    #[test]
+    fn save_text_file_audit_event_records_fields() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let event = AuditEvent::save_text_file(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("docs/notes.txt"),
+            AuditStatus::Success,
+            None,
+            128,
+        );
+
+        assert_eq!(event.action, AuditAction::SaveTextFile);
+        assert_eq!(event.relative_path, Some(RelativePath::new("docs/notes.txt")));
+        assert_eq!(event.bytes_in, 128);
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
     }

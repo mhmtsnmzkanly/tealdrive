@@ -6,7 +6,7 @@ use crate::fs::listing::{list_directory_request, DirectoryListingHelper};
 use crate::fs::metadata::{file_metadata_request, MetadataHelper};
 use crate::fs::move_copy::{copy_file_request, move_file_request, CopyHelper, MoveHelper};
 use crate::fs::rename::{rename_file_request, RenameHelper};
-use crate::fs::text::{read_text_file_request, TextPreviewHelper};
+use crate::fs::text::{read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{
     move_to_trash_request, restore_from_trash_request, MoveToTrashHelper, RestoreFromTrashHelper,
 };
@@ -21,7 +21,7 @@ use crate::protocol::payload::{
     ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DownloadBeginRequest,
     FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
     OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
-    UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
+    SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
 };
 use crate::upload::transfer::{
     upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
@@ -79,6 +79,7 @@ where
         + MetadataHelper
         + DownloadHelper
         + TextPreviewHelper
+        + SaveTextFileHelper
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
@@ -102,6 +103,7 @@ where
         + MetadataHelper
         + DownloadHelper
         + TextPreviewHelper
+        + SaveTextFileHelper
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
@@ -177,6 +179,7 @@ where
         + MetadataHelper
         + DownloadHelper
         + TextPreviewHelper
+        + SaveTextFileHelper
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
@@ -197,6 +200,9 @@ where
         )),
         MessageType::ReadTextFile => Ok(DispatchDecision::Outbound(vec![
             handle_read_text_file_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::SaveTextFile => Ok(DispatchDecision::Outbound(vec![
+            handle_save_text_file_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         MessageType::CreateFolder => Ok(DispatchDecision::Outbound(vec![
             handle_create_folder_frame_with_service(context, &frame, config, helper_client)?,
@@ -406,6 +412,37 @@ pub fn handle_read_text_file_frame_with_service<H: TextPreviewHelper + MetadataH
     )?;
     let bytes = encode_msgpack(&response)?;
     let mut header = TdrvHeader::new(MessageType::TextFileContent, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_save_text_file_frame_with_service<H: SaveTextFileHelper + MetadataHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::SaveTextFile {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: SaveTextFileRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = save_text_file_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
     header.encoding = Encoding::MessagePack;
     TdrvFrame::new(header, bytes)
 }
@@ -791,6 +828,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(read_text_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl SaveTextFileHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::upload::write_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -1321,6 +1371,67 @@ mod tests {
             .expect("text content");
 
         assert_eq!(outbound.header.message_type, MessageType::TextFileContent);
+    }
+
+    fn save_text_file_request_payload(path: &str, content: &str) -> SaveTextFileRequest {
+        SaveTextFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+            content: content.to_owned(),
+            expected_modified: None,
+        }
+    }
+
+    #[test]
+    fn save_text_file_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::SaveTextFile,
+            encode_msgpack(&save_text_file_request_payload("notes.txt", "hello")).expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_save_text_file_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn save_text_file_after_ready_reaches_service() {
+        let base = temp_root();
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                save_text_file: true,
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::SaveTextFile,
+            encode_msgpack(&save_text_file_request_payload("saved.txt", "new text content"))
+                .expect("payload"),
+        );
+
+        let outbound = handle_save_text_file_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert_eq!(fs::read_to_string(base.join("saved.txt")).expect("read"), "new text content");
     }
 
     #[test]

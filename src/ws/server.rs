@@ -23,7 +23,7 @@ use crate::fs::listing::DirectoryListingHelper;
 use crate::fs::metadata::MetadataHelper;
 use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
-use crate::fs::text::TextPreviewHelper;
+use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{MoveToTrashHelper, RestoreFromTrashHelper};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
@@ -41,6 +41,7 @@ pub trait WsHelperBackend:
     + MetadataHelper
     + DownloadHelper
     + TextPreviewHelper
+    + SaveTextFileHelper
     + CreateFolderHelper
     + RenameHelper
     + MoveHelper
@@ -58,6 +59,7 @@ impl<T> WsHelperBackend for T where
         + MetadataHelper
         + DownloadHelper
         + TextPreviewHelper
+        + SaveTextFileHelper
         + CreateFolderHelper
         + RenameHelper
         + MoveHelper
@@ -682,6 +684,19 @@ mod tests {
     }
 
     impl UploadHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::upload::write_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl SaveTextFileHelper for InProcessHelper {
         fn execute_helper(
             &self,
             request: &HelperRequest,

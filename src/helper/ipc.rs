@@ -180,6 +180,14 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
             &SensitivePolicyConfig::default(),
         );
     }
+    if request.command == HelperCommand::ListTrash {
+        let roots = allowed_roots_from_env();
+        return crate::helper::trash::list_trash_with_roots(
+            request,
+            &roots,
+            &SensitivePolicyConfig::default(),
+        );
+    }
     HelperResponse::not_implemented(request)
 }
 

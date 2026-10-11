@@ -29,7 +29,9 @@ use crate::fs::move_copy::{CopyHelper, MoveHelper};
 use crate::fs::rename::RenameHelper;
 use crate::fs::search::SearchFilesHelper;
 use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
-use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
+use crate::fs::trash::{
+    DeletePermanentlyHelper, ListTrashHelper, MoveToTrashHelper, RestoreFromTrashHelper,
+};
 use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::message_type::MessageType;
 use crate::rate_limit::login::InMemoryLoginRateLimiter;
@@ -55,6 +57,7 @@ pub trait WsHelperBackend:
     + MoveToTrashHelper
     + RestoreFromTrashHelper
     + DeletePermanentlyHelper
+    + ListTrashHelper
     + ChmodFileHelper
     + UploadHelper
     + CompressZipHelper
@@ -79,6 +82,7 @@ impl<T> WsHelperBackend for T where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ListTrashHelper
         + ChmodFileHelper
         + UploadHelper
         + CompressZipHelper
@@ -756,6 +760,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::delete_permanently_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ListTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::list_trash_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

@@ -345,7 +345,9 @@ mod tests {
     use crate::fs::rename::RenameHelper;
     use crate::fs::search::SearchFilesHelper;
     use crate::fs::text::{SaveTextFileHelper, TextPreviewHelper};
-    use crate::fs::trash::{DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper};
+    use crate::fs::trash::{
+        DeletePermanentlyHelper, ListTrashHelper, MoveToTrashHelper, RestoreFromTrashHelper,
+    };
     use crate::helper::types::{HelperRequest, HelperResponse};
     use crate::rate_limit::login::InMemoryLoginRateLimiter;
     use crate::session::store::InMemorySessionStore;
@@ -376,6 +378,7 @@ mod tests {
     impl_dummy_helper!(MoveToTrashHelper);
     impl_dummy_helper!(RestoreFromTrashHelper);
     impl_dummy_helper!(DeletePermanentlyHelper);
+    impl_dummy_helper!(ListTrashHelper);
     impl_dummy_helper!(ChmodFileHelper);
     impl_dummy_helper!(UploadHelper);
     impl_dummy_helper!(CompressZipHelper);

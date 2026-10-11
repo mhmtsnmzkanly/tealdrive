@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{RelativePath, RootId};
 use crate::errors::ErrorKind;
 use crate::protocol::frame::{RequestId, TransferId};
-use crate::protocol::payload::SearchResultsPayload;
+use crate::protocol::payload::{SearchResultsPayload, TrashListPayload};
 use crate::protocol::schema::{
     DirectoryCursor, FileCapabilities, FileKind, FilterMode, GroupName, OwnerName, SortMode,
     UnixMode,
@@ -66,6 +66,7 @@ pub enum HelperCommand {
     CompressTarGz,
     ExtractArchive,
     SearchFiles,
+    ListTrash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +113,7 @@ pub enum HelperResponsePayload {
     TextFileContent(HelperTextFileContent),
     TrashEntry(HelperTrashEntry),
     SearchResults(SearchResultsPayload),
+    TrashList(TrashListPayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -413,6 +415,29 @@ impl HelperResponse {
                 reason: None,
             }),
             payload: HelperResponsePayload::SearchResults(results),
+        }
+    }
+
+    pub fn trash_list(request: &HelperRequest, list: TrashListPayload) -> Self {
+        Self {
+            success: true,
+            error_kind: None,
+            safe_message: Some("Trash listed.".to_owned()),
+            os_error_code: None,
+            bytes_read: 0,
+            bytes_written: 0,
+            audit_metadata: Some(HelperAuditMetadata {
+                request_id: request.request_id,
+                command: request.command,
+                root_id: request.root_id.clone(),
+                relative_path: request.relative_path.clone(),
+                target_relative_path: request.target_relative_path.clone(),
+                bytes_read: 0,
+                bytes_written: 0,
+                status: "success".to_owned(),
+                reason: None,
+            }),
+            payload: HelperResponsePayload::TrashList(list),
         }
     }
 }

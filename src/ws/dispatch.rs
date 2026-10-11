@@ -14,8 +14,9 @@ use crate::fs::rename::{rename_file_request, RenameHelper};
 use crate::fs::search::{search_files_request, SearchFilesHelper};
 use crate::fs::text::{read_text_file_request, save_text_file_request, SaveTextFileHelper, TextPreviewHelper};
 use crate::fs::trash::{
-    delete_permanently_request, move_to_trash_request, restore_from_trash_request,
-    DeletePermanentlyHelper, MoveToTrashHelper, RestoreFromTrashHelper,
+    delete_permanently_request, list_trash_request, move_to_trash_request,
+    restore_from_trash_request, DeletePermanentlyHelper, ListTrashHelper, MoveToTrashHelper,
+    RestoreFromTrashHelper,
 };
 use crate::policy::decision::PolicyEngine;
 use crate::policy::feature_gate::{FeatureGate, FeatureGateResult};
@@ -27,7 +28,7 @@ use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
     ClientHelloPayload, ChmodFileRequest, CompressTarGzRequest, CompressZipRequest, CopyFileRequest,
     CreateFolderRequest, DeletePermanentlyRequest, DownloadBeginRequest, ExtractArchiveRequest,
-    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
+    FileMetadataRequest, ListDirectoryRequest, ListTrashRequest, MoveFileRequest, MoveToTrashRequest,
     OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
     SaveTextFileRequest, SearchFilesRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
 };
@@ -95,6 +96,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ListTrashHelper
         + ChmodFileHelper
         + UploadHelper
         + CompressZipHelper
@@ -125,6 +127,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ListTrashHelper
         + ChmodFileHelper
         + UploadHelper
         + CompressZipHelper
@@ -207,6 +210,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ListTrashHelper
         + ChmodFileHelper
         + UploadHelper
         + CompressZipHelper
@@ -253,6 +257,9 @@ where
         ])),
         MessageType::DeletePermanently => Ok(DispatchDecision::Outbound(vec![
             handle_delete_permanently_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::ListTrash => Ok(DispatchDecision::Outbound(vec![
+            handle_list_trash_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         MessageType::ChmodFile => Ok(DispatchDecision::Outbound(vec![
             handle_chmod_file_frame_with_service(context, &frame, config, helper_client)?,
@@ -704,6 +711,37 @@ pub fn handle_delete_permanently_frame_with_service<H: DeletePermanentlyHelper>(
     )?;
     let bytes = encode_msgpack(&response)?;
     let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_list_trash_frame_with_service<H: ListTrashHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::ListTrash {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: ListTrashRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = list_trash_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::TrashList, frame.header.request_id, 0);
     header.encoding = Encoding::MessagePack;
     TdrvFrame::new(header, bytes)
 }
@@ -1163,6 +1201,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::delete_permanently_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ListTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::list_trash_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -2079,6 +2130,88 @@ mod tests {
 
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         assert!(!base.join("delete_forever.txt").exists());
+    }
+
+    fn list_trash_request_payload() -> ListTrashRequest {
+        ListTrashRequest {
+            root_id: RootId::new("home"),
+        }
+    }
+
+    #[test]
+    fn list_trash_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::ListTrash,
+            encode_msgpack(&list_trash_request_payload()).expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_list_trash_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn list_trash_after_ready_returns_items() {
+        let base = temp_root();
+        fs::write(base.join("trash_list_target.txt"), b"sample").expect("file");
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+                quota_bytes: None,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        // Move to trash first
+        let trash_frame = client_frame(
+            MessageType::MoveToTrash,
+            encode_msgpack(&move_to_trash_request_payload("trash_list_target.txt")).expect("payload"),
+        );
+        let trash_resp =
+            handle_move_to_trash_frame_with_service(&context, &trash_frame, &config, &helper)
+                .expect("trash ok");
+        let trash_payload: crate::protocol::payload::MoveToTrashPayload =
+            decode_msgpack(&trash_resp.payload).expect("payload");
+
+        // List trash via handle_decoded_frame_with_service
+        let list_frame = client_frame(
+            MessageType::ListTrash,
+            encode_msgpack(&list_trash_request_payload()).expect("payload"),
+        );
+        let decision = handle_decoded_frame_with_service(
+            &mut context,
+            list_frame,
+            &config,
+            &helper,
+        )
+        .expect("list trash ok");
+
+        match decision {
+            DispatchDecision::Outbound(frames) => {
+                assert_eq!(frames.len(), 1);
+                assert_eq!(frames[0].header.message_type, MessageType::TrashList);
+                let list_payload: crate::protocol::payload::TrashListPayload =
+                    decode_msgpack(&frames[0].payload).expect("payload");
+                assert_eq!(list_payload.items.len(), 1);
+                assert_eq!(list_payload.items[0].trash_id, trash_payload.trash_id);
+                assert_eq!(list_payload.items[0].display_name, "trash_list_target.txt");
+            }
+            _ => panic!("expected outbound frame"),
+        }
     }
 
     fn chmod_file_request_payload(path: &str, mode: u32) -> ChmodFileRequest {

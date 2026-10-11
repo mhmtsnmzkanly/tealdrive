@@ -1222,6 +1222,9 @@ pub const APP_JS: &str = r##"
       case 0x0108: // SearchResults
         renderSearchResults(payload);
         break;
+      case 0x010A: // TrashList
+        renderTrashList(payload);
+        break;
       case 0x0282: // TextFileContent
         openEditor(payload);
         break;
@@ -1485,6 +1488,69 @@ pub const APP_JS: &str = r##"
       root_id: state.currentRoot,
       relative_path: relPath,
     });
+  }
+
+  function openTrashModal() {
+    el.trashTableBody.innerHTML = '<tr class="empty-row"><td colspan="4">Loading trash...</td></tr>';
+    el.trashModal.classList.remove('hidden');
+    sendWsRequest(0x0109, {
+      root_id: state.currentRoot,
+    });
+  }
+
+  function renderTrashList(payload) {
+    el.trashTableBody.innerHTML = '';
+    const items = payload.items || [];
+    if (items.length === 0) {
+      el.trashTableBody.innerHTML = '<tr class="empty-row"><td colspan="4">Trash bin is empty.</td></tr>';
+      return;
+    }
+
+    for (const item of items) {
+      const tr = document.createElement('tr');
+
+      const tdName = document.createElement('td');
+      tdName.innerHTML = `<span>🗑️</span> <span>${escapeHtml(item.display_name)}</span>`;
+
+      const tdPath = document.createElement('td');
+      tdPath.textContent = item.original_path || '-';
+
+      const tdSize = document.createElement('td');
+      tdSize.textContent = formatBytes(item.size);
+
+      const tdAct = document.createElement('td');
+      tdAct.className = 'row-actions';
+
+      const restoreBtn = createActionButton('Restore', () => restoreFromTrash(item.trash_id));
+      tdAct.appendChild(restoreBtn);
+
+      const deleteBtn = createActionButton('Delete Permanently', () => deletePermanentlyFromTrash(item.trash_id), 'btn-danger');
+      tdAct.appendChild(deleteBtn);
+
+      tr.appendChild(tdName);
+      tr.appendChild(tdPath);
+      tr.appendChild(tdSize);
+      tr.appendChild(tdAct);
+      el.trashTableBody.appendChild(tr);
+    }
+  }
+
+  function restoreFromTrash(trashId) {
+    sendWsRequest(0x0305, {
+      trash_id: trashId,
+      target_root_id: state.currentRoot,
+      target_relative_path: null,
+    });
+    setTimeout(() => openTrashModal(), 200);
+  }
+
+  function deletePermanentlyFromTrash(trashId) {
+    if (!confirm('Are you sure you want to permanently delete this item? This action cannot be undone.')) return;
+    sendWsRequest(0x0306, {
+      root_id: state.currentRoot,
+      relative_path: `.tealdrive-trash/files/${trashId}`,
+    });
+    setTimeout(() => openTrashModal(), 200);
   }
 
   function openRenameModal(oldName, relPath) {
@@ -1769,7 +1835,13 @@ pub const APP_JS: &str = r##"
 
     // Trash modal
     el.trashBtn.onclick = () => {
-      loadDirectory('.tealdrive-trash/files');
+      openTrashModal();
+    };
+    el.trashCloseBtn.onclick = () => {
+      el.trashModal.classList.add('hidden');
+    };
+    el.trashDoneBtn.onclick = () => {
+      el.trashModal.classList.add('hidden');
     };
 
     // Search

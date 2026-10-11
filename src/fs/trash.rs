@@ -12,9 +12,19 @@ use crate::policy::roots::require_allowed_root;
 use crate::policy::sensitive::detect_sensitive;
 use crate::protocol::frame::RequestId;
 use crate::protocol::payload::{
-    DeletePermanentlyRequest, MoveToTrashPayload, MoveToTrashRequest, OperationDonePayload,
-    RestoreFromTrashRequest,
+    DeletePermanentlyRequest, ListTrashRequest, MoveToTrashPayload, MoveToTrashRequest, OperationDonePayload,
+    RestoreFromTrashRequest, TrashListPayload,
 };
+
+pub trait ListTrashHelper {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
+}
+
+impl ListTrashHelper for HelperProcessClient {
+    fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        self.execute(request)
+    }
+}
 
 pub trait MoveToTrashHelper {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
@@ -118,6 +128,10 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
         HelperResponsePayload::TrashEntry(e) => e,
         _ => return Err(TealDriveError::HelperCommandNotImplemented),
     };
+
+    if let Some(days) = config.trash_retention_days {
+        crate::helper::trash::purge_expired_trash(config.allowed_roots(), days);
+    }
 
     Ok(MoveToTrashPayload {
         request_id: helper_request.request_id,
@@ -288,6 +302,65 @@ pub fn delete_permanently_request<H: DeletePermanentlyHelper>(
     })
 }
 
+pub fn list_trash_request<H: ListTrashHelper>(
+    user_context: &UserContext,
+    request: ListTrashRequest,
+    config: &AppConfig,
+    policy_engine: &PolicyEngine<'_>,
+    helper_client: &H,
+) -> Result<TrashListPayload, TealDriveError> {
+    let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
+    let relative_path = RelativePath::new(String::new());
+
+    match policy_engine.check_operation(
+        FileOperation::ListDirectory,
+        &request.root_id,
+        &relative_path,
+        None,
+        None,
+        root.hidden_files_allowed,
+    )? {
+        PolicyDecision::Allow | PolicyDecision::WarnAllowed(_) => {}
+        PolicyDecision::Deny(_) => return Err(TealDriveError::PolicyDenied),
+    }
+
+    let helper_request = HelperRequest {
+        request_id: RequestId::new(),
+        username: user_context.username.clone(),
+        uid: user_context.uid,
+        gid: user_context.gid,
+        command: HelperCommand::ListTrash,
+        root_id: request.root_id.clone(),
+        relative_path,
+        target_relative_path: None,
+        policy_context: HelperPolicyContext {
+            read_only_root: root.read_only,
+            is_web_root: root.is_web_root,
+        },
+        limits: HelperLimits {
+            max_directory_page_size: config.limits.max_directory_page_size,
+            max_text_edit_size: config.limits.max_text_edit_size,
+            max_chunk_size: config.limits.max_chunk_size,
+            max_download_helper_bytes: crate::download::transfer::MAX_DOWNLOAD_HELPER_BYTES,
+        },
+        list_options: None,
+        write_options: None,
+        chmod_mode: None,
+        archive_source_paths: None,
+        search_options: None,
+    };
+
+    let response = helper_client.execute_helper(&helper_request)?;
+    if !response.success {
+        return Err(helper_response_to_error(&response));
+    }
+
+    match response.payload {
+        HelperResponsePayload::TrashList(payload) => Ok(payload),
+        _ => Err(TealDriveError::HelperCommandNotImplemented),
+    }
+}
+
 fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
     match response.error_kind {
         Some(ErrorKind::PermissionDenied) => TealDriveError::PermissionDenied,
@@ -355,6 +428,19 @@ mod tests {
         }
     }
 
+    impl ListTrashHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::trash::list_trash_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
     struct FailingIfCalled;
 
     impl MoveToTrashHelper for FailingIfCalled {
@@ -376,6 +462,15 @@ mod tests {
     }
 
     impl DeletePermanentlyHelper for FailingIfCalled {
+        fn execute_helper(
+            &self,
+            _request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            panic!("helper must not be called");
+        }
+    }
+
+    impl ListTrashHelper for FailingIfCalled {
         fn execute_helper(
             &self,
             _request: &HelperRequest,
@@ -809,5 +904,75 @@ mod tests {
             delete_permanently_request(&user(), delete_req(""), &config, &engine, &helper),
             Err(TealDriveError::InvalidTarget)
         );
+    }
+
+    #[test]
+    fn list_trash_and_retention_flow() {
+        let base = temp_root();
+        let mut config = config_for(base.clone(), false);
+        config.trash_retention_days = Some(7);
+        let engine = PolicyEngine::new(&config);
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        // Create file and move to trash
+        fs::write(base.join("document.pdf"), b"pdf content").expect("write");
+        let moved = move_to_trash_request(
+            &user(),
+            trash_req("document.pdf"),
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("move to trash");
+
+        assert_eq!(moved.display_name, "document.pdf");
+
+        // List trash
+        let trash_list = list_trash_request(
+            &user(),
+            ListTrashRequest {
+                root_id: RootId::new("home"),
+            },
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("list trash");
+
+        assert_eq!(trash_list.items.len(), 1);
+        assert_eq!(trash_list.items[0].trash_id, moved.trash_id);
+        assert_eq!(trash_list.items[0].display_name, "document.pdf");
+        assert_eq!(trash_list.items[0].size, 11);
+
+        // Test retention purge: simulate older deleted_at
+        let trash_info_file = base
+            .join(".tealdrive-trash")
+            .join("info")
+            .join(format!("{}.msgpack", moved.trash_id));
+        let mut entry: crate::trash::model::TrashEntry =
+            rmp_serde::from_slice(&fs::read(&trash_info_file).expect("read")).expect("deserialize");
+        // Set deleted_at to 10 days ago (10 * 86400 = 864000)
+        entry.deleted_at = entry.deleted_at.saturating_sub(864_000);
+        let updated_bytes = rmp_serde::to_vec_named(&entry).expect("serialize");
+        fs::write(&trash_info_file, updated_bytes).expect("write back");
+
+        // Calling purge_expired_trash should remove this entry
+        let purged = crate::helper::trash::purge_expired_trash(config.allowed_roots(), 7);
+        assert_eq!(purged, 1);
+
+        // Listing trash now should be empty
+        let trash_list_after = list_trash_request(
+            &user(),
+            ListTrashRequest {
+                root_id: RootId::new("home"),
+            },
+            &config,
+            &engine,
+            &helper,
+        )
+        .expect("list trash empty");
+        assert_eq!(trash_list_after.items.len(), 0);
     }
 }

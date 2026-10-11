@@ -65,6 +65,8 @@ pub struct AppConfig {
     pub account_policy: AccountPolicyConfig,
     pub features: FeatureFlags,
     pub limits: Limits,
+    #[serde(default)]
+    pub trash_retention_days: Option<u32>,
 }
 
 impl Default for AppConfig {
@@ -79,6 +81,7 @@ impl Default for AppConfig {
             account_policy: AccountPolicyConfig::default(),
             features: FeatureFlags::default(),
             limits: Limits::default(),
+            trash_retention_days: None,
         }
     }
 }

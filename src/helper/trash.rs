@@ -7,6 +7,7 @@ use crate::fs::filename::SafeFileName;
 use crate::fs::path::resolve_existing_path;
 use crate::helper::listing::{helper_error, helper_error_from_tealdrive};
 use crate::helper::types::{HelperCommand, HelperRequest, HelperResponse, HelperTrashEntry};
+use crate::protocol::payload::{TrashItemEntry, TrashListPayload};
 use crate::trash::model::TrashEntry;
 
 pub(crate) const TRASH_DIR_NAME: &str = ".tealdrive-trash";
@@ -353,6 +354,129 @@ pub fn delete_permanently_with_roots(
     }
 
     HelperResponse::operation_done(request, "Deleted permanently.")
+}
+
+pub fn list_trash_with_roots(
+    request: &HelperRequest,
+    roots: &[AllowedRoot],
+    _sensitive_config: &SensitivePolicyConfig,
+) -> HelperResponse {
+    if request.uid == 0 {
+        return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
+    }
+
+    let Some(root) = roots.iter().find(|r| r.root_id == request.root_id) else {
+        return helper_error(
+            request,
+            ErrorKind::InvalidPath,
+            "Unknown root id.",
+            "invalid_root_id",
+        );
+    };
+
+    let canonical_base = match root.base_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return HelperResponse::trash_list(
+                request,
+                TrashListPayload {
+                    root_id: request.root_id.clone(),
+                    items: Vec::new(),
+                },
+            );
+        }
+    };
+
+    let trash_dir = canonical_base.join(TRASH_DIR_NAME);
+    let trash_info_dir = trash_dir.join("info");
+    let trash_files_dir = trash_dir.join("files");
+
+    let mut items = Vec::new();
+    if let Ok(entries) = fs::read_dir(&trash_info_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("msgpack") {
+                if let Ok(bytes) = fs::read(&path) {
+                    if let Ok(entry_model) = rmp_serde::from_slice::<TrashEntry>(&bytes) {
+                        let file_path = trash_files_dir.join(&entry_model.trash_id);
+                        let size = fs::symlink_metadata(&file_path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        items.push(TrashItemEntry {
+                            trash_id: entry_model.trash_id,
+                            display_name: entry_model.display_name,
+                            original_path: entry_model.original_relative_path,
+                            original_root_id: entry_model.original_root_id,
+                            deleted_at: entry_model.deleted_at,
+                            size,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    items.sort_by_key(|a| std::cmp::Reverse(a.deleted_at));
+
+    HelperResponse::trash_list(
+        request,
+        TrashListPayload {
+            root_id: request.root_id.clone(),
+            items,
+        },
+    )
+}
+
+pub fn purge_expired_trash(roots: &[AllowedRoot], retention_days: u32) -> u64 {
+    if retention_days == 0 {
+        return 0;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let max_age_secs = (retention_days as u64).saturating_mul(86400);
+    let mut purged_count = 0u64;
+
+    for root in roots {
+        let Ok(canonical_base) = root.base_path.canonicalize() else {
+            continue;
+        };
+        let trash_dir = canonical_base.join(TRASH_DIR_NAME);
+        let trash_info_dir = trash_dir.join("info");
+        let trash_files_dir = trash_dir.join("files");
+
+        let Ok(entries) = fs::read_dir(&trash_info_dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let info_path = entry.path();
+            if info_path.extension().and_then(|e| e.to_str()) != Some("msgpack") {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&info_path) else {
+                continue;
+            };
+            let Ok(entry_model) = rmp_serde::from_slice::<TrashEntry>(&bytes) else {
+                continue;
+            };
+
+            let age = now.saturating_sub(entry_model.deleted_at);
+            if age >= max_age_secs {
+                let file_path = trash_files_dir.join(&entry_model.trash_id);
+                let _ = if file_path.is_dir() {
+                    fs::remove_dir_all(&file_path)
+                } else {
+                    fs::remove_file(&file_path)
+                };
+                let _ = fs::remove_file(&info_path);
+                purged_count += 1;
+            }
+        }
+    }
+
+    purged_count
 }
 
 fn helper_error_from_trash_io(request: &HelperRequest, error: std::io::Error) -> HelperResponse {

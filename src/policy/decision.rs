@@ -132,7 +132,12 @@ impl<'a> PolicyEngine<'a> {
             return Ok(decision);
         }
 
-        if hidden_policy_decision(include_hidden, relative_path) == SensitivePolicyDecision::Deny {
+        let is_trash_delete = operation == FileOperation::DeletePermanently
+            && relative_path.0.starts_with(".tealdrive-trash/files/");
+        if !is_trash_delete
+            && hidden_policy_decision(include_hidden, relative_path)
+                == SensitivePolicyDecision::Deny
+        {
             return Ok(PolicyDecision::Deny(PolicyReason::HiddenFile));
         }
 

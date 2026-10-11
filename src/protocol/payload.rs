@@ -431,6 +431,27 @@ pub struct SearchResultsPayload {
     pub truncated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListTrashRequest {
+    pub root_id: RootId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrashItemEntry {
+    pub trash_id: String,
+    pub display_name: String,
+    pub original_path: RelativePath,
+    pub original_root_id: RootId,
+    pub deleted_at: u64,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrashListPayload {
+    pub root_id: RootId,
+    pub items: Vec<TrashItemEntry>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -98,6 +98,8 @@ pub struct HelperListDirectoryOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperResponse {
+    #[serde(default)]
+    pub policy_revision: Option<[u8;32]>,
     pub success: bool,
     pub error_kind: Option<ErrorKind>,
     pub safe_message: Option<String>,
@@ -239,6 +241,7 @@ impl HelperResponse {
         reason: &'static str,
     ) -> Self {
         Self {
+            policy_revision: None,
             success: false,
             error_kind: Some(error_kind),
             safe_message: Some(safe_message.to_owned()),
@@ -262,6 +265,7 @@ impl HelperResponse {
 
     pub fn directory_list(request: &HelperRequest, list: HelperDirectoryList) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: None,
@@ -285,6 +289,7 @@ impl HelperResponse {
 
     pub fn file_metadata(request: &HelperRequest, entry: HelperDirectoryEntry) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: None,
@@ -309,6 +314,7 @@ impl HelperResponse {
     pub fn download_file(request: &HelperRequest, download: HelperDownloadFile) -> Self {
         let bytes_read = download.total_bytes;
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: None,
@@ -333,6 +339,7 @@ impl HelperResponse {
     pub fn text_file_content(request: &HelperRequest, content: HelperTextFileContent) -> Self {
         let bytes_read = content.size;
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: None,
@@ -356,6 +363,7 @@ impl HelperResponse {
 
     pub fn trash_entry(request: &HelperRequest, entry: HelperTrashEntry) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: Some("Moved to trash.".to_owned()),
@@ -379,6 +387,7 @@ impl HelperResponse {
 
     pub fn operation_done(request: &HelperRequest, safe_message: &'static str) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: Some(safe_message.to_owned()),
@@ -402,6 +411,7 @@ impl HelperResponse {
 
     pub fn search_results(request: &HelperRequest, results: SearchResultsPayload) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: Some("Search completed.".to_owned()),
@@ -425,6 +435,7 @@ impl HelperResponse {
 
     pub fn trash_list(request: &HelperRequest, list: TrashListPayload) -> Self {
         Self {
+            policy_revision: None,
             success: true,
             error_kind: None,
             safe_message: Some("Trash listed.".to_owned()),

@@ -460,12 +460,12 @@ where
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
                 context.features = current_config.features.clone();
-                match handle_decoded_frame_with_service(
+                match crate::helper::policy::with_snapshot(&current_config, || handle_decoded_frame_with_service(
                     &mut context,
                     frame.clone(),
                     &current_config,
                     helper_client.as_ref(),
-                ) {
+                )) {
                     Ok(DispatchDecision::Outbound(frames)) => {
                         for outbound in frames {
                             send_frame(&mut sender, &outbound).await?;

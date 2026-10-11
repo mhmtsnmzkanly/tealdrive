@@ -70,7 +70,8 @@ impl HelperProcessClient {
 
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         let ticket = self.tickets.lock().map_err(|_|TealDriveError::Internal)?.get(&request.username).cloned();
-        let request_bytes = encode_invocation(&HelperInvocation::Operation { request: Box::new(request.clone()), ticket })?;
+        let revision=crate::helper::policy::current().map(|p|p.revision);
+        let request_bytes = encode_invocation(&HelperInvocation::Operation { request: Box::new(request.clone()), ticket, policy: crate::helper::policy::current() })?;
         let mut cmd = Command::new(&self.helper_path);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -106,8 +107,9 @@ impl HelperProcessClient {
                     .stdout
                     .take()
                     .ok_or(TealDriveError::HelperStdoutFailed)?;
-                return read_helper_response(&mut stdout)
-                    .map_err(|_| TealDriveError::HelperMalformedResponse);
+                let response=read_helper_response(&mut stdout).map_err(|_|TealDriveError::HelperMalformedResponse)?;
+                if response.success && response.policy_revision!=revision { return Err(TealDriveError::HelperMalformedResponse); }
+                return Ok(response);
             }
 
             if start.elapsed() >= timeout {

@@ -97,13 +97,22 @@ pub fn run_helper_once<R: Read, W: Write>(
 }
 
 pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
-    let config = crate::config::AppConfig { roots: allowed_roots_from_env(), ..Default::default() };
+    let config = crate::config::AppConfig { roots: allowed_roots_from_env(), features: crate::policy::feature_gate::FeatureFlags { save_text_file:true,chmod_file:true,extract_archive:true,delete_permanently:true,chown:false }, ..Default::default() };
     handle_helper_request_with_config(request, &config)
 }
 pub fn handle_helper_request_with_config(request: &HelperRequest, config: &crate::config::AppConfig) -> HelperResponse {
     if request.uid == 0 {
         return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
     }
+    if crate::helper::policy::authorize(request,config).is_err() { return HelperResponse::permission_denied(request,"Operation denied by helper policy."); }
+    let disabled=match request.command {
+        HelperCommand::WriteFile=>!config.features.save_text_file,
+        HelperCommand::Chmod=>!config.features.chmod_file,
+        HelperCommand::ExtractArchive=>!config.features.extract_archive,
+        HelperCommand::DeletePermanently=>!config.features.delete_permanently,
+        _=>false,
+    };
+    if disabled { return HelperResponse::feature_disabled(request); }
     if command_disabled_in_v1(request.command) {
         return HelperResponse::feature_disabled(request);
     }
@@ -429,7 +438,7 @@ pub(crate) mod tests_support {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum HelperInvocation {
     Authenticate(crate::auth::account::AuthRequest),
-    Operation { request: Box<HelperRequest>, ticket: Option<crate::helper::security::IdentityTicket> },
+    Operation { request: Box<HelperRequest>, ticket: Option<crate::helper::security::IdentityTicket>, policy: Option<crate::helper::policy::PolicySnapshot> },
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct HelperAuthentication {
@@ -451,7 +460,7 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             let bytes=encode_length_prefixed(&response, MAX_HELPER_RESPONSE_SIZE, TealDriveError::HelperResponseTooLarge)?;
             writer.write_all(&bytes).map_err(|_|TealDriveError::HelperStdoutFailed)
         }
-        HelperInvocation::Operation { request,ticket } => {
+        HelperInvocation::Operation { mut request,ticket,policy } => {
             let elevated=unsafe { libc::geteuid()!=libc::getuid() };
             let user=crate::config::UserContext { username:request.username.clone(),uid:request.uid,gid:request.gid };
             let config=if elevated {
@@ -461,6 +470,15 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             } else {
                 crate::config::AppConfig { roots:allowed_roots_from_env(), ..Default::default() }
             };
+            let config=match policy.as_ref() {
+                Some(snapshot) if elevated=>crate::helper::policy::restrict(snapshot,&config)?,
+                Some(snapshot)=> { snapshot.validate()?; snapshot.config.clone() },
+                None if elevated=>return Err(TealDriveError::PermissionDenied),
+                None=>config,
+            };
+            request.limits.max_chunk_size=request.limits.max_chunk_size.min(config.limits.max_chunk_size);
+            request.limits.max_text_edit_size=request.limits.max_text_edit_size.min(config.limits.max_text_edit_size);
+            request.limits.max_directory_page_size=request.limits.max_directory_page_size.min(config.limits.max_directory_page_size);
             if crate::helper::security::enter_identity(&user).is_err() {
                 return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Identity verification failed."));
             }
@@ -468,7 +486,9 @@ pub fn run_secure_helper<R: Read,W: Write>(reader: &mut R, writer: &mut W) -> Re
             if crate::helper::sandbox::confine(root).is_err() {
                 return write_helper_response(writer,&HelperResponse::permission_denied(&request,"Kernel filesystem confinement is unavailable."));
             }
-            write_helper_response(writer,&handle_helper_request_with_config(&request,&config))
+            let mut response=handle_helper_request_with_config(&request,&config);
+            response.policy_revision=policy.map(|p|p.revision);
+            write_helper_response(writer,&response)
         }
     }
 }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use crate::errors::TealDriveError;
 use crate::limits::Limits;
 use crate::policy::feature_gate::FeatureFlags;
 
@@ -61,6 +62,63 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn allowed_roots(&self) -> &[AllowedRoot] {
         &self.roots
+    }
+
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, TealDriveError> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).map_err(|_| TealDriveError::NotFound)?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let config: Self = if ext == "json" {
+            serde_json::from_str(&content).map_err(|_| TealDriveError::Validation)?
+        } else {
+            toml::from_str(&content).map_err(|_| TealDriveError::Validation)?
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn load_or_default(explicit_path: Option<&Path>) -> Result<Self, TealDriveError> {
+        if let Some(path) = explicit_path {
+            return Self::from_file(path);
+        }
+
+        if let Ok(env_path) = std::env::var("TEALDRIVE_CONFIG") {
+            let trimmed = env_path.trim();
+            if !trimmed.is_empty() {
+                return Self::from_file(Path::new(trimmed));
+            }
+        }
+
+        let candidates = [
+            "tealdrive.toml",
+            "config.toml",
+            "/etc/tealdrive/config.toml",
+            "/etc/tealdrive/tealdrive.toml",
+        ];
+
+        for candidate in &candidates {
+            let path = Path::new(candidate);
+            if path.exists() {
+                return Self::from_file(path);
+            }
+        }
+
+        let default_config = Self::default();
+        default_config.validate()?;
+        Ok(default_config)
+    }
+
+    pub fn validate(&self) -> Result<(), TealDriveError> {
+        if self.roots.is_empty() {
+            return Err(TealDriveError::Validation);
+        }
+        if self.server.bind_addr.parse::<std::net::SocketAddr>().is_err() {
+            return Err(TealDriveError::Validation);
+        }
+        if self.limits.max_chunk_size == 0 || self.limits.max_text_edit_size == 0 {
+            return Err(TealDriveError::Validation);
+        }
+        Ok(())
     }
 }
 
@@ -240,5 +298,53 @@ mod tests {
         assert!(config.account_policy.reject_system_accounts);
         assert!(config.session.secure_cookies);
         assert_eq!(config.roots[0].root_id, RootId::new("home"));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn toml_roundtrip_success() {
+        let original = AppConfig::default();
+        let toml_str = toml::to_string(&original).expect("toml serialize");
+        let decoded: AppConfig = toml::from_str(&toml_str).expect("toml deserialize");
+        assert_eq!(decoded.server.bind_addr, original.server.bind_addr);
+        assert_eq!(decoded.roots.len(), original.roots.len());
+    }
+
+    #[test]
+    fn from_file_toml_and_json_test() {
+        let dir = std::env::temp_dir().join(format!("tealdrive-cfg-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 1. TOML file
+        let toml_path = dir.join("tealdrive.toml");
+        let toml_content = toml::to_string(&AppConfig::default()).unwrap();
+        std::fs::write(&toml_path, toml_content).unwrap();
+
+        let loaded = AppConfig::from_file(&toml_path).expect("loaded toml");
+        assert_eq!(loaded.server.bind_addr, "127.0.0.1:3000");
+
+        // 2. JSON file
+        let json_path = dir.join("tealdrive.json");
+        let json_content = serde_json::to_string(&AppConfig::default()).unwrap();
+        std::fs::write(&json_path, json_content).unwrap();
+
+        let loaded_json = AppConfig::from_file(&json_path).expect("loaded json");
+        assert_eq!(loaded_json.server.bind_addr, "127.0.0.1:3000");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn validate_rejects_empty_roots() {
+        let mut config = AppConfig::default();
+        config.roots.clear();
+        assert_eq!(config.validate(), Err(TealDriveError::Validation));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_bind_addr() {
+        let mut config = AppConfig::default();
+        config.server.bind_addr = "not-an-ip-or-port".to_owned();
+        assert_eq!(config.validate(), Err(TealDriveError::Validation));
     }
 }

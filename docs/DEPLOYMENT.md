@@ -1,7 +1,8 @@
 # Caddy üzerinden kurulum ve kabul testi
 
-Bu dosya hedef Linux sunucuda uygulanacak kurulum örneğidir. Repo incelemesi
-sırasında sistem kullanıcıları, PAM, setuid izinleri veya çalışan Caddy değiştirilmedi.
+Bu dosya hedef Linux sunucuda uygulanacak kurulum örneğidir. İlk repo incelemesinde sistem kurulumu yapılmadı. Sonraki kullanıcı talebiyle bu
+sunucuda ayrı deneme hesabı, PAM ve setuid helper kurulup test edildi; ayrıntılar
+[STATUS.md](STATUS.md) içinde. Mevcut çalışan Caddy siteleri değiştirilmedi.
 `drive.example.com`, `alice` ve veri dizinini kendi ortamına göre değiştir.
 
 ## Gereksinimler

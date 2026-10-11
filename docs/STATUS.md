@@ -4,9 +4,8 @@ Tarih: 2026-10-11. Proje: TealDrive 0.1.0.
 
 İstenen sekiz mimari düzeltme ayrı commit'lerle uygulandı. Küçük kusurlar ayrı
 commit'te toplandı; doküman ve kurulum örnekleri ayrıca commit edildi. Kod, Caddy
-üzerinden hedef sunucuda kabul testi yapılabilecek durumdadır. Bu ortamda başarılı
-bir gerçek PAM girişi ve setuid servis akışı doğrulanamadığı için üretim kabulünün
-geçtiği iddia edilmiyor.
+üzerinden hedef sunucuda kabul testi yapılabilecek durumdadır. İlk kısıtlı oturumdan sonra bu sunucuda gerçek PAM, setuid helper ve Caddy HTTPS/WSS
+akışı da doğrulandı. Tarayıcıda görsel kullanım ve üretim yük testi ayrıca yapılmalı.
 
 ## Sekiz mimari düzeltme
 
@@ -47,7 +46,7 @@ geçtiği iddia edilmiyor.
 
 ## Doğrulama
 
-Son kaynaklar üzerinde:
+İlk kısıtlı ortamda kaynaklar üzerinde yapılan kontroller:
 
 | Kontrol | Sonuç |
 |---|---|
@@ -70,7 +69,7 @@ başarısız işlemlerin kısmi çıktı bırakmamasını kontrol eder.
 Ignored test gerçek helper subprocess yaşam döngüsünde UID/GID değiştirir. Bu
 çalışma ortamında root process'e `CAP_SETUID`/`CAP_SETGID` verilmediği ve
 `NoNewPrivs` etkin olduğu için burada çalıştırılamıyor. TCP dinleme de kısıtlı.
-PAM/setuid/Caddy/browser uçtan uca kabul testi hedef host'ta yapılmalıdır.
+Bu ilk kısıt daha sonra kaldırıldı; aşağıdaki sunucu testi bu eksikleri kapatıyor.
 
 ## Kullanım sınırları ve kalan geliştirmeler
 
@@ -87,8 +86,41 @@ PAM/setuid/Caddy/browser uçtan uca kabul testi hedef host'ta yapılmalıdır.
 - Oturumlar bellekte; restart girişleri siler, çoklu instance paylaşımı yok.
 - `chown`, otomatik trash retention purge, tam per-file-operation audit ve async
   audit sink sağlanmıyor. MFA/şifre yenileme PAM sohbetleri desteklenmiyor.
-- Ayrı Rust 1.85 toolchain, gerçek PAM parolası ve üretim yük testi çalıştırılmadı.
+- Ayrı Rust 1.85 toolchain, tarayıcıda görsel kullanım ve üretim yük testi çalıştırılmadı.
 
 Kurulum dosyaları [deployment/](../deployment/) içinde. Alan adı, kullanıcı,
 PAM stack'i ve dosya izinleriyle birlikte yapılacak kabul testi
 [DEPLOYMENT.md](DEPLOYMENT.md) içinde adım adım anlatıldı.
+
+## Güncelleme: bu sunucuda gerçek kullanıcı ve Caddy testi
+
+2026-10-11 tarihinde kısıtsız oturumda `tealdrive-test` (UID/GID 1000) normal hesabı
+ve `tealdrive` servis hesabı oluşturuldu. Rastgele test parolası yalnızca root'un
+okuyabildiği `/root/tealdrive-test-password` dosyasında; repo veya loglara yazılmadı.
+
+Test kurulumu: `/srv/tealdrive-test`, `/var/lib/tealdrive-test/config.toml`,
+`/etc/tealdrive/helper.toml`, 32-byte root-owned helper anahtarı, gerçek PAM servisi
+ve `/usr/local/libexec/tealdrive-test-helper` (root-owned 4755). Servis hesabının
+0700 kullanıcı veri dizinindeki dosyayı doğrudan okuyamadığı doğrulandı.
+
+Gerçek PAM girişi 200, yanlış parola 401 verdi. Kullanıcının 0600 dosyaları helper
+üzerinden okundu; 1.1 MB HTTP indirme ve Range 206 geçti. `.env` ve `/etc/passwd`'a
+symlink erişimi 403 ile reddedildi. Gerçek WebSocket bağlantısı ve shipped browser
+codec'i kullanılarak handshake, listeleme, klasör oluşturma, upload ACK/End,
+metin kaydı, rename, ZIP oluşturma/açma çalıştırıldı. Sonuç içeriği ve dosya UID'si
+1000 olarak doğrulandı. CSRF'siz logout 403; geçerli logout 200 ve açık WS kapanışı
+başarılıydı.
+
+Aynı akış bağımsız Caddy instance'ı üzerinden `https://localhost:13443` ve WSS ile
+tekrarlandı. Yerel CA sertifikası istemcide açıkça doğrulandı (TLS doğrulaması
+kapatılmadı), Secure cookie ve büyük dosya streaming kontrol edildi. Mevcut Caddy
+servisi, siteleri ve global trust store değiştirilmedi. Test Caddy ve backend
+process'leri tamamlanınca kapatıldı; hesaplar ve test kurulum dosyaları sonraki
+manuel kullanım için bırakıldı. Bu endpoint şu anda dinlemiyor.
+
+`cargo test --locked --offline -- --include-ignored` ile **498 test geçti;
+0 başarısız, 0 atlanan**. Daha önce atlanan gerçek helper subprocess yaşam döngüsü
+testi de dahil edildi. Çıktı `/root/tealdrive-real-test-results.log` içinde.
+
+Bu test gerçek HTTPS/WSS istemcisiyle gerçekleştirilmiştir; tarayıcının DOM/görsel
+etkileşim testi değildir. Üretim alan adı ve gerçek tarayıcı testi kullanıcıya kalır.

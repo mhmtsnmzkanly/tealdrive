@@ -234,6 +234,10 @@ where
     };
 
     let file_size = metadata.len();
+    if disposition_type == "inline" && file_size > cfg.limits.max_preview_size as u64 {
+        return (StatusCode::PAYLOAD_TOO_LARGE, r#"{"error":"preview_too_large"}"#).into_response();
+    }
+
     let mut file = match File::open(&resolution.resolved_path) {
         Ok(f) => f,
         Err(_) => {

@@ -24,7 +24,18 @@ pub fn validate_origin(
         return Ok(());
     }
     match origin {
-        Some(value) if !value.trim().is_empty() => Ok(()),
+        Some(value) if !value.trim().is_empty() => {
+            if security.allowed_origins.is_empty()
+                || security
+                    .allowed_origins
+                    .iter()
+                    .any(|o| o == "*" || o.eq_ignore_ascii_case(value))
+            {
+                Ok(())
+            } else {
+                Err(TealDriveError::PermissionDenied)
+            }
+        }
         _ => Err(TealDriveError::Validation),
     }
 }

@@ -135,9 +135,17 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         .map_err(|_| TealDriveError::Internal)?;
 
     let helper_path = args.helper_bin.unwrap_or_else(default_helper_binary_path);
-    let helper_client = HelperProcessClient::new(helper_path, Duration::from_secs(10));
+    let helper_client = HelperProcessClient::new(
+        helper_path,
+        Duration::from_secs(config.helper.timeout_seconds),
+    );
+    let helper_client_clone = helper_client.clone();
     let audit_sink = JsonlAuditSink::open_default().map_err(|_| TealDriveError::Internal)?;
     let session_store = InMemorySessionStore::new(config.session.clone());
+    let rate_limiter = tealdrive::rate_limit::login::InMemoryLoginRateLimiter::with_lockout(
+        config.rate_limit.max_login_failures,
+        config.rate_limit.lockout_duration_seconds,
+    );
     let state = WsServerState::with_authenticator_and_path(
         config,
         args.config_path,
@@ -145,8 +153,9 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         helper_client,
         audit_sink,
         std::sync::Arc::new(tealdrive::auth::pam::PamAuthenticator::new()),
-        tealdrive::rate_limit::login::InMemoryLoginRateLimiter::new(5),
-    );
+        rate_limiter,
+    )
+    .with_timeout_updater(move |d| helper_client_clone.set_timeout(d));
 
     let _watcher = tealdrive::ws::server::spawn_config_watcher(&state);
 

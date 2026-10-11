@@ -64,7 +64,7 @@ pub fn search_files_with_roots(
         request.relative_path.0.clone(),
         0usize,
     )];
-    let max_depth = 20;
+    let max_depth = opts.and_then(|o| o.max_depth).unwrap_or(20);
 
     'outer: while let Some((dir_path, dir_rel, depth)) = queue.pop() {
         if depth > max_depth {
@@ -198,6 +198,7 @@ mod tests {
             extension: None,
             max_results: None,
             include_hidden: false,
+            max_depth: None,
         });
 
         let resp = search_files_with_roots(&req, std::slice::from_ref(&root), &SensitivePolicyConfig::default());

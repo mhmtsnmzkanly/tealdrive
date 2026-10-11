@@ -317,6 +317,42 @@ pub const INDEX_HTML: &str = r##"<!DOCTYPE html>
             <label for="cfgMaxEditTextBytes">Max Text Edit (KB):</label>
             <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1">
           </div>
+          <div class="settings-row">
+            <label for="cfgMaxPreviewBytes">Max Preview / Inline (MB):</label>
+            <input type="number" id="cfgMaxPreviewBytes" class="form-input" min="1" max="1024">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Rate Limiting &amp; Session</h4>
+          <div class="settings-row">
+            <label for="cfgRateLimitMaxFailures">Max Login Failures:</label>
+            <input type="number" id="cfgRateLimitMaxFailures" class="form-input" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <label for="cfgRateLimitLockoutSecs">Lockout Duration (Seconds):</label>
+            <input type="number" id="cfgRateLimitLockoutSecs" class="form-input" min="1" max="86400">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSessionIdleMins">Session Idle Timeout (Minutes):</label>
+            <input type="number" id="cfgSessionIdleMins" class="form-input" min="1" max="10080">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Helper Engine &amp; Search</h4>
+          <div class="settings-row">
+            <label for="cfgHelperTimeoutSecs">Helper Process Timeout (Seconds):</label>
+            <input type="number" id="cfgHelperTimeoutSecs" class="form-input" min="1" max="300">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSearchMaxDepth">Search Max Depth (Levels):</label>
+            <input type="number" id="cfgSearchMaxDepth" class="form-input" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSearchMaxResults">Search Default Max Results:</label>
+            <input type="number" id="cfgSearchMaxResults" class="form-input" min="1" max="5000">
+          </div>
         </div>
 
         <div class="settings-section">
@@ -1097,6 +1133,13 @@ pub const APP_JS: &str = r##"
     cfgTrashRetention: document.getElementById('cfgTrashRetention'),
     cfgMaxUploadBytes: document.getElementById('cfgMaxUploadBytes'),
     cfgMaxEditTextBytes: document.getElementById('cfgMaxEditTextBytes'),
+    cfgMaxPreviewBytes: document.getElementById('cfgMaxPreviewBytes'),
+    cfgRateLimitMaxFailures: document.getElementById('cfgRateLimitMaxFailures'),
+    cfgRateLimitLockoutSecs: document.getElementById('cfgRateLimitLockoutSecs'),
+    cfgSessionIdleMins: document.getElementById('cfgSessionIdleMins'),
+    cfgHelperTimeoutSecs: document.getElementById('cfgHelperTimeoutSecs'),
+    cfgSearchMaxDepth: document.getElementById('cfgSearchMaxDepth'),
+    cfgSearchMaxResults: document.getElementById('cfgSearchMaxResults'),
     cfgPersistDisk: document.getElementById('cfgPersistDisk'),
   };
 
@@ -2037,6 +2080,8 @@ pub const APP_JS: &str = r##"
   }
 
   // --- Admin Settings & Dynamic Config ---
+  let currentAdminConfig = null;
+
   async function openSettingsModal() {
     try {
       const resp = await fetch('/api/admin/config', { credentials: 'same-origin' });
@@ -2046,6 +2091,7 @@ pub const APP_JS: &str = r##"
       }
       const data = await resp.json();
       const cfg = data.config || data;
+      currentAdminConfig = cfg;
       if (cfg && cfg.features) {
         el.cfgFeatUpload.checked = !!cfg.features.allow_upload;
         el.cfgFeatDownload.checked = !!cfg.features.allow_download;
@@ -2058,8 +2104,23 @@ pub const APP_JS: &str = r##"
       }
       el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
       if (cfg.limits) {
-        el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_upload_bytes || 0) / (1024 * 1024));
-        el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_edit_text_bytes || 0) / 1024);
+        el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_upload_bytes || 1024 * 1024 * 1024) / (1024 * 1024));
+        el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_text_edit_size || cfg.limits.max_edit_text_bytes || 512 * 1024) / 1024);
+        el.cfgMaxPreviewBytes.value = Math.round((cfg.limits.max_preview_size || 50 * 1024 * 1024) / (1024 * 1024));
+      }
+      if (cfg.rate_limit) {
+        el.cfgRateLimitMaxFailures.value = cfg.rate_limit.max_login_failures ?? 5;
+        el.cfgRateLimitLockoutSecs.value = cfg.rate_limit.lockout_duration_seconds ?? 300;
+      }
+      if (cfg.session) {
+        el.cfgSessionIdleMins.value = Math.round((cfg.session.idle_timeout_seconds || 1800) / 60);
+      }
+      if (cfg.helper) {
+        el.cfgHelperTimeoutSecs.value = cfg.helper.timeout_seconds ?? 10;
+      }
+      if (cfg.search) {
+        el.cfgSearchMaxDepth.value = cfg.search.max_depth ?? 20;
+        el.cfgSearchMaxResults.value = cfg.search.default_max_results ?? 100;
       }
       el.settingsModal.classList.remove('hidden');
     } catch(e) {
@@ -2081,8 +2142,25 @@ pub const APP_JS: &str = r##"
       },
       trash_retention_days: parseInt(el.cfgTrashRetention.value, 10) || 30,
       limits: {
-        max_upload_bytes: (parseInt(el.cfgMaxUploadBytes.value, 10) || 1024) * 1024 * 1024,
-        max_edit_text_bytes: (parseInt(el.cfgMaxEditTextBytes.value, 10) || 512) * 1024,
+        ...(currentAdminConfig && currentAdminConfig.limits ? currentAdminConfig.limits : {}),
+        max_text_edit_size: (parseInt(el.cfgMaxEditTextBytes.value, 10) || 512) * 1024,
+        max_preview_size: (parseInt(el.cfgMaxPreviewBytes.value, 10) || 50) * 1024 * 1024,
+      },
+      rate_limit: {
+        max_login_failures: parseInt(el.cfgRateLimitMaxFailures.value, 10) || 5,
+        lockout_duration_seconds: parseInt(el.cfgRateLimitLockoutSecs.value, 10) || 300,
+      },
+      session: {
+        ...(currentAdminConfig && currentAdminConfig.session ? currentAdminConfig.session : {}),
+        idle_timeout_seconds: (parseInt(el.cfgSessionIdleMins.value, 10) || 30) * 60,
+      },
+      helper: {
+        timeout_seconds: parseInt(el.cfgHelperTimeoutSecs.value, 10) || 10,
+      },
+      search: {
+        ...(currentAdminConfig && currentAdminConfig.search ? currentAdminConfig.search : {}),
+        max_depth: parseInt(el.cfgSearchMaxDepth.value, 10) || 20,
+        default_max_results: parseInt(el.cfgSearchMaxResults.value, 10) || 100,
       }
     };
     const persist = el.cfgPersistDisk.checked ? '?save=true' : '';

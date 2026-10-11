@@ -37,6 +37,8 @@ pub struct HelperSearchOptions {
     pub extension: Option<String>,
     pub max_results: Option<usize>,
     pub include_hidden: bool,
+    #[serde(default)]
+    pub max_depth: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

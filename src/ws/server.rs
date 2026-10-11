@@ -102,6 +102,7 @@ pub struct WsServerState<H> {
     pub audit_sink: Arc<JsonlAuditSink>,
     pub authenticator: Arc<dyn Authenticator>,
     pub rate_limiter: Arc<Mutex<InMemoryLoginRateLimiter>>,
+    pub helper_timeout_updater: Option<Arc<dyn Fn(Duration) + Send + Sync>>,
 }
 
 impl<H: std::fmt::Debug> std::fmt::Debug for WsServerState<H> {
@@ -122,19 +123,35 @@ impl<H> WsServerState<H> {
         self.config.load_full()
     }
 
+    pub fn set_helper_timeout(&self, timeout: Duration) {
+        if let Some(ref updater) = self.helper_timeout_updater {
+            updater(timeout);
+        }
+    }
+
+    pub fn with_timeout_updater<F>(mut self, updater: F) -> Self
+    where
+        F: Fn(Duration) + Send + Sync + 'static,
+    {
+        self.helper_timeout_updater = Some(Arc::new(updater));
+        self
+    }
+
     pub fn new(
         config: AppConfig,
         session_store: InMemorySessionStore,
         helper_client: H,
         audit_sink: JsonlAuditSink,
     ) -> Self {
+        let max_failures = config.rate_limit.max_login_failures;
+        let lockout = config.rate_limit.lockout_duration_seconds;
         Self::with_authenticator(
             config,
             session_store,
             helper_client,
             audit_sink,
             Arc::new(crate::auth::pam::PamAuthenticator::new()),
-            InMemoryLoginRateLimiter::new(5),
+            InMemoryLoginRateLimiter::with_lockout(max_failures, lockout),
         )
     }
 
@@ -173,6 +190,7 @@ impl<H> WsServerState<H> {
             audit_sink: Arc::new(audit_sink),
             authenticator,
             rate_limiter: Arc::new(Mutex::new(rate_limiter)),
+            helper_timeout_updater: None,
         }
     }
 }
@@ -186,6 +204,7 @@ impl<H> Clone for WsServerState<H> {
             audit_sink: self.audit_sink.clone(),
             authenticator: self.authenticator.clone(),
             rate_limiter: self.rate_limiter.clone(),
+            helper_timeout_updater: self.helper_timeout_updater.clone(),
         }
     }
 }
@@ -641,6 +660,9 @@ pub fn spawn_config_watcher<H: 'static>(
     let config_path = state.config.config_path()?.to_path_buf();
     let config = state.config.clone();
     let audit_sink = state.audit_sink.clone();
+    let session_store = state.session_store.clone();
+    let rate_limiter = state.rate_limiter.clone();
+    let helper_timeout_updater = state.helper_timeout_updater.clone();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
@@ -684,7 +706,7 @@ pub fn spawn_config_watcher<H: 'static>(
             while rx.try_recv().is_ok() {}
 
             match config.reload() {
-                Ok(_) => {
+                Ok(reloaded) => {
                     let _ = audit_sink.emit(&AuditEvent::config_reload(
                         RequestId::new(),
                         "config_watcher",
@@ -692,6 +714,20 @@ pub fn spawn_config_watcher<H: 'static>(
                         0,
                         AuditStatus::Success,
                     ));
+                    {
+                        let mut store = session_store.lock().await;
+                        store.update_config(reloaded.session.clone());
+                    }
+                    if let Some(ref updater) = helper_timeout_updater {
+                        updater(Duration::from_secs(reloaded.helper.timeout_seconds));
+                    }
+                    {
+                        let mut limiter = rate_limiter.lock().await;
+                        limiter.set_limits(
+                            reloaded.rate_limit.max_login_failures,
+                            reloaded.rate_limit.lockout_duration_seconds,
+                        );
+                    }
                     eprintln!("Config successfully reloaded from {}", config_path.display());
                 }
                 Err(err) => {

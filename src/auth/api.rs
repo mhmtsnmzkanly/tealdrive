@@ -78,6 +78,11 @@ where
         .and_then(|v| v.to_str().ok())
         .map(ToOwned::to_owned);
 
+    let cfg = state.config.load();
+    let max_failures = cfg.rate_limit.max_login_failures;
+    let lockout_secs = cfg.rate_limit.lockout_duration_seconds;
+    let now = InMemorySessionStore::now_epoch_seconds();
+
     let rate_key = LoginRateLimitKey {
         username: payload.username.clone(),
         ip: client_ip.clone(),
@@ -85,7 +90,7 @@ where
 
     {
         let limiter = state.rate_limiter.lock().await;
-        if limiter.check(&rate_key) == LoginRateLimitDecision::Limited {
+        if limiter.check_at(&rate_key, max_failures, lockout_secs, now) == LoginRateLimitDecision::Limited {
             let request_id = RequestId::new();
             let _ = state.audit_sink.emit(&AuditEvent::login_failure(
                 request_id,
@@ -113,7 +118,7 @@ where
         Ok(success) => success,
         Err(err) => {
             let mut limiter = state.rate_limiter.lock().await;
-            let _ = limiter.record_failure(rate_key);
+            let _ = limiter.record_failure_at(rate_key, lockout_secs, now);
 
             let reason = match err {
                 AuthError::InvalidCredentials => AuditReason::InvalidCredentials,
@@ -390,7 +395,7 @@ mod tests {
     fn test_state(max_failures: u32) -> WsServerState<DummyHelper> {
         let auth = MockAuthenticator::new(AccountPolicyConfig::default())
             .with_user(MockUser::regular("alice", "secret123"));
-        let config = AppConfig {
+        let mut config = AppConfig {
             roots: vec![AllowedRoot {
                 root_id: RootId::new("home"),
                 base_path: std::path::PathBuf::from("/home"),
@@ -402,6 +407,7 @@ mod tests {
             }],
             ..AppConfig::default()
         };
+        config.rate_limit.max_login_failures = max_failures;
         let session_store = InMemorySessionStore::new(config.session.clone());
         let audit_sink = JsonlAuditSink::open_default().expect("sink");
         WsServerState::with_authenticator(

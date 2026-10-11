@@ -69,8 +69,14 @@ pub fn search_files_request<H: SearchFilesHelper>(
         search_options: Some(crate::helper::types::HelperSearchOptions {
             query: request.query,
             extension: request.extension,
-            max_results: request.max_results,
+            max_results: Some(
+                request
+                    .max_results
+                    .unwrap_or(config.search.default_max_results)
+                    .min(config.search.max_results_limit),
+            ),
             include_hidden: request.include_hidden,
+            max_depth: Some(config.search.max_depth),
         }),
     };
 

@@ -119,6 +119,20 @@ where
                 let _ = state.config.save_to_file();
             }
 
+            // Sync live session store, helper timeout, and rate limiter
+            {
+                let mut store = state.session_store.lock().await;
+                store.update_config(updated.session.clone());
+            }
+            state.set_helper_timeout(std::time::Duration::from_secs(updated.helper.timeout_seconds));
+            {
+                let mut limiter = state.rate_limiter.lock().await;
+                limiter.set_limits(
+                    updated.rate_limit.max_login_failures,
+                    updated.rate_limit.lockout_duration_seconds,
+                );
+            }
+
             Json((*updated).clone()).into_response()
         }
         Err(err) => {
@@ -189,6 +203,21 @@ where
                 session.gid,
                 AuditStatus::Success,
             ));
+
+            // Sync live session store, helper timeout, and rate limiter
+            {
+                let mut store = state.session_store.lock().await;
+                store.update_config(reloaded.session.clone());
+            }
+            state.set_helper_timeout(std::time::Duration::from_secs(reloaded.helper.timeout_seconds));
+            {
+                let mut limiter = state.rate_limiter.lock().await;
+                limiter.set_limits(
+                    reloaded.rate_limit.max_login_failures,
+                    reloaded.rate_limit.lockout_duration_seconds,
+                );
+            }
+
             Json((*reloaded).clone()).into_response()
         }
         Err(err) => {
@@ -353,7 +382,7 @@ mod tests {
 
         let (state, headers) = test_state_with_session(Some(config_file.clone())).await;
 
-        // 1. Patch config (features and trash_retention_days) with save=true
+        // 1. Patch config (features, trash_retention_days, rate_limit, helper, search) with save=true
         let patch = ConfigPatch {
             features: Some(FeatureFlags {
                 save_text_file: false,
@@ -363,6 +392,18 @@ mod tests {
                 chown: false,
             }),
             trash_retention_days: Some(Some(45)),
+            rate_limit: Some(crate::config::RateLimitConfig {
+                max_login_failures: 8,
+                lockout_duration_seconds: 600,
+            }),
+            helper: Some(crate::config::HelperConfig {
+                timeout_seconds: 25,
+            }),
+            search: Some(crate::config::SearchConfig {
+                max_depth: 30,
+                default_max_results: 150,
+                max_results_limit: 2000,
+            }),
             ..ConfigPatch::default()
         };
 
@@ -378,11 +419,16 @@ mod tests {
         // Verify in-memory state updated
         assert!(!state.config.load().features.save_text_file);
         assert_eq!(state.config.load().trash_retention_days, Some(45));
+        assert_eq!(state.config.load().rate_limit.max_login_failures, 8);
+        assert_eq!(state.config.load().helper.timeout_seconds, 25);
+        assert_eq!(state.config.load().search.max_depth, 30);
 
         // Verify persisted to disk
         let disk_content = std::fs::read_to_string(&config_file).unwrap();
         assert!(disk_content.contains("save_text_file = false"));
         assert!(disk_content.contains("trash_retention_days = 45"));
+        assert!(disk_content.contains("max_login_failures = 8"));
+        assert!(disk_content.contains("timeout_seconds = 25"));
 
         // 2. Modify disk file externally and test reload endpoint
         let modified_disk = disk_content.replace("trash_retention_days = 45", "trash_retention_days = 60");

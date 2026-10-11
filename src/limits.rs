@@ -11,8 +11,10 @@ pub const MAX_IN_FLIGHT_UPLOAD: usize = MIB;
 pub const MAX_DIRECTORY_PAGE_SIZE: usize = 500;
 pub const DEFAULT_DIRECTORY_PAGE_SIZE: usize = 200;
 pub const MAX_TEXT_EDIT_SIZE: usize = 5 * MIB;
+pub const MAX_PREVIEW_SIZE: usize = 50 * MIB;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Limits {
     pub max_frame_payload: usize,
     pub max_control_payload: usize,
@@ -21,7 +23,9 @@ pub struct Limits {
     pub max_in_flight_upload: usize,
     pub max_directory_page_size: usize,
     pub default_directory_page_size: usize,
+    #[serde(alias = "max_edit_text_bytes")]
     pub max_text_edit_size: usize,
+    pub max_preview_size: usize,
 }
 
 impl Default for Limits {
@@ -35,6 +39,7 @@ impl Default for Limits {
             max_directory_page_size: MAX_DIRECTORY_PAGE_SIZE,
             default_directory_page_size: DEFAULT_DIRECTORY_PAGE_SIZE,
             max_text_edit_size: MAX_TEXT_EDIT_SIZE,
+            max_preview_size: MAX_PREVIEW_SIZE,
         }
     }
 }
@@ -55,5 +60,6 @@ mod tests {
         assert_eq!(limits.max_directory_page_size, 500);
         assert_eq!(limits.default_directory_page_size, 200);
         assert_eq!(limits.max_text_edit_size, 5 * 1024 * 1024);
+        assert_eq!(limits.max_preview_size, 50 * 1024 * 1024);
     }
 }

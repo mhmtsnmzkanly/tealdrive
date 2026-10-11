@@ -76,6 +76,14 @@ impl InMemorySessionStore {
         }
     }
 
+    pub fn config(&self) -> &SessionConfig {
+        &self.config
+    }
+
+    pub fn update_config(&mut self, config: SessionConfig) {
+        self.config = config;
+    }
+
     pub fn now_epoch_seconds() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -69,6 +69,12 @@ pub struct AppConfig {
     pub limits: Limits,
     #[serde(default)]
     pub trash_retention_days: Option<u32>,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+    #[serde(default)]
+    pub helper: HelperConfig,
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl Default for AppConfig {
@@ -84,6 +90,9 @@ impl Default for AppConfig {
             features: FeatureFlags::default(),
             limits: Limits::default(),
             trash_retention_days: None,
+            rate_limit: RateLimitConfig::default(),
+            helper: HelperConfig::default(),
+            search: SearchConfig::default(),
         }
     }
 }
@@ -170,6 +179,7 @@ impl Default for ServerConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SessionConfig {
     pub cookie_name: String,
     pub idle_timeout_seconds: u64,
@@ -200,6 +210,8 @@ pub enum SameSitePolicy {
 pub struct SecurityConfig {
     pub production_wire_protocol: WireProtocol,
     pub allow_plain_ws_localhost_only: bool,
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 impl Default for SecurityConfig {
@@ -207,6 +219,7 @@ impl Default for SecurityConfig {
         Self {
             production_wire_protocol: WireProtocol::Tdrv1Binary,
             allow_plain_ws_localhost_only: true,
+            allowed_origins: Vec::new(),
         }
     }
 }
@@ -317,6 +330,54 @@ impl Default for AccountPolicyConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RateLimitConfig {
+    pub max_login_failures: u32,
+    pub lockout_duration_seconds: u64,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_login_failures: 5,
+            lockout_duration_seconds: 300,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HelperConfig {
+    pub timeout_seconds: u64,
+}
+
+impl Default for HelperConfig {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 10,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    pub max_depth: usize,
+    pub default_max_results: usize,
+    pub max_results_limit: usize,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 20,
+            default_max_results: 100,
+            max_results_limit: 1000,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ConfigPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -333,6 +394,16 @@ pub struct ConfigPatch {
     pub warn_read_patterns: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub static_dir: Option<Option<PathBuf>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security: Option<SecurityConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<RateLimitConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub helper: Option<HelperConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<SearchConfig>,
 }
 
 impl ConfigPatch {
@@ -357,6 +428,21 @@ impl ConfigPatch {
         }
         if let Some(ref static_dir) = self.static_dir {
             config.server.static_dir = static_dir.clone();
+        }
+        if let Some(ref session) = self.session {
+            config.session = session.clone();
+        }
+        if let Some(ref security) = self.security {
+            config.security = security.clone();
+        }
+        if let Some(ref rate_limit) = self.rate_limit {
+            config.rate_limit = rate_limit.clone();
+        }
+        if let Some(ref helper) = self.helper {
+            config.helper = helper.clone();
+        }
+        if let Some(ref search) = self.search {
+            config.search = search.clone();
         }
     }
 }

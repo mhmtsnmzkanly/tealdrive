@@ -1,6 +1,8 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -8,20 +10,40 @@ use crate::errors::TealDriveError;
 use crate::helper::ipc::{encode_helper_request, read_helper_response};
 use crate::helper::types::{HelperRequest, HelperResponse};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct HelperProcessClient {
     helper_path: PathBuf,
-    timeout: Duration,
+    timeout_millis: Arc<AtomicU64>,
     env_vars: Vec<(String, String)>,
 }
+
+impl PartialEq for HelperProcessClient {
+    fn eq(&self, other: &Self) -> bool {
+        self.helper_path == other.helper_path
+            && self.timeout_millis.load(Ordering::Relaxed)
+                == other.timeout_millis.load(Ordering::Relaxed)
+            && self.env_vars == other.env_vars
+    }
+}
+
+impl Eq for HelperProcessClient {}
 
 impl HelperProcessClient {
     pub fn new(helper_path: impl Into<PathBuf>, timeout: Duration) -> Self {
         Self {
             helper_path: helper_path.into(),
-            timeout,
+            timeout_millis: Arc::new(AtomicU64::new(timeout.as_millis() as u64)),
             env_vars: Vec::new(),
         }
+    }
+
+    pub fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_millis.load(Ordering::Relaxed))
+    }
+
+    pub fn set_timeout(&self, timeout: Duration) {
+        self.timeout_millis
+            .store(timeout.as_millis() as u64, Ordering::Relaxed);
     }
 
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
@@ -52,6 +74,7 @@ impl HelperProcessClient {
         }
         drop(child.stdin.take());
 
+        let timeout = self.timeout();
         let start = Instant::now();
         loop {
             if let Some(status) = child
@@ -69,7 +92,7 @@ impl HelperProcessClient {
                     .map_err(|_| TealDriveError::HelperMalformedResponse);
             }
 
-            if start.elapsed() >= self.timeout {
+            if start.elapsed() >= timeout {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(TealDriveError::HelperTimeout);
@@ -118,5 +141,20 @@ mod tests {
             client.execute(&request),
             Err(TealDriveError::HelperSpawnFailed)
         );
+    }
+
+    #[test]
+    fn atomic_timeout_update_works() {
+        let client = HelperProcessClient::new(
+            "/bin/true",
+            Duration::from_secs(10),
+        );
+        assert_eq!(client.timeout(), Duration::from_secs(10));
+
+        let client_clone = client.clone();
+        client.set_timeout(Duration::from_secs(25));
+
+        assert_eq!(client.timeout(), Duration::from_secs(25));
+        assert_eq!(client_clone.timeout(), Duration::from_secs(25));
     }
 }

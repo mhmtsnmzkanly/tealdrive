@@ -97,6 +97,7 @@ pub fn chmod_file_request<H: ChmodFileHelper>(
         list_options: None,
         write_options: None,
         chmod_mode: Some(request.mode),
+        archive_source_paths: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

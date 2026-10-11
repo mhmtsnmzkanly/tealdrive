@@ -79,6 +79,8 @@ impl FileOperation {
                 | Self::DeletePermanently
                 | Self::ChmodFile
                 | Self::SaveTextFile
+                | Self::CompressZip
+                | Self::CompressTarGz
                 | Self::ExtractArchive
                 | Self::Chown
         )
@@ -174,7 +176,18 @@ impl<'a> PolicyEngine<'a> {
                 }
             }
             FileOperation::ChmodFile => {}
+            FileOperation::CompressZip | FileOperation::CompressTarGz
+                if sensitive_edit_decision(relative_path, &self.config.sensitive_policy)
+                    == SensitivePolicyDecision::Deny =>
+            {
+                return Ok(PolicyDecision::Deny(PolicyReason::SensitivePath));
+            }
             FileOperation::ExtractArchive => {
+                if sensitive_edit_decision(relative_path, &self.config.sensitive_policy)
+                    == SensitivePolicyDecision::Deny
+                {
+                    return Ok(PolicyDecision::Deny(PolicyReason::SensitivePath));
+                }
                 return Ok(check_webroot_archive_extract(root.is_web_root));
             }
             _ => {}
@@ -183,6 +196,11 @@ impl<'a> PolicyEngine<'a> {
         if let Some(target) = target_relative_path {
             if hidden_policy_decision(include_hidden, target) == SensitivePolicyDecision::Deny {
                 return Ok(PolicyDecision::Deny(PolicyReason::HiddenFile));
+            }
+            if sensitive_edit_decision(target, &self.config.sensitive_policy)
+                == SensitivePolicyDecision::Deny
+            {
+                return Ok(PolicyDecision::Deny(PolicyReason::SensitivePath));
             }
         }
 

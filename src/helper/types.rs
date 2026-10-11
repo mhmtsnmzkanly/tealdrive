@@ -24,6 +24,8 @@ pub struct HelperRequest {
     pub write_options: Option<HelperWriteOptions>,
     #[serde(default)]
     pub chmod_mode: Option<UnixMode>,
+    #[serde(default)]
+    pub archive_source_paths: Option<Vec<RelativePath>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -379,11 +381,8 @@ impl HelperResponse {
     }
 }
 
-pub fn command_disabled_in_v1(command: HelperCommand) -> bool {
-    matches!(
-        command,
-        HelperCommand::ExtractArchive
-    )
+pub fn command_disabled_in_v1(_command: HelperCommand) -> bool {
+    false
 }
 
 #[cfg(test)]

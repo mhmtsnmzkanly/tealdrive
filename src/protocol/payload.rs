@@ -835,4 +835,43 @@ mod tests {
 
         assert_eq!(decoded, value);
     }
+
+    #[test]
+    fn msgpack_compress_zip_request_roundtrip() {
+        let value = CompressZipRequest {
+            root_id: RootId::new("home"),
+            relative_paths: vec![RelativePath::new("a.txt"), RelativePath::new("b.txt")],
+            target_relative_path: RelativePath::new("bundle.zip"),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: CompressZipRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_compress_targz_request_roundtrip() {
+        let value = CompressTarGzRequest {
+            root_id: RootId::new("home"),
+            relative_paths: vec![RelativePath::new("docs")],
+            target_relative_path: RelativePath::new("docs.tar.gz"),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: CompressTarGzRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn msgpack_extract_archive_request_roundtrip() {
+        let value = ExtractArchiveRequest {
+            root_id: RootId::new("home"),
+            archive_relative_path: RelativePath::new("bundle.zip"),
+            target_relative_path: RelativePath::new("extracted"),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: ExtractArchiveRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
 }

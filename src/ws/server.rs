@@ -18,6 +18,7 @@ use crate::audit::sink::JsonlAuditSink;
 use crate::config::AppConfig;
 use crate::download::transfer::DownloadHelper;
 use crate::errors::{ErrorKind, TealDriveError};
+use crate::fs::archive::{CompressTarGzHelper, CompressZipHelper, ExtractArchiveHelper};
 use crate::fs::chmod::ChmodFileHelper;
 use crate::fs::create_folder::CreateFolderHelper;
 use crate::fs::listing::DirectoryListingHelper;
@@ -52,6 +53,9 @@ pub trait WsHelperBackend:
     + DeletePermanentlyHelper
     + ChmodFileHelper
     + UploadHelper
+    + CompressZipHelper
+    + CompressTarGzHelper
+    + ExtractArchiveHelper
     + Send
     + Sync
 {
@@ -72,6 +76,9 @@ impl<T> WsHelperBackend for T where
         + DeletePermanentlyHelper
         + ChmodFileHelper
         + UploadHelper
+        + CompressZipHelper
+        + CompressTarGzHelper
+        + ExtractArchiveHelper
         + Send
         + Sync
 {
@@ -733,6 +740,45 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::upload::write_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CompressZipHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::compress_zip_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CompressTarGzHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::compress_targz_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ExtractArchiveHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::extract_archive_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

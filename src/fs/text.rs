@@ -121,6 +121,7 @@ pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
         list_options: None,
         write_options: None,
         chmod_mode: None,
+        archive_source_paths: None,
     };
 
     let response = TextPreviewHelper::execute_helper(helper_client, &helper_request)?;
@@ -263,6 +264,7 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
             truncate: true,
         }),
         chmod_mode: None,
+        archive_source_paths: None,
     };
 
     let response = SaveTextFileHelper::execute_helper(helper_client, &helper_request)?;

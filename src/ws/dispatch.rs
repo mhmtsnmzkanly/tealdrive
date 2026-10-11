@@ -1,6 +1,10 @@
 use crate::config::AppConfig;
 use crate::download::transfer::{download_file_request, DownloadHelper};
 use crate::errors::{ErrorKind, ErrorPayload, TealDriveError};
+use crate::fs::archive::{
+    compress_targz_request, compress_zip_request, extract_archive_request,
+    CompressTarGzHelper, CompressZipHelper, ExtractArchiveHelper,
+};
 use crate::fs::chmod::{chmod_file_request, ChmodFileHelper};
 use crate::fs::create_folder::{create_folder_request, CreateFolderHelper};
 use crate::fs::listing::{list_directory_request, DirectoryListingHelper};
@@ -20,11 +24,11 @@ use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
-    ClientHelloPayload, ChmodFileRequest, CopyFileRequest, CreateFolderRequest, DeletePermanentlyRequest,
-    DownloadBeginRequest, FileMetadataRequest, ListDirectoryRequest, MoveFileRequest,
-    MoveToTrashRequest, OperationFailedPayload, ReadTextFileRequest, RenameFileRequest,
-    RestoreFromTrashRequest, SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest,
-    UploadEndRequest,
+    ClientHelloPayload, ChmodFileRequest, CompressTarGzRequest, CompressZipRequest, CopyFileRequest,
+    CreateFolderRequest, DeletePermanentlyRequest, DownloadBeginRequest, ExtractArchiveRequest,
+    FileMetadataRequest, ListDirectoryRequest, MoveFileRequest, MoveToTrashRequest,
+    OperationFailedPayload, ReadTextFileRequest, RenameFileRequest, RestoreFromTrashRequest,
+    SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest, UploadEndRequest,
 };
 use crate::upload::transfer::{
     upload_abort_request, upload_begin_request, upload_chunk_request, upload_end_request,
@@ -91,7 +95,10 @@ where
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
         + ChmodFileHelper
-        + UploadHelper,
+        + UploadHelper
+        + CompressZipHelper
+        + CompressTarGzHelper
+        + ExtractArchiveHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
     handle_decoded_frame_with_service(context, frame, config, helper_client)
@@ -117,7 +124,10 @@ where
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
         + ChmodFileHelper
-        + UploadHelper,
+        + UploadHelper
+        + CompressZipHelper
+        + CompressTarGzHelper
+        + ExtractArchiveHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
 
@@ -195,7 +205,10 @@ where
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
         + ChmodFileHelper
-        + UploadHelper,
+        + UploadHelper
+        + CompressZipHelper
+        + CompressTarGzHelper
+        + ExtractArchiveHelper,
 {
     match message_type {
         MessageType::ListDirectory => Ok(DispatchDecision::Outbound(vec![
@@ -236,6 +249,15 @@ where
         ])),
         MessageType::ChmodFile => Ok(DispatchDecision::Outbound(vec![
             handle_chmod_file_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::CompressZip => Ok(DispatchDecision::Outbound(vec![
+            handle_compress_zip_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::CompressTarGz => Ok(DispatchDecision::Outbound(vec![
+            handle_compress_targz_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::ExtractArchive => Ok(DispatchDecision::Outbound(vec![
+            handle_extract_archive_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         MessageType::UploadBegin => Ok(DispatchDecision::Outbound(vec![
             handle_upload_begin_frame_with_service(context, &frame, config)?,
@@ -710,6 +732,99 @@ pub fn handle_chmod_file_frame_with_service<H: ChmodFileHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_compress_zip_frame_with_service<H: CompressZipHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::CompressZip {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: CompressZipRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = compress_zip_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_compress_targz_frame_with_service<H: CompressTarGzHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::CompressTarGz {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: CompressTarGzRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = compress_targz_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
+pub fn handle_extract_archive_frame_with_service<H: ExtractArchiveHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::ExtractArchive {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: ExtractArchiveRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = extract_archive_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 pub fn handle_upload_begin_frame_with_service(
     context: &mut WsConnectionContext,
     frame: &TdrvFrame,
@@ -1035,6 +1150,45 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::upload::write_file_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CompressZipHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::compress_zip_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl CompressTarGzHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::compress_targz_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ExtractArchiveHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::archive::extract_archive_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -1926,6 +2080,148 @@ mod tests {
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         let meta = fs::metadata(&file_path).expect("meta");
         assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+    }
+
+    #[test]
+    fn compress_zip_after_ready_reaches_service() {
+        let base = temp_root();
+        let file_path = base.join("archive_me.txt");
+        fs::write(&file_path, b"compress me zip").expect("file");
+
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::CompressZip,
+            encode_msgpack(&CompressZipRequest {
+                root_id: RootId::new("home"),
+                relative_paths: vec![RelativePath::new("archive_me.txt")],
+                target_relative_path: RelativePath::new("output.zip"),
+            })
+            .expect("payload"),
+        );
+
+        let outbound = handle_compress_zip_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(base.join("output.zip").exists());
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn compress_targz_after_ready_reaches_service() {
+        let base = temp_root();
+        let file_path = base.join("archive_me.txt");
+        fs::write(&file_path, b"compress me tar").expect("file");
+
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::CompressTarGz,
+            encode_msgpack(&CompressTarGzRequest {
+                root_id: RootId::new("home"),
+                relative_paths: vec![RelativePath::new("archive_me.txt")],
+                target_relative_path: RelativePath::new("output.tar.gz"),
+            })
+            .expect("payload"),
+        );
+
+        let outbound = handle_compress_targz_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert!(base.join("output.tar.gz").exists());
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn extract_archive_after_ready_reaches_service() {
+        let base = temp_root();
+        let file_path = base.join("source.txt");
+        fs::write(&file_path, b"extract me content").expect("file");
+
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                extract_archive: true,
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+
+        // Create zip first
+        let zip_frame = client_frame(
+            MessageType::CompressZip,
+            encode_msgpack(&CompressZipRequest {
+                root_id: RootId::new("home"),
+                relative_paths: vec![RelativePath::new("source.txt")],
+                target_relative_path: RelativePath::new("bundle.zip"),
+            })
+            .expect("payload"),
+        );
+        handle_compress_zip_frame_with_service(&context, &zip_frame, &config, &helper)
+            .expect("zip created");
+
+        // Extract zip
+        let extract_frame = client_frame(
+            MessageType::ExtractArchive,
+            encode_msgpack(&ExtractArchiveRequest {
+                root_id: RootId::new("home"),
+                archive_relative_path: RelativePath::new("bundle.zip"),
+                target_relative_path: RelativePath::new("dest"),
+            })
+            .expect("payload"),
+        );
+
+        let outbound = handle_extract_archive_frame_with_service(&context, &extract_frame, &config, &helper)
+            .expect("extract done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        assert_eq!(
+            fs::read_to_string(base.join("dest/source.txt")).unwrap(),
+            "extract me content"
+        );
+        let _ = fs::remove_dir_all(base);
     }
 
     fn upload_begin_request_payload(

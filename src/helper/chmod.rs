@@ -143,6 +143,7 @@ mod tests {
             list_options: None,
             write_options: None,
             chmod_mode: mode.map(UnixMode),
+            archive_source_paths: None,
         }
     }
 

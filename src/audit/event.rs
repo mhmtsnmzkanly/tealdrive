@@ -517,6 +517,74 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn compress_zip(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        target_relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::CompressZip,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.target_relative_path = Some(target_relative_path);
+        event.reason = reason;
+        event
+    }
+
+    pub fn compress_targz(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        target_relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::CompressTarGz,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.target_relative_path = Some(target_relative_path);
+        event.reason = reason;
+        event
+    }
+
+    pub fn extract_archive(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        archive_relative_path: RelativePath,
+        target_relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::ExtractArchive,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(archive_relative_path);
+        event.target_relative_path = Some(target_relative_path);
+        event.reason = reason;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -550,6 +618,9 @@ pub enum AuditAction {
     SaveTextFile,
     DeletePermanently,
     Chmod,
+    CompressZip,
+    CompressTarGz,
+    ExtractArchive,
     FeatureDisabledAttempt,
 }
 
@@ -866,5 +937,48 @@ mod tests {
         assert_eq!(event.relative_path, Some(RelativePath::new("docs/script.sh")));
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
+    }
+
+    #[test]
+    fn archive_audit_events_record_fields() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let zip_event = AuditEvent::compress_zip(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("out.zip"),
+            AuditStatus::Success,
+            None,
+        );
+        assert_eq!(zip_event.action, AuditAction::CompressZip);
+        assert_eq!(zip_event.target_relative_path, Some(RelativePath::new("out.zip")));
+
+        let targz_event = AuditEvent::compress_targz(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("out.tar.gz"),
+            AuditStatus::Success,
+            None,
+        );
+        assert_eq!(targz_event.action, AuditAction::CompressTarGz);
+        assert_eq!(targz_event.target_relative_path, Some(RelativePath::new("out.tar.gz")));
+
+        let extract_event = AuditEvent::extract_archive(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("in.zip"),
+            RelativePath::new("out_dir"),
+            AuditStatus::Success,
+            None,
+        );
+        assert_eq!(extract_event.action, AuditAction::ExtractArchive);
+        assert_eq!(extract_event.relative_path, Some(RelativePath::new("in.zip")));
+        assert_eq!(extract_event.target_relative_path, Some(RelativePath::new("out_dir")));
     }
 }

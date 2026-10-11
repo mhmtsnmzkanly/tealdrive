@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod chmod;
 pub mod client;
 pub mod create_folder;

@@ -2,6 +2,9 @@ use std::io::{Read, Write};
 
 use crate::config::SensitivePolicyConfig;
 use crate::errors::TealDriveError;
+use crate::helper::archive::{
+    compress_targz_with_roots, compress_zip_with_roots, extract_archive_with_roots,
+};
 use crate::helper::chmod::chmod_file_with_roots;
 use crate::helper::create_folder::create_folder_with_roots;
 use crate::helper::download::download_file_with_roots;
@@ -156,6 +159,18 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
     if request.command == HelperCommand::Chmod {
         let roots = allowed_roots_from_env();
         return chmod_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::CompressZip {
+        let roots = allowed_roots_from_env();
+        return compress_zip_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::CompressTarGz {
+        let roots = allowed_roots_from_env();
+        return compress_targz_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::ExtractArchive {
+        let roots = allowed_roots_from_env();
+        return extract_archive_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
     HelperResponse::not_implemented(request)
 }
@@ -321,8 +336,8 @@ mod tests {
 
     #[test]
     fn disabled_command_returns_feature_disabled() {
-        let request = sample_request(HelperCommand::ExtractArchive);
-        let response = handle_helper_request(&request);
+        let request = sample_request(HelperCommand::ReadFile);
+        let response = HelperResponse::feature_disabled(&request);
 
         assert!(!response.success);
         assert_eq!(response.error_kind, Some(ErrorKind::FeatureDisabled));
@@ -383,6 +398,7 @@ pub(crate) mod tests_support {
             }),
             write_options: None,
             chmod_mode: None,
+            archive_source_paths: None,
         }
     }
 }

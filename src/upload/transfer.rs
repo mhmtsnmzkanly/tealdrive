@@ -261,6 +261,7 @@ pub fn upload_end_request<H: UploadHelper>(
             offset: 0,
             truncate: true,
         }),
+        chmod_mode: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

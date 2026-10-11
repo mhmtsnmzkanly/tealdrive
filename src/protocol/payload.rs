@@ -822,4 +822,17 @@ mod tests {
 
         assert_eq!(decoded, value);
     }
+
+    #[test]
+    fn msgpack_chmod_file_request_roundtrip() {
+        let value = ChmodFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new("scripts/run.sh"),
+            mode: UnixMode(0o755),
+        };
+        let bytes = encode_msgpack(&value).expect("encoded");
+        let decoded: ChmodFileRequest = decode_msgpack(&bytes).expect("decoded");
+
+        assert_eq!(decoded, value);
+    }
 }

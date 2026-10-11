@@ -121,6 +121,7 @@ pub fn download_file_request<H: DownloadHelper + MetadataHelper>(
         },
         list_options: None,
         write_options: None,
+        chmod_mode: None,
     };
 
     let response = DownloadHelper::execute_helper(helper_client, &helper_request)?;

@@ -115,6 +115,7 @@ pub fn move_file_request<H: MoveHelper>(
         },
         list_options: None,
         write_options: None,
+        chmod_mode: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;
@@ -209,6 +210,7 @@ pub fn copy_file_request<H: CopyHelper>(
         },
         list_options: None,
         write_options: None,
+        chmod_mode: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

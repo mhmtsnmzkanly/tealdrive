@@ -99,6 +99,7 @@ pub fn rename_file_request<H: RenameHelper>(
         },
         list_options: None,
         write_options: None,
+        chmod_mode: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

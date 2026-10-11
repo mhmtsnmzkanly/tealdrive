@@ -1,6 +1,7 @@
 use crate::config::AppConfig;
 use crate::download::transfer::{download_file_request, DownloadHelper};
 use crate::errors::{ErrorKind, ErrorPayload, TealDriveError};
+use crate::fs::chmod::{chmod_file_request, ChmodFileHelper};
 use crate::fs::create_folder::{create_folder_request, CreateFolderHelper};
 use crate::fs::listing::{list_directory_request, DirectoryListingHelper};
 use crate::fs::metadata::{file_metadata_request, MetadataHelper};
@@ -19,7 +20,7 @@ use crate::protocol::frame::{RequestId, TdrvFrame};
 use crate::protocol::header::{Encoding, TdrvHeader};
 use crate::protocol::message_type::MessageType;
 use crate::protocol::payload::{
-    ClientHelloPayload, CopyFileRequest, CreateFolderRequest, DeletePermanentlyRequest,
+    ClientHelloPayload, ChmodFileRequest, CopyFileRequest, CreateFolderRequest, DeletePermanentlyRequest,
     DownloadBeginRequest, FileMetadataRequest, ListDirectoryRequest, MoveFileRequest,
     MoveToTrashRequest, OperationFailedPayload, ReadTextFileRequest, RenameFileRequest,
     RestoreFromTrashRequest, SaveTextFileRequest, UploadAbortRequest, UploadBeginRequest,
@@ -89,6 +90,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ChmodFileHelper
         + UploadHelper,
 {
     let frame = TdrvFrame::decode(bytes)?;
@@ -114,6 +116,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ChmodFileHelper
         + UploadHelper,
 {
     frame.header.message_type.validate_inbound_client()?;
@@ -191,6 +194,7 @@ where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ChmodFileHelper
         + UploadHelper,
 {
     match message_type {
@@ -229,6 +233,9 @@ where
         ])),
         MessageType::DeletePermanently => Ok(DispatchDecision::Outbound(vec![
             handle_delete_permanently_frame_with_service(context, &frame, config, helper_client)?,
+        ])),
+        MessageType::ChmodFile => Ok(DispatchDecision::Outbound(vec![
+            handle_chmod_file_frame_with_service(context, &frame, config, helper_client)?,
         ])),
         MessageType::UploadBegin => Ok(DispatchDecision::Outbound(vec![
             handle_upload_begin_frame_with_service(context, &frame, config)?,
@@ -672,6 +679,37 @@ pub fn handle_delete_permanently_frame_with_service<H: DeletePermanentlyHelper>(
     TdrvFrame::new(header, bytes)
 }
 
+pub fn handle_chmod_file_frame_with_service<H: ChmodFileHelper>(
+    context: &WsConnectionContext,
+    frame: &TdrvFrame,
+    config: &AppConfig,
+    helper_client: &H,
+) -> Result<TdrvFrame, TealDriveError> {
+    if !context.protocol_ready {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.message_type != MessageType::ChmodFile {
+        return Err(TealDriveError::Validation);
+    }
+    if frame.header.encoding != Encoding::MessagePack {
+        return Err(TealDriveError::InvalidEncoding);
+    }
+
+    let request: ChmodFileRequest = decode_msgpack(&frame.payload)?;
+    let policy_engine = PolicyEngine::new(config);
+    let response = chmod_file_request(
+        &context.user_context(),
+        request,
+        config,
+        &policy_engine,
+        helper_client,
+    )?;
+    let bytes = encode_msgpack(&response)?;
+    let mut header = TdrvHeader::new(MessageType::OperationDone, frame.header.request_id, 0);
+    header.encoding = Encoding::MessagePack;
+    TdrvFrame::new(header, bytes)
+}
+
 pub fn handle_upload_begin_frame_with_service(
     context: &mut WsConnectionContext,
     frame: &TdrvFrame,
@@ -971,6 +1009,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::delete_permanently_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ChmodFileHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::chmod::chmod_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),
@@ -1810,6 +1861,71 @@ mod tests {
 
         assert_eq!(outbound.header.message_type, MessageType::OperationDone);
         assert!(!base.join("delete_forever.txt").exists());
+    }
+
+    fn chmod_file_request_payload(path: &str, mode: u32) -> ChmodFileRequest {
+        ChmodFileRequest {
+            root_id: RootId::new("home"),
+            relative_path: RelativePath::new(path),
+            mode: crate::protocol::schema::UnixMode(mode),
+        }
+    }
+
+    #[test]
+    fn chmod_file_before_protocol_ready_rejected() {
+        let context = crate::ws::upgrade::tests::valid_context();
+        let frame = client_frame(
+            MessageType::ChmodFile,
+            encode_msgpack(&chmod_file_request_payload("file.txt", 0o644)).expect("payload"),
+        );
+        let config = AppConfig::default();
+        let helper = InProcessHelper { roots: vec![] };
+
+        assert_eq!(
+            handle_chmod_file_frame_with_service(&context, &frame, &config, &helper),
+            Err(TealDriveError::Validation)
+        );
+    }
+
+    #[test]
+    fn chmod_file_after_ready_reaches_service() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = temp_root();
+        let file_path = base.join("script.sh");
+        fs::write(&file_path, b"#!/bin/sh").expect("file");
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o644)).expect("perm");
+
+        let mut context = crate::ws::upgrade::tests::valid_context();
+        context.protocol_ready = true;
+        let config = AppConfig {
+            roots: vec![AllowedRoot {
+                root_id: RootId::new("home"),
+                base_path: base.clone(),
+                read_only: false,
+                uploads_allowed: true,
+                hidden_files_allowed: false,
+                is_web_root: false,
+            }],
+            features: crate::policy::feature_gate::FeatureFlags {
+                chmod_file: true,
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        };
+        let helper = InProcessHelper {
+            roots: config.roots.clone(),
+        };
+        let frame = client_frame(
+            MessageType::ChmodFile,
+            encode_msgpack(&chmod_file_request_payload("script.sh", 0o755)).expect("payload"),
+        );
+
+        let outbound = handle_chmod_file_frame_with_service(&context, &frame, &config, &helper)
+            .expect("operation done");
+
+        assert_eq!(outbound.header.message_type, MessageType::OperationDone);
+        let meta = fs::metadata(&file_path).expect("meta");
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
     }
 
     fn upload_begin_request_payload(

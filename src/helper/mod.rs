@@ -1,3 +1,4 @@
+pub mod chmod;
 pub mod client;
 pub mod create_folder;
 pub mod download;

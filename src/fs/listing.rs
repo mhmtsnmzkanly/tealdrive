@@ -99,6 +99,7 @@ pub fn list_directory_request<H: DirectoryListingHelper>(
             filter: request.filter.clone(),
         }),
         write_options: None,
+        chmod_mode: None,
     };
 
     let response = helper_client.execute_helper(&helper_request)?;

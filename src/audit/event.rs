@@ -495,6 +495,28 @@ impl AuditEvent {
         event.reason = reason;
         event
     }
+
+    pub fn chmod(
+        request_id: RequestId,
+        user_context: &UserContext,
+        root_id: RootId,
+        relative_path: RelativePath,
+        status: AuditStatus,
+        reason: Option<AuditReason>,
+    ) -> Self {
+        let mut event = Self::new(
+            request_id,
+            user_context.username.clone(),
+            user_context.uid,
+            user_context.gid,
+            AuditAction::Chmod,
+            status,
+        );
+        event.root_id = Some(root_id);
+        event.relative_path = Some(relative_path);
+        event.reason = reason;
+        event
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -527,6 +549,7 @@ pub enum AuditAction {
     RestoreFromTrash,
     SaveTextFile,
     DeletePermanently,
+    Chmod,
     FeatureDisabledAttempt,
 }
 
@@ -819,6 +842,28 @@ mod tests {
 
         assert_eq!(event.action, AuditAction::DeletePermanently);
         assert_eq!(event.relative_path, Some(RelativePath::new("docs/old.txt")));
+        assert_eq!(event.status, AuditStatus::Success);
+        assert_eq!(event.reason, None);
+    }
+
+    #[test]
+    fn chmod_audit_event_records_fields() {
+        let user = UserContext {
+            username: "alice".to_owned(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let event = AuditEvent::chmod(
+            RequestId::new(),
+            &user,
+            RootId::new("home"),
+            RelativePath::new("docs/script.sh"),
+            AuditStatus::Success,
+            None,
+        );
+
+        assert_eq!(event.action, AuditAction::Chmod);
+        assert_eq!(event.relative_path, Some(RelativePath::new("docs/script.sh")));
         assert_eq!(event.status, AuditStatus::Success);
         assert_eq!(event.reason, None);
     }

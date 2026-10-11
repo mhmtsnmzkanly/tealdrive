@@ -18,6 +18,7 @@ use crate::audit::sink::JsonlAuditSink;
 use crate::config::AppConfig;
 use crate::download::transfer::DownloadHelper;
 use crate::errors::{ErrorKind, TealDriveError};
+use crate::fs::chmod::ChmodFileHelper;
 use crate::fs::create_folder::CreateFolderHelper;
 use crate::fs::listing::DirectoryListingHelper;
 use crate::fs::metadata::MetadataHelper;
@@ -49,6 +50,7 @@ pub trait WsHelperBackend:
     + MoveToTrashHelper
     + RestoreFromTrashHelper
     + DeletePermanentlyHelper
+    + ChmodFileHelper
     + UploadHelper
     + Send
     + Sync
@@ -68,6 +70,7 @@ impl<T> WsHelperBackend for T where
         + MoveToTrashHelper
         + RestoreFromTrashHelper
         + DeletePermanentlyHelper
+        + ChmodFileHelper
         + UploadHelper
         + Send
         + Sync
@@ -691,6 +694,19 @@ mod tests {
             request: &HelperRequest,
         ) -> Result<HelperResponse, TealDriveError> {
             Ok(crate::helper::trash::delete_permanently_with_roots(
+                request,
+                &self.roots,
+                &crate::config::SensitivePolicyConfig::default(),
+            ))
+        }
+    }
+
+    impl ChmodFileHelper for InProcessHelper {
+        fn execute_helper(
+            &self,
+            request: &HelperRequest,
+        ) -> Result<HelperResponse, TealDriveError> {
+            Ok(crate::helper::chmod::chmod_file_with_roots(
                 request,
                 &self.roots,
                 &crate::config::SensitivePolicyConfig::default(),

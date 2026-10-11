@@ -2,6 +2,7 @@ use std::io::{Read, Write};
 
 use crate::config::SensitivePolicyConfig;
 use crate::errors::TealDriveError;
+use crate::helper::chmod::chmod_file_with_roots;
 use crate::helper::create_folder::create_folder_with_roots;
 use crate::helper::download::download_file_with_roots;
 use crate::helper::listing::{allowed_roots_from_env, list_directory_with_roots};
@@ -151,6 +152,10 @@ pub fn handle_helper_request(request: &HelperRequest) -> HelperResponse {
     if request.command == HelperCommand::DeletePermanently {
         let roots = allowed_roots_from_env();
         return delete_permanently_with_roots(request, &roots, &SensitivePolicyConfig::default());
+    }
+    if request.command == HelperCommand::Chmod {
+        let roots = allowed_roots_from_env();
+        return chmod_file_with_roots(request, &roots, &SensitivePolicyConfig::default());
     }
     HelperResponse::not_implemented(request)
 }
@@ -377,6 +382,7 @@ pub(crate) mod tests_support {
                 },
             }),
             write_options: None,
+            chmod_mode: None,
         }
     }
 }

@@ -22,6 +22,8 @@ pub struct HelperRequest {
     pub limits: HelperLimits,
     pub list_options: Option<HelperListDirectoryOptions>,
     pub write_options: Option<HelperWriteOptions>,
+    #[serde(default)]
+    pub chmod_mode: Option<UnixMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -380,7 +382,7 @@ impl HelperResponse {
 pub fn command_disabled_in_v1(command: HelperCommand) -> bool {
     matches!(
         command,
-        HelperCommand::Chmod | HelperCommand::ExtractArchive
+        HelperCommand::ExtractArchive
     )
 }
 

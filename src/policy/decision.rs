@@ -9,9 +9,7 @@ use crate::policy::sensitive::{
     hidden_policy_decision, sensitive_edit_decision, sensitive_read_decision,
     SensitivePolicyDecision,
 };
-use crate::policy::webroot::{
-    check_webroot_archive_extract, check_webroot_chmod_executable, check_webroot_upload,
-};
+use crate::policy::webroot::{check_webroot_archive_extract, check_webroot_upload};
 use crate::protocol::frame::RequestId;
 use crate::protocol::message_type::MessageType;
 
@@ -160,6 +158,12 @@ impl<'a> PolicyEngine<'a> {
             {
                 return Ok(PolicyDecision::Deny(PolicyReason::SensitivePath));
             }
+            FileOperation::ChmodFile
+                if sensitive_edit_decision(relative_path, &self.config.sensitive_policy)
+                    == SensitivePolicyDecision::Deny =>
+            {
+                return Ok(PolicyDecision::Deny(PolicyReason::SensitivePath));
+            }
             FileOperation::UploadFile => {
                 if let Some(filename) = target_filename {
                     return Ok(check_webroot_upload(
@@ -169,9 +173,7 @@ impl<'a> PolicyEngine<'a> {
                     ));
                 }
             }
-            FileOperation::ChmodFile => {
-                return Ok(check_webroot_chmod_executable(root.is_web_root, 0o111));
-            }
+            FileOperation::ChmodFile => {}
             FileOperation::ExtractArchive => {
                 return Ok(check_webroot_archive_extract(root.is_web_root));
             }

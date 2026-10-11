@@ -259,3 +259,25 @@ parola/cookie/CSRF/dosya içeriği bulunmaması. Tarayıcı görsel testi yapıl
 SPA shutdown davranışı Node DOM/socket testleriyle doğrulandı. Canlı sunucuda
 kapanış bildirimi, yarım upload temizliği ve aktif helper işleminin tamamlanması
 yeniden doğrulandı. Son sağlık kontrolünde audit yazma hata sayacı 0.
+
+
+## Mobil arayüz düzeltmesi
+
+Dosya listesi 700 piksel ve altında kart düzenine geçiyor; boyut, izin, tarih ve
+bütün işlem düğmeleri görünür kalıyor. Masaüstünde tablo düzeni korunuyor; işlem
+düğmeleri gerçek tablo hücresinin içindeki ayrı bir kapsayıcıda sarılıyor.
+Uzun dosya/yol adları, üst menü, kök seçimi, arama ve footer ekranı genişletmiyor.
+Mode alanı dosya türü bitleri yerine izin bitlerini gösteriyor (`0700` gibi).
+
+Ayarlar küçük ekranlarda dikey yerleşiyor; metin/yol alanları tam genişlikte.
+Login, izin, ayar, editör ve çöp kutusu pencereleri ekran yüksekliğine sığıyor;
+uzun içerik içeriden kaydırılıyor, kapatma ve alt işlem düğmeleri erişilebilir.
+Dinamik viewport yüksekliği (`dvh`) ve eski tarayıcılar için `vh` fallback var.
+
+Gerçek headless Chromium ile canlı HTTPS/PAM/WSS bağlantısında 320×568, 375×667,
+390×844, 667×375, 768×1024 ve 1280×720 ekranlar test edildi. Dosya listesi,
+uzun dosya adı, ayarlar/uzun log yolu, izin seçicisi, editör ve çöp kutusunda yatay
+taşma veya ekran dışında modal görülmedi. JavaScript hatası yok. Ayarlar ve dosya
+izinleri test sırasında kaydedilmedi; kullanıcı dosyaları değiştirilmedi.
+Browser codec/shutdown regresyon testleri, Clippy ve release build geçti.
+Son sürüm Caddy üzerinden canlıda yeniden tarayıcı testinden geçirildi.

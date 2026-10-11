@@ -1065,6 +1065,92 @@ body {
 .permission-preview { font-family:monospace; letter-spacing:2px; margin:8px 0; }
 .permission-error { color:var(--danger); font-size:13px; min-height:20px; }
 .permission-grid + .form-group { margin-top:16px; }
+/* Responsive layout: keep every file action and metadata field available. */
+.app-layout, .content-container, .header-controls, .control-group,
+.user-info, .action-buttons, .breadcrumb-container { min-width: 0; }
+.app-header, .header-controls, .user-info, .app-footer { flex-wrap: wrap; gap: .75rem; }
+.form-input, .form-select { min-width: 0; max-width: 100%; }
+.breadcrumb-item, .file-target-name, .file-meta-hint,
+.modal-header h3, .settings-section p { overflow-wrap: anywhere; }
+.file-table { table-layout: fixed; }
+.file-table td { overflow-wrap: anywhere; }
+.item-name { min-width: 0; }
+.item-name > span:first-child { flex-shrink: 0; }
+.item-name > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.row-actions { flex-wrap: wrap; }
+.row-actions .btn { justify-content: center; }
+.modal-card { display: flex; flex-direction: column; min-width: 0;
+  max-height: calc(100vh - 2rem); max-height: calc(100dvh - 2rem); }
+.modal-lg, .modal-lightbox { width: 100%; }
+.modal-header, .modal-footer { flex-shrink: 0; gap: .75rem; }
+.modal-header > :first-child { min-width: 0; }
+.modal-close { flex-shrink: 0; }
+.modal-body { min-height: 0; overflow-y: auto; }
+.editor-body { overflow: hidden; }
+.modal-footer, .modal-actions { flex-wrap: wrap; }
+.settings-body { flex: 1; max-height: none; }
+.settings-grid { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
+.settings-row label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.settings-row .form-input { flex-shrink: 0; }
+.settings-row textarea, .settings-row input[type="text"] { width: 50%; resize: vertical; }
+.toast-container { max-width: calc(100vw - 2rem); }
+.toast { min-width: 0; overflow-wrap: anywhere; }
+.progress-info { gap: .5rem; }
+#uploadFileName { min-width: 0; overflow-wrap: anywhere; }
+#uploadPercent { flex-shrink: 0; }
+
+@media (max-width: 1000px) {
+  .app-header { align-items: flex-start; }
+  .header-controls { justify-content: flex-end; }
+  .brand-badge { display: none; }
+}
+
+@media (max-width: 700px) {
+  .app-header, .toolbar, .upload-progress-container { padding: .75rem; }
+  .content-container { padding: .75rem; }
+  .header-controls { width: 100%; justify-content: space-between; }
+  .control-group { flex: 1 1 100%; }
+  #rootSelect { flex: 1; }
+  .user-info { width: 100%; }
+  .user-badge { min-width: 0; overflow-wrap: anywhere; }
+  .toolbar { align-items: stretch; }
+  .breadcrumb-container, .action-buttons { width: 100%; }
+  .action-buttons > .btn { flex: 1 1 auto; justify-content: center; min-height: 40px; }
+  .action-buttons .search-box { flex: 1 1 100%; margin-left: 0 !important; }
+  #searchInput { width: 100% !important; min-width: 0; flex: 1; min-height: 40px; }
+  .file-table, .file-table tbody { display: block; }
+  .file-table thead { position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip-path: inset(50%); }
+  .file-table tbody > tr:not(.empty-row) { display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: .5rem; border-bottom: 1px solid var(--slate-700); }
+  .file-table td { display: block; width: auto; padding: .4rem; border: 0; min-width: 0; }
+  .file-table td:first-child, .file-table td[data-label="Modified"],
+  .file-table td[data-label="Original path"], .file-table td.col-actions { grid-column: 1 / -1; }
+  .file-table td[data-label]:not(:first-child)::before { content: attr(data-label) ": ";
+    color: var(--text-muted); font-size: .75rem; }
+  .file-table td.col-actions { text-align: left; }
+  .row-actions { justify-content: flex-start; margin-top: .35rem; gap: .5rem; }
+  .row-actions .btn { min-height: 40px; padding: .5rem .65rem; }
+  .empty-row { display: block; }
+  .empty-row td { padding: 1.25rem .5rem; }
+  .modal-backdrop { padding: .5rem; }
+  .modal-card { max-height: calc(100vh - 1rem); max-height: calc(100dvh - 1rem); }
+  .modal-lg { height: calc(100vh - 1rem); height: calc(100dvh - 1rem); }
+  .modal-header, .modal-body, .modal-footer { padding: .85rem; }
+  .editor-body { padding: 0; }
+  .modal-header h3 { font-size: 1rem; }
+  .modal-footer > .modal-actions { margin-top: 0; }
+  .settings-section { padding: .75rem; }
+  .settings-row { flex-direction: column; align-items: stretch; gap: .35rem; margin-bottom: .85rem; }
+  .settings-row .form-input, .settings-row textarea,
+  .settings-row input[type="text"] { width: 100%; }
+  .permission-grid { font-size: .8rem; }
+  .permission-grid th, .permission-grid td { padding: .65rem .15rem; }
+  .app-footer { padding: .75rem; }
+  .footer-meta { overflow-wrap: anywhere; }
+  .toast-container { bottom: 1rem; right: 1rem; }
+}
 "##;
 
 pub const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
@@ -1397,6 +1483,7 @@ pub const APP_JS: &str = r##"
 
       // Name & Icon
       const tdName = document.createElement('td');
+      tdName.setAttribute('data-label', 'Name');
       const nameWrapper = document.createElement('a');
       nameWrapper.className = 'item-name';
       nameWrapper.href = '#';
@@ -1418,19 +1505,26 @@ pub const APP_JS: &str = r##"
 
       // Size
       const tdSize = document.createElement('td');
+      tdSize.setAttribute('data-label', 'Size');
       tdSize.textContent = item.is_dir ? '-' : formatBytes(item.size);
 
       // Mode
       const tdMode = document.createElement('td');
-      tdMode.textContent = item.mode ? '0' + item.mode.toString(8) : '-';
+      tdMode.setAttribute('data-label', 'Mode');
+      tdMode.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
 
       // Modified
       const tdMod = document.createElement('td');
+      tdMod.setAttribute('data-label', 'Modified');
       tdMod.textContent = item.modified ? formatDate(item.modified) : '-';
 
       // Actions
       const tdAct = document.createElement('td');
-      tdAct.className = 'row-actions';
+      tdAct.className = 'col-actions';
+      tdAct.setAttribute('data-label', 'Actions');
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'row-actions';
+      tdAct.appendChild(actionGroup);
       const itemRelPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
 
       if (!item.is_dir) {
@@ -1438,24 +1532,24 @@ pub const APP_JS: &str = r##"
           const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(itemRelPath)}`;
           window.location.href = url;
         });
-        tdAct.appendChild(dlBtn);
+        actionGroup.appendChild(dlBtn);
         if (isMediaFile(item.name)) {
           const prevBtn = createActionButton('Preview', () => openLightbox(itemRelPath));
-          tdAct.appendChild(prevBtn);
+          actionGroup.appendChild(prevBtn);
         } else {
           const editBtn = createActionButton('Edit', () => viewOrEditFile(itemRelPath));
-          tdAct.appendChild(editBtn);
+          actionGroup.appendChild(editBtn);
         }
       }
 
       const chmodBtn = createActionButton('Permissions', () => openChmodModal(itemRelPath, item.mode));
-      tdAct.appendChild(chmodBtn);
+      actionGroup.appendChild(chmodBtn);
 
       const renameBtn = createActionButton('Rename', () => openRenameModal(item.name, itemRelPath));
-      tdAct.appendChild(renameBtn);
+      actionGroup.appendChild(renameBtn);
 
       const trashBtn = createActionButton('Trash', () => moveToTrash(itemRelPath), 'btn-danger');
-      tdAct.appendChild(trashBtn);
+      actionGroup.appendChild(trashBtn);
 
       tr.appendChild(tdName);
       tr.appendChild(tdSize);
@@ -1482,6 +1576,7 @@ pub const APP_JS: &str = r##"
 
       // Name & Icon
       const tdName = document.createElement('td');
+      tdName.setAttribute('data-label', 'Name');
       const nameWrapper = document.createElement('a');
       nameWrapper.className = 'item-name';
       nameWrapper.href = '#';
@@ -1502,37 +1597,44 @@ pub const APP_JS: &str = r##"
 
       // Size
       const tdSize = document.createElement('td');
+      tdSize.setAttribute('data-label', 'Size');
       tdSize.textContent = item.is_dir ? '-' : formatBytes(item.size);
 
       // Mode
       const tdMode = document.createElement('td');
-      tdMode.textContent = item.mode ? '0' + item.mode.toString(8) : '-';
+      tdMode.setAttribute('data-label', 'Mode');
+      tdMode.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
 
       // Modified
       const tdMod = document.createElement('td');
+      tdMod.setAttribute('data-label', 'Modified');
       tdMod.textContent = item.modified ? formatDate(item.modified) : '-';
 
       // Actions
       const tdAct = document.createElement('td');
-      tdAct.className = 'row-actions';
+      tdAct.className = 'col-actions';
+      tdAct.setAttribute('data-label', 'Actions');
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'row-actions';
+      tdAct.appendChild(actionGroup);
 
       if (!item.is_dir) {
         const dlBtn = createActionButton('Download', () => {
           const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
           window.location.href = url;
         });
-        tdAct.appendChild(dlBtn);
+        actionGroup.appendChild(dlBtn);
         if (isMediaFile(item.name)) {
           const prevBtn = createActionButton('Preview', () => openLightbox(relPath));
-          tdAct.appendChild(prevBtn);
+          actionGroup.appendChild(prevBtn);
         } else {
           const editBtn = createActionButton('Edit', () => viewOrEditFile(relPath));
-          tdAct.appendChild(editBtn);
+          actionGroup.appendChild(editBtn);
         }
       }
 
       const trashBtn = createActionButton('Trash', () => moveToTrash(relPath), 'btn-danger');
-      tdAct.appendChild(trashBtn);
+      actionGroup.appendChild(trashBtn);
 
       tr.appendChild(tdName);
       tr.appendChild(tdSize);
@@ -1682,22 +1784,29 @@ pub const APP_JS: &str = r##"
       const tr = document.createElement('tr');
 
       const tdName = document.createElement('td');
+      tdName.setAttribute('data-label', 'Name');
       tdName.innerHTML = `<span>🗑️</span> <span>${escapeHtml(item.display_name)}</span>`;
 
       const tdPath = document.createElement('td');
+      tdPath.setAttribute('data-label', 'Original path');
       tdPath.textContent = item.original_path || '-';
 
       const tdSize = document.createElement('td');
+      tdSize.setAttribute('data-label', 'Size');
       tdSize.textContent = formatBytes(item.size);
 
       const tdAct = document.createElement('td');
-      tdAct.className = 'row-actions';
+      tdAct.className = 'col-actions';
+      tdAct.setAttribute('data-label', 'Actions');
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'row-actions';
+      tdAct.appendChild(actionGroup);
 
       const restoreBtn = createActionButton('Restore', () => restoreFromTrash(item.trash_id));
-      tdAct.appendChild(restoreBtn);
+      actionGroup.appendChild(restoreBtn);
 
       const deleteBtn = createActionButton('Delete Permanently', () => deletePermanentlyFromTrash(item.trash_id), 'btn-danger');
-      tdAct.appendChild(deleteBtn);
+      actionGroup.appendChild(deleteBtn);
 
       tr.appendChild(tdName);
       tr.appendChild(tdPath);

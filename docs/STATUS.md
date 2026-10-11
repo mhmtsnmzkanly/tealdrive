@@ -208,3 +208,28 @@ helper 30 saniyelik kapanış süresinden sonra iptal/reap edildi, servis yakla�
 Sekiz yeni regression testi admission kapanışını, grace sonrası iptal/üst sınırı,
 HTTP stream tamamlama/iptalini, gerçek TCP listener kapanışını, upload unwind
 temizliğini ve gerçek helper'ın kilitte beklerken iptalini kapsar.
+
+## Kapanış popup bildirimi
+
+ConnectionStatus'a geriye uyumlu `shutting_down` ve `grace_period_seconds` alanları
+eklendi. Bildirim boşta veya helper işi çalışırken gönderilir; aktif işin cevabı
+korunur. Kontrollü kapanış close code 1001 / `Server shutting down` kullanır.
+Web arayüzü popup gösterir, yeni işleri engeller, editör metnini korur ve tekrar
+bağlanma yerine kullanıcının Check availability işlemini bekler. Bildirim dismiss
+sonrası tekrar açılmaz; klavye odağı ve eski WebSocket callback'leri denetlenir.
+Ağ hatası kontrollü kapanış olarak gösterilmez.
+
+514 test (ignored dahil), Clippy ve release build başarılıdır. Yeni browser
+regression testi gerçek SPA kodunu deterministik DOM/WebSocket harness'i içinde
+çalıştırır: açık editör, pending işlem cevabı, yeni istek engeli, geç handshake,
+Escape/focus, tekrar bildirim, 1001 fallback, erişilebilirlik kontrolü ve eski
+socket callback'lerini doğrular. Bu davranış testi gerçek tarayıcıda görsel test
+olarak sunulmaz. Rust testi status payload'ının yönünü ve eski map'lerin decode
+uyumluluğunu doğrular.
+
+Server/helper canlıya birlikte kuruldu. Gerçek HTTPS/WSS ile boşta popup mesajı,
+yarım upload temizliği ve close code/reason doğrulandı. Kilitli helper'a kapanış
+bildirimi iki saniyeden önce ulaştı; kilidi bırakınca işlem başarıyla tamamlandı,
+cevabı iletildi ve bildirim tekrarlanmadı. Ayrı 30 saniyelik zorunlu iptal testinde
+bildirim önceden ulaştı, helper iptal/reap edildi ve normal timeout restart sonrası
+geri yüklendi. Sürümlü HTTPS HTML/JavaScript'te popup kodu ve canlı health doğrulandı.

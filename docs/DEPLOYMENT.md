@@ -188,3 +188,23 @@ Ignored helper/kernel testleri uygun Linux izinleri ve kernel desteği gerektiri
 Kapanış regression testleri admission/drain/iptal sınırını, gerçek TCP dinleyicisini,
 HTTP stream kapanışını, upload temizliğini ve gerçek helper'ın kilitte beklerken
 iptalini kapsar. Canlı systemd/SIGTERM/SIGINT testlerinin sonuçları STATUS.md'dedir.
+
+### Kullanıcıya kapanış bildirimi
+
+Bağlı web kullanıcıları kontrollü kapanış başlar başlamaz popup görür. Popup yeni
+işlerin durduğunu, çalışan işlemlere en fazla 30 saniye tanındığını, eksik upload'ların
+tekrar denenmesi ve kaydedilmemiş değişikliklerin kopyalanması gerektiğini açıklar.
+Bağlantı kapandığında mesaj sunucunun durduğunu belirtir. Çalışan helper'ın cevabı
+popup açıkken alınabilir; yeni WebSocket komutları gönderilmez.
+
+Dismiss/Escape bildirimi kapatır, tekrar bildirimde popup yeniden açılmaz. Editörün
+metni ve açık penceresi korunur; sayfa otomatik yenilenmez. Check availability
+sunucuyu kontrol eder ve erişilebilir olduğunda oturum/giriş akışına döner. Servis
+restart'ı oturumları sıfırladığı için tekrar giriş gerekir. Popup kapanış nedeniyle
+otomatik giriş penceresiyle örtülmez; klavye odağı popup içinde tutulur ve dismiss
+sonrası önceki alana döner.
+
+Bildirim yalnızca bağlı kullanıcılara ulaştırılabilir. Ağ kesintisi/SIGKILL kapanış
+bildirimi olarak etiketlenmez. Bildirim gönderimi en fazla bir saniye bekler; yavaş
+istemci aktif helper'ın tamamlanmasını veya servis kapanışını durdurmaz. Güncel
+arayüz kodunu almak için deploy sırasında açık olan sayfayı bir kez yenileyin.

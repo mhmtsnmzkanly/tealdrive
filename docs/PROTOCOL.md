@@ -122,3 +122,27 @@ browser's header constants, codes and required request fields from those Rust
 sources. `tests/browser_contract.rs` runs the actual browser codec with Node against
 Rust handshake, directory, create-folder, UUID and >4 GiB raw offset fixtures.
 Changes to the Rust contracts must pass this test before deployment.
+
+## Shutdown notification
+
+During graceful shutdown the server sends an unsolicited `ConnectionStatus`
+(`0x0004`) to authenticated WebSocket clients, including while a helper operation
+is running. Its MessagePack map contains:
+
+```json
+{
+  "protocol_ready": false,
+  "message": "Server is shutting down. Sign in again after it restarts.",
+  "shutting_down": true,
+  "grace_period_seconds": 30
+}
+```
+
+`shutting_down` and `grace_period_seconds` are additive fields. Missing fields
+mean false/null for legacy status messages. The message does not resolve or cancel
+an outstanding request: its operation response may still arrive during draining.
+Clients must stop issuing new requests. After cleanup, the server closes the
+WebSocket with code 1001 and reason `Server shutting down`; this is also a fallback
+signal when the status notification was missed. Notification sending is bounded
+and cannot hold shutdown indefinitely. Disconnected clients or abruptly killed
+servers cannot deliver this notification.

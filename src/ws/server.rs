@@ -163,11 +163,19 @@ where
     H: WsHelperBackend + Clone + 'static,
 {
     Router::new()
-        .route("/", get(health_check))
+        .route("/", get(crate::ui::serve_index::<H>))
+        .route("/index.html", get(crate::ui::serve_index::<H>))
+        .route("/style.css", get(crate::ui::serve_style))
+        .route("/app.js", get(crate::ui::serve_app))
+        .route("/favicon.svg", get(crate::ui::serve_favicon))
+        .route("/favicon.ico", get(crate::ui::serve_favicon))
+        .route("/static/*path", get(crate::ui::serve_static_asset::<H>))
+        .route("/api/health", get(health_check))
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))
         .route("/api/session", get(session_handler::<H>))
         .route("/ws", get(websocket_upgrade::<H>))
+        .fallback(crate::ui::serve_fallback::<H>)
         .with_state(state)
 }
 

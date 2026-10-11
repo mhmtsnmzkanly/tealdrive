@@ -244,3 +244,108 @@ async fn test_e2e_server_http_login_session_lifecycle() {
     assert!(resp_str.contains("set-cookie: tealdrive_session="));
     assert!(resp_str.contains(r#""username":"alice""#));
 }
+
+#[tokio::test]
+async fn test_e2e_web_ui_and_static_assets_serving() {
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use tealdrive::audit::sink::JsonlAuditSink;
+    use tealdrive::auth::account::{MockAuthenticator, MockUser};
+    use tealdrive::config::AccountPolicyConfig;
+    use tealdrive::rate_limit::login::InMemoryLoginRateLimiter;
+    use tealdrive::session::store::InMemorySessionStore;
+    use tealdrive::ws::server::{build_router, WsServerState};
+
+    let helper_binary = PathBuf::from(env!("CARGO_BIN_EXE_tealdrive-helper"));
+    let client = HelperProcessClient::new(helper_binary, Duration::from_secs(5));
+
+    let auth = MockAuthenticator::new(AccountPolicyConfig::default())
+        .with_user(MockUser::regular("alice", "secret123"));
+
+    let config = AppConfig {
+        roots: vec![AllowedRoot {
+            root_id: RootId::new("home"),
+            base_path: temp_dir(),
+            read_only: false,
+            uploads_allowed: true,
+            hidden_files_allowed: false,
+            is_web_root: false,
+        }],
+        ..AppConfig::default()
+    };
+
+    let session_store = InMemorySessionStore::new(config.session.clone());
+    let audit_sink = JsonlAuditSink::open_default().expect("sink");
+    let state = WsServerState::with_authenticator(
+        config,
+        session_store,
+        client,
+        audit_sink,
+        Arc::new(auth),
+        InMemoryLoginRateLimiter::new(5),
+    );
+
+    let router = build_router(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind port");
+    let addr = listener.local_addr().expect("local addr");
+
+    tokio::spawn(async move {
+        axum::serve(listener, router.into_make_service())
+            .await
+            .expect("server run");
+    });
+
+    async fn get_req(addr: std::net::SocketAddr, path: &str) -> String {
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        let req = format!("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
+        stream.write_all(req.as_bytes()).await.expect("write");
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.expect("read");
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    // 1. GET /index.html (HTML & Security Headers)
+    let index_resp = get_req(addr, "/index.html").await;
+    assert!(index_resp.contains("HTTP/1.1 200 OK"));
+    assert!(index_resp.contains("text/html; charset=utf-8"));
+    assert!(index_resp.contains("x-content-type-options: nosniff"));
+    assert!(index_resp.contains("x-frame-options: SAMEORIGIN"));
+    assert!(index_resp.contains("content-security-policy:"));
+    assert!(index_resp.contains("TealDrive"));
+    assert!(index_resp.contains(r#"meta name="status" content="ok""#));
+
+    // 2. GET /style.css
+    let css_resp = get_req(addr, "/style.css").await;
+    assert!(css_resp.contains("HTTP/1.1 200 OK"));
+    assert!(css_resp.contains("text/css; charset=utf-8"));
+    assert!(css_resp.contains("--teal-500"));
+
+    // 3. GET /app.js
+    let js_resp = get_req(addr, "/app.js").await;
+    assert!(js_resp.contains("HTTP/1.1 200 OK"));
+    assert!(js_resp.contains("application/javascript; charset=utf-8"));
+    assert!(js_resp.contains("TDRV"));
+
+    // 4. GET /favicon.svg
+    let svg_resp = get_req(addr, "/favicon.svg").await;
+    assert!(svg_resp.contains("HTTP/1.1 200 OK"));
+    assert!(svg_resp.contains("image/svg+xml"));
+
+    // 5. GET /api/health
+    let health_resp = get_req(addr, "/api/health").await;
+    assert!(health_resp.contains("HTTP/1.1 200 OK"));
+    assert!(health_resp.contains("ok"));
+
+    // 6. SPA fallback for unknown path: GET /files/my-folder
+    let spa_resp = get_req(addr, "/files/my-folder").await;
+    assert!(spa_resp.contains("HTTP/1.1 200 OK"));
+    assert!(spa_resp.contains("text/html; charset=utf-8"));
+    assert!(spa_resp.contains("TealDrive"));
+
+    // 7. Unknown API endpoint returns 404 JSON: GET /api/unknown
+    let api_404_resp = get_req(addr, "/api/unknown").await;
+    assert!(api_404_resp.contains("HTTP/1.1 404 Not Found"));
+    assert!(api_404_resp.contains(r#"{"error":"not_found"}"#));
+}

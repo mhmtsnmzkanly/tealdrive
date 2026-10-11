@@ -13,6 +13,7 @@ use tealdrive::ws::server::{run_server, WsServerState};
 pub struct ServerArgs {
     pub config_path: Option<PathBuf>,
     pub bind_addr: Option<String>,
+    pub static_dir: Option<PathBuf>,
     pub helper_bin: Option<PathBuf>,
     pub check_config: bool,
     pub show_version: bool,
@@ -36,6 +37,12 @@ impl ServerArgs {
                         .next()
                         .ok_or_else(|| "--bind requires an address argument".to_owned())?;
                     parsed.bind_addr = Some(val);
+                }
+                "--static-dir" => {
+                    let val = iter
+                        .next()
+                        .ok_or_else(|| "--static-dir requires a path argument".to_owned())?;
+                    parsed.static_dir = Some(PathBuf::from(val));
                 }
                 "--helper-bin" => {
                     let val = iter
@@ -67,6 +74,7 @@ impl ServerArgs {
              Options:\n\
                -c, --config <PATH>       Path to TOML or JSON configuration file\n\
                -b, --bind <ADDR>         Override server listen address (e.g. 127.0.0.1:3000)\n\
+                   --static-dir <PATH>   Path to static frontend assets directory\n\
                    --helper-bin <PATH>   Path to tealdrive-helper binary\n\
                    --check-config        Validate configuration file and exit\n\
                -v, --version             Print version information\n\
@@ -108,6 +116,9 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     if let Some(bind_override) = args.bind_addr {
         config.server.bind_addr = bind_override;
     }
+    if let Some(static_dir) = args.static_dir {
+        config.server.static_dir = Some(static_dir);
+    }
 
     config.validate()?;
 
@@ -143,6 +154,8 @@ mod tests {
             "/etc/tealdrive.toml".to_owned(),
             "-b".to_owned(),
             "0.0.0.0:8080".to_owned(),
+            "--static-dir".to_owned(),
+            "/var/www/tealdrive".to_owned(),
             "--helper-bin".to_owned(),
             "/usr/lib/tealdrive/helper".to_owned(),
             "--check-config".to_owned(),
@@ -154,6 +167,10 @@ mod tests {
             Some(PathBuf::from("/etc/tealdrive.toml"))
         );
         assert_eq!(parsed.bind_addr.as_deref(), Some("0.0.0.0:8080"));
+        assert_eq!(
+            parsed.static_dir,
+            Some(PathBuf::from("/var/www/tealdrive"))
+        );
         assert_eq!(
             parsed.helper_bin,
             Some(PathBuf::from("/usr/lib/tealdrive/helper"))

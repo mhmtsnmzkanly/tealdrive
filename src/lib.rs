@@ -11,5 +11,6 @@ pub mod protocol;
 pub mod rate_limit;
 pub mod session;
 pub mod trash;
+pub mod ui;
 pub mod upload;
 pub mod ws;

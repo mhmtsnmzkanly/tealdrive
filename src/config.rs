@@ -126,6 +126,8 @@ impl AppConfig {
 pub struct ServerConfig {
     pub bind_addr: String,
     pub behind_tls_proxy: bool,
+    #[serde(default)]
+    pub static_dir: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -133,6 +135,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: "127.0.0.1:3000".to_owned(),
             behind_tls_proxy: true,
+            static_dir: None,
         }
     }
 }

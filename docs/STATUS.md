@@ -124,3 +124,23 @@ testi de dahil edildi. Çıktı `/root/tealdrive-real-test-results.log` içinde.
 
 Bu test gerçek HTTPS/WSS istemcisiyle gerçekleştirilmiştir; tarayıcının DOM/görsel
 etkileşim testi değildir. Üretim alan adı ve gerçek tarayıcı testi kullanıcıya kalır.
+
+## Yayın: tdrive.novastrum.dev
+
+Kullanıcının talebiyle 2026-10-11 tarihinde `https://tdrive.novastrum.dev` açıldı.
+Mevcut Caddyfile'a ayrı site bloğu eklendi; mevcut TLS snippet'i kullanıldı ve
+backend `127.0.0.1:13000` adresine yönlendirildi. Caddyfile validate sonrasında
+reload edildi. Önceki dosyalar `/root/tealdrive-deploy-backup-20261011-145127`
+altında root-only yedeklendi.
+
+`tealdrive.service` oluşturuldu, enabled/active durumda. Unprivileged `tealdrive`
+hesabıyla `/usr/local/bin/tealdrive-test-server` ve 4755 helper çalıştırıyor.
+Yapılandırma `/var/lib/tealdrive-test/config.toml`, veri `/srv/tealdrive-test`.
+Cookie Secure, TLS proxy modu açık ve allowed origin yalnızca yayın alan adı.
+Giriş hesabı `tealdrive-test`; parola repo dışında root-only dosyada tutuluyor.
+
+Dış alan adı üzerinden geçerli TLS sertifikasıyla ana sayfa, JavaScript, health,
+gerçek PAM girişi, oturum, HTTP Range ve logout doğrulandı. Aynı alan adının WSS
+bağlantısıyla handshake, listeleme, klasör oluşturma, upload, save, rename, ZIP,
+extraction, UID sahipliği ve çıkışta socket kapanışı tekrar başarılı oldu.
+Servisler test sonunda açık bırakıldı. Tarayıcıdaki görsel kullanım testi kullanıcıya kalır.

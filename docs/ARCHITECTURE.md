@@ -94,4 +94,8 @@ settings, helper timeout and login limiter.
 The audit sink is a synchronous mutex-protected JSONL file. Login, session/WebSocket
 and administrative lifecycle events are emitted; a complete per-file-operation
 audit trail and asynchronous log delivery are not provided. Errors are safe client
-messages, not OS path dumps. Operate audit rotation externally.
+messages, not OS path dumps. Configurable in-process rotation renames whole files,
+reopens the active descriptor and prunes numeric archives by count and age under
+the writer mutex. Target changes are prepared before config persistence/publication;
+failed preparation/persistence preserves the live sink. Cleanup occurs during writes.
+A complete event is retained even if it alone exceeds the configured size.

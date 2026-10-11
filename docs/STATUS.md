@@ -164,3 +164,23 @@ ve JavaScript URL'lerine içerik hash'i ekler. Yeni build yeni asset adresleri �
 canlı HTTPS üzerinden HTML'in referans verdiği sürümlü CSS/JS içinde izin seçici
 kodunun bulunduğu doğrulanmıştır. Browser contract/HTTP entegrasyon testleri,
 Clippy ve release build tekrar başarılıdır.
+
+## Yapılandırılabilir audit log saklama
+
+Admin Settings içindeki Audit Logs bölümüne dosya konumu, MiB cinsinden boyut,
+arşiv sayısı ve gün cinsinden yaş sınırı eklendi. TOML/API/UI aynı ayarları kullanır;
+PATCH, reload ve dosya izleyici değişiklikleri yeniden başlatmadan uygular. Yeni
+hedef açılamaz veya config kaydedilemezse mevcut log ve ayarlar korunur. Dosyalar
+0600 ile oluşturulur; JSON satırları bölünmeden boyuta göre döndürülür. Yaş temizliği
+log yazılırken çalışır; boşta çalışan bağımsız bir temizleme zamanlayıcısı yoktur.
+Konum değişince önceki konumdaki dosyalar taşınmaz veya silinmez. Audit olay kapsamı
+bu değişiklikle genişletilmemiştir.
+
+504 test (ignored kernel/helper testleri dahil), Clippy ve release build başarılı.
+Altı yeni test eşzamanlı rotasyonu, arşiv sayısı/yaşını, konum değişikliğini, güvenli
+hedef açmayı, başarısız config kaydını ve kapalı yaş sınırının TOML roundtrip'ini
+kapsar. Server ve helper binary'leri birlikte canlı servise kuruldu. HTTPS/PAM ve
+gerçek helper üzerinden mevcut dosyanın indirilmesi doğrulandı. Canlı admin API
+ile 1 KiB/iki arşiv sınırı, eski arşiv silme, null yaş sınırının save/reload sonrası
+korunması ve geçersiz hedefin reddedilmesi test edildi. Test sonunda canlı ayarlar
+`/var/lib/tealdrive-test/audit.jsonl`, 10 MiB, beş arşiv, 30 gün olarak geri yüklendi.

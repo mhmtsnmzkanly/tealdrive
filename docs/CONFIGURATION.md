@@ -98,3 +98,44 @@ their original expiry; login again if the trusted ticket lifetime was changed.
 Environment: `TEALDRIVE_CONFIG`, `TEALDRIVE_AUDIT_PATH`; helper binary lookup also
 accepts `TEALDRIVE_HELPER_PATH`. `TEALDRIVE_HELPER_ROOTS` is a non-elevated test utility
 and is ignored by the setuid boundary. Helper subprocesses clear inherited environment.
+
+## Audit storage and retention
+
+The administrator settings UI exposes log path, maximum active-file size, archive
+count and archive age. The server config accepts:
+
+```toml
+[audit]
+path = "/var/lib/tealdrive/audit.jsonl"
+max_file_bytes = 10485760
+max_archives = 5
+retention_days = 30
+```
+
+Defaults are 10 MiB, five archives and 30 days. If `path` is omitted at startup,
+`TEALDRIVE_AUDIT_PATH` is used, then `/tmp/tealdrive-audit.jsonl`. An explicit config
+path overrides the environment. A selected path must be absolute, use an existing
+writable parent and refer to a regular file; final-component symlinks are rejected.
+New log files use mode 0600. The administrator config file itself cannot be selected
+as the audit target.
+
+Rotation happens before an event would exceed `max_file_bytes`: `audit.jsonl.1`
+is newest, then `.2`, etc. The active file is reopened internally; copytruncate or
+service restart is not required. Records are never split; a single oversized event
+can exceed the bound. Sizes can range from 1 KiB to 1 GiB; UI labels use MiB.
+`max_archives` allows 0..1000 (zero discards rotated logs). Age is based on archive
+mtime; optional retention accepts 1..36500 days. A JSON patch with
+`{"audit":{"retention_days":null}}` disables the age limit while preserving count
+retention. Use `retention_days = 0` in TOML to disable the age limit. Disabled age retention
+serializes as 0 in both formats, preserving the setting across restarts.
+
+Cleanup runs when events are written (at most once a minute, and immediately after
+rotation/config change). No activity means no age cleanup. Only numeric archives
+for the currently selected filename are managed. Changing the path starts writing
+at the new location; previous logs are left intact and are not automatically moved
+or deleted. File watching, SIGHUP, admin reload and PATCH apply settings live.
+Failed target opening or persistence leaves the live sink/config unchanged.
+
+The audit remains synchronous and its event coverage is unchanged. These settings
+control storage, not which file operations are audited. Do not additionally rotate
+the same file with an external tool while application rotation is enabled.

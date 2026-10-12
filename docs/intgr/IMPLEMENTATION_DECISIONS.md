@@ -139,3 +139,8 @@ Admin öz askıya alma ve başka admin hesabına müdahale bu ilk yönetim yüze
 ## D029 — Sanal admin effective quota snapshot'ı
 
 Admin budget ile child reservation toplamı tek SQLite SELECT içinde okunur. İki farklı sorgu concurrent yönetim işlemiyle farklı snapshot'ları birleştirip gereğinden büyük kalan kota gösterebilirdi. Tahsis işlemleri mevcut immediate transaction'larını korur; kullanım helper ölçümüdür. Bu düzeltme OS quota/provisioning tamamlandı anlamına gelmez.
+
+
+## D030 — Admin kabul fixture'ının sınırları
+
+Public admin pozitif kabul testi mevcut gerçek kullanıcıyı admin'e yükseltmez veya askıya almaz. Yeni UUID OS identities/root-only metadata bootstrap ve ayrı yerel server kullanılır. Root policy fixture süresince geçici genişletilir; eski byte'lar atomik restore, cleanup sadece fixture identities/grants/proofs/home'larıdır. Server veya browser'a Root authority/rol verme komutu eklenmez. Root example yalnız development bootstrap'tır; final Wizard yetki atama akışı halen ayrı PLAN işidir.

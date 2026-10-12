@@ -10,6 +10,9 @@ case "${1:-}" in
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
     ;;
+  admin)
+    exec python3 tools/dev/admin-acceptance.py
+    ;;
   live)
     case "${2:-}" in
       ui-auth|ui-credentials|sdk-access|sdk-enrollment|sdk-suspend) tealdrive_script=$2 ;;
@@ -21,5 +24,5 @@ case "${1:-}" in
     export NODE_PATH="$tealdrive_tool_dir/node_modules${NODE_PATH:+:$NODE_PATH}"
     exec node "tests/live/$tealdrive_script.cjs"
     ;;
-  *) echo 'Usage: tools/dev/check.sh unit | live <test-name>' >&2; exit 2 ;;
+  *) echo 'Usage: tools/dev/check.sh unit | admin | live <test-name>' >&2; exit 2 ;;
 esac

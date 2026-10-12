@@ -40,3 +40,18 @@ Testleri aynı hesapta eşzamanlı çalıştırmayın: password/suspend bütün 
 Root/OS tests opt-in olarak Cargo'da kalır: `accounts_store`, `runtime_settings`, `helper_ticket`, `chmod_owner` ve gateway PAM testi. Ortam değişkenleri/ownership/kernel koşullarını ilgili test kaynağından okuyun; genel runner bunları otomatik çalıştırmaz.
 
 Geri üretilebilir bağımlılıklar package-lock ile pinlenmiştir; `node_modules/` ve `results/` Git dışında tutulur. Özel üretim rollback yedekleri burada tutulmaz.
+
+
+## Public admin / gerçek OS hesap kabulü
+
+```bash
+cargo build --locked --bins --example admin_acceptance_fixture
+# Kurulu /home/tealdrive/bin binary'leri test edilen kaynak sürümüyle eşleşmelidir.
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 tools/dev/check.sh admin
+```
+
+Root-only, explicit opt-in. Driver UUID adlarıyla üç geçici Linux UID/GID/home oluşturur, yalnız iki hesabı protected DB'de bootstrap eder; ayrı server127.0.0.1:13102 çalıştırır. Asıl server config/binary ve mevcut kullanıcı metadata'sını değiştirmez. Primary helper policy'ye test admin/roots geçici eklenir ve öz kayıt kapatılır; byte-identical eski dosya finally'de döner. Aynı helper'ı kullanan adayın yeni enrollment talepleri test boyunca bu geçici politika ile değerlendirilir. Caddy eski helper kullandığından etkilenmez.
+
+Chromium public SDK→HTTP→setuid helper yolunu kullanır; admin suspend/enable, canlı socket kapanışı, yeniden login reddi, eski cookie'nin geri açılmaması, gerçek kullanıcı UID'siyle dosya erişimi, CSRF/role/kind sınırları doğrulanır. Driver durdurduğu process yalnız kendi fixture server'ıdır; cleanup yalnız kendi UUID usernames/UIDs/DB rows/home'larını siler. Bütün DB'yi eski backup'a döndürmez. Dışarıdan helper policy değişirse onun üzerine yazmaz; root-private original dosyasını bırakarak hata verir. SIGKILL/power-loss için finally garantisi yoktur; private manifest/backup ile root onarımı gerekir.
+
+Fixture bootstrap example bir Wizard veya public admin rol verme API'si değildir. Root önceden admin rolünü atar; browser rol/UID/path seçmez. Python/Node scriptleri credential'ları komut argümanı veya stdout'a koymaz.

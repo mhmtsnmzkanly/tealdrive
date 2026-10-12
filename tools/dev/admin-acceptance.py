@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Explicit root fixture: isolated server, unique real Linux users, restored helper policy.
+Never resets existing account data or production service config. Requires installed current binaries.
+"""
+import fcntl
+import hashlib
+import json
+import os
+import pathlib
+import pwd
+import secrets
+import shutil
+import signal
+import socket
+import sqlite3
+import subprocess
+import time
+import urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+HELPER_CONFIG = pathlib.Path('/home/tealdrive/policy/helper.toml')
+DB = pathlib.Path('/home/tealdrive/auth/accounts.db')
+
+def run(args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+def atomic(path, data, mode=0o600):
+    temporary = path.with_name(path.name + '.acceptance-new')
+    with temporary.open('xb') as out:
+        os.chmod(temporary, mode)
+        out.write(data)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(temporary, path)
+
+def main():
+    if os.geteuid() != 0 or os.environ.get('TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE') != '1':
+        raise RuntimeError('Explicit root admin-acceptance opt-in required')
+    phase = os.environ.get('TEALDRIVE_ADMIN_ACCEPTANCE_PHASE', 'access')
+    if phase not in ('access', 'approval', 'ui'):
+        raise RuntimeError('Unknown acceptance phase')
+    lock = os.open('/home/tealdrive/auth/.admin-acceptance.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with socket.socket() as check:
+        check.bind(('127.0.0.1', 13102))  # Refuse an occupied test port.
+    suffix = secrets.token_hex(5)
+    config_dir = pathlib.Path('/home/tealdrive/policy/.admin-acceptance-' + suffix)
+    private_dir = pathlib.Path('/home/tealdrive/auth/.admin-acceptance-' + suffix)
+    config_dir.mkdir(mode=0o755)
+    private_dir.mkdir(mode=0o700)
+    original = HELPER_CONFIG.read_bytes()
+    original_mode = HELPER_CONFIG.stat().st_mode & 0o777
+    atomic(private_dir / 'helper-original.toml', original)
+    users = []
+    identities = {}
+    process = None
+    applied = None
+    log = None
+    audit = pathlib.Path('/home/tealdrive/logs/server/admin-acceptance-' + suffix + '.jsonl')
+    manifest = private_dir / 'manifest.json'
+    try:
+        for label, role, bootstrap in [('a', 'admin', True), ('u', 'user', True), ('p', 'user', False)]:
+            name = 'tdaccept' + label + suffix
+            try:
+                pwd.getpwnam(name)
+                raise RuntimeError('Fixture OS name already occupied')
+            except KeyError:
+                pass
+            run(['/usr/sbin/useradd', '-U', '-m', '-d', '/home/' + name, '-s', '/bin/bash', name], stdout=subprocess.DEVNULL)
+            identity = pwd.getpwnam(name)
+            identities[name] = identity
+            content = pathlib.Path(identity.pw_dir) / 'fixture.txt'
+            content.write_text('fixture bytes')
+            os.chown(content, identity.pw_uid, identity.pw_gid)
+            os.chmod(content, 0o600)
+            password = secrets.token_urlsafe(24)
+            linux_password = secrets.token_urlsafe(24)
+            run(['/usr/sbin/chpasswd'], input=(name + ':' + linux_password + '\n').encode(), stdout=subprocess.DEVNULL)
+            users.append(dict(username=name, role=role, password=password, linuxPassword=linux_password, bootstrap=bootstrap))
+        atomic(manifest, json.dumps(dict(users=users, config_dir=str(config_dir), audit_path=str(audit))).encode())
+        run([str(ROOT / 'target/debug/examples/admin_acceptance_fixture'), str(manifest)], cwd=ROOT)
+        applied = (config_dir / 'helper.toml').read_bytes()
+        atomic(HELPER_CONFIG, applied, original_mode)
+        log = (private_dir / 'server.log').open('wb')
+        process = subprocess.Popen(['/usr/sbin/runuser', '-u', 'tealdrive', '--', '/home/tealdrive/bin/tealdrive-server', '--config', str(config_dir / 'server.toml'), '--helper-bin', '/home/tealdrive/bin/tealdrive-helper'], stdout=log, stderr=log, start_new_session=True)
+        for _ in range(100):
+            if process.poll() is not None:
+                raise RuntimeError('Fixture server exited; inspect private log')
+            try:
+                with urllib.request.urlopen('http://127.0.0.1:13102/api/health', timeout=1) as response:
+                    if response.status == 200:
+                        break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError('Fixture server did not become ready')
+        env = os.environ.copy()
+        env['NODE_PATH'] = str(ROOT / 'tools/dev/node_modules')
+        env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
+        env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
+        run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+    finally:
+        if process and process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        if log:
+            log.close()
+        if applied is not None:
+            current = HELPER_CONFIG.read_bytes()
+            if hashlib.sha256(current).digest() != hashlib.sha256(applied).digest():
+                raise RuntimeError('Helper policy changed externally; original private backup retained, refusing overwrite')
+            atomic(HELPER_CONFIG, original, original_mode)
+        # Remove only this run's fresh usernames/UIDs; never restore the whole DB.
+        connection = sqlite3.connect(DB)
+        connection.execute('PRAGMA foreign_keys=ON')
+        for name, identity in identities.items():
+            row = connection.execute('SELECT id,uid,home FROM accounts WHERE username=?', (name,)).fetchone()
+            if row:
+                if row[1] != identity.pw_uid or row[2] != identity.pw_dir:
+                    raise RuntimeError('Fixture DB identity changed; refusing cleanup')
+                connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
+                connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
+            connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
+        connection.commit()
+        connection.close()
+        for name, identity in identities.items():
+            current = pwd.getpwnam(name)
+            if current.pw_uid != identity.pw_uid or current.pw_dir != '/home/' + name:
+                raise RuntimeError('OS fixture identity changed; refusing cleanup')
+            run(['/usr/sbin/userdel', '-r', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if HELPER_CONFIG.read_bytes() != original:
+            raise RuntimeError('Helper policy restoration failed')
+        for path in audit.parent.glob(audit.name + '*'):
+            path.unlink()
+        shutil.rmtree(config_dir)
+        shutil.rmtree(private_dir)
+        os.close(lock)
+    print(json.dumps(dict(fixtureCleanup=True, helperPolicyRestored=True, productionUntouched=True)))
+
+if __name__ == '__main__':
+    main()

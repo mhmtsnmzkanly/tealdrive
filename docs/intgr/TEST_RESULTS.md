@@ -223,3 +223,8 @@ Native testte204 cookie bridge başarıyla cookie bağladığı halde audit Conn
 ### Effective quota eşzamanlı snapshot düzeltmesi
 
 Admin budget ve child allocation artık tek SELECT snapshot'ında okunur. Mevcut `virtual_admin_uses_root_pool_and_own_quota_excludes_child_reservations` passed; root-only `accounts_store --ignored`2 test passed (private ownership/WAL, concurrency, backup/restart ve migration). Clippy all-targets -D warnings passed. OS/provisioning/usage kabulü değildir.
+
+
+## 2026-10-12 — Public admin gerçek Linux hesap kabulü
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 tools/dev/check.sh admin` passed. UUID fixture admin/user ayrı gerçek Linux UID/GID/home, Root metadata bootstrap, ayrı service-UID server13102 ve kurulu setuid helper kullanıldı. Chromium admin.systemUsers.deny public endpoint üzerinden suspended/generation; kullanıcı socket<=5s kapandı, dosya erişimi ve login reddedildi. Public allow sonrası eski cookie401 kaldı; yeni login/generation ve gerçek helper read/list çalıştı. Normal user yönetim403, CSRF'siz mutation403, Linux ID virtual endpoint403, admin self-suspend403 passed. Üç fixture OS account/home ve yalnız kendilerine ait DB/grant/proof satırları finally'de kaldırıldı; helper config byte-identical restored. Bu artık doğrudan public admin API kabulüdür; önceki doğrudan Root SQL suspend testiyle karıştırılmaz.

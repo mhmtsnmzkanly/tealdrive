@@ -53,3 +53,13 @@ Migration kırılmaması için explicit --runtime-config split modunu açar; Wiz
 ## D013 — Ortak path policy ve dolaylı erişim
 
 Yeni access_policy deny union; root/global ve username root/admin/personal katmanları. Discover tüm alt ağacı kapatır (recursive yanlış false olsa da), NotFound; diğer action yasağı PolicyDenied. Default .ssh/.gnupg/.aws/.kube bileşenleri her derinlikte kapalı. .env bu motorun default yasağı değil; legacy sensitive varsayılanı migration'da ayrı değerlendirilecek. Özel staging path gerçek destination'a çevrilerek kontrol edilir; açık generic staging bypass yok. Parent taşıma/silme bounded tree preflight, source Read ve target Write; archive readonly'de yasaklı child omission. Trash metadata bounded/no-follow ve original/current policy kontrolü. Hardlink inode alternatifi için root default reject_file_hardlinks=true; meşru multi-link file da kapalı. Bu path politikası harici Linux owner rename'lerini engelleyen inode etiketi veya ayrı OS izolasyonu değildir.
+
+## D014 — Protected SQLite/Argon2id temel deposu
+
+Rusqlite0.40.2 bundled SQLite + RustCrypto Argon2id0.6.0, kendi parola kriptosu yok. Root-only explicit init/open, root0600 DB/sidecars, protected parents ve SQLite NOFOLLOW. Init mevcut DB'yi overwrite/adopt etmez; schema/application ID doğrulanır. WAL/FULL/foreign keys/STRICT, 3s busy timeout, short immediate tx. Root-only online backup, mevcut hedef overwrite yok. Parola public metadata'da yok, random salt, default19MiB/t2/p1, 12 Unicode karakter/1024byte, bounded PHC verify ve unknown-user dummy hash. [RustCrypto](https://docs.rs/argon2/0.6.0/argon2/) ve [rusqlite](https://docs.rs/rusqlite/0.40.2/rusqlite/struct.Connection.html) sözleşmeleri kullanıldı.
+
+Admin budget bir allocation tavanıdır; gerçek kullanım helper ölçümü. Sanal admin own quota budget-child allocation; gerçek Linuxadmin home kullanımı OS kotasında kalır. Deleted tahsisi filesystem purge sonrası serbest bırakılır. DB aktör yetkisi gateway'in doğruladığı ticket'tan gelir; JSON role claim değil. Bu temel depo PAM/enrollment/UID sağlama/gateway tamamlanmadan canlı auth olarak açılmaz.
+
+## D015 — MSRV korunumu
+
+Projedeki Rust1.85 alt sınırı gerçek toolchain ile test edildi. Yeni crypto bağımlılığının ctutils0.4.3 sürümü Rust1.87 istiyordu; uyumlu son0.4.2 Cargo.lock'a sabitlendi. Diğer yeni ana bağımlılıklar güncel kararlı; cargo +1.85 check --locked --all-targets geçti. Dependency güncellemesinde MSRV kontrolü tekrarlanır.

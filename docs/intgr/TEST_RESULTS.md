@@ -117,3 +117,12 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - Clippy all targets: passed.
 
 - Ayrı privileged kabul: cargo test --test e2e_integration_test -- --ignored --nocapture: 2 passed (gerçek helper lifecycle, quota-lock cancellation). Kernel confinement açık çıktıyla: 1 passed, skip olmadı.
+
+## 2026-10-12 — Protected hesap metadata deposu
+
+- accounts:: 5 passed; random salted Argon2id, wrong password, PHC resource bounds, lifecycle/generation, no-secret public metadata, admin isolation, virtual self-revoke reddi, root pool/budget/child tahsis ve virtual-admin own available quota.
+- cargo test --test accounts_store -- --ignored: root gerçek dosya testi passed; DB/WAL/SHM private root izinleri, nobody UID okuyamaz, restart, concurrent iki400-byte tahsisten600 bütçeye yalnızca biri sığar, symlink/0644/unknown schema reddi, init/backup overwrite reddi, WAL-aware online backup doğrulaması.
+- Tam aktif suite: 527 unit + diğer aktif integration/browser/SDK/CLI passed (root gerektirenler ayrıca çalıştırıldı).
+- Clippy all targets: passed.
+- Gerçek Rust1.85 toolchain check --locked --all-targets: passed; ilk MSRV denemesi ctutils gereksinimini yakaladı, compatible lock seçimi sonrası tekrar geçti.
+- Bu sonuç DB temelini doğrular; enrollment/virtual management uçları henüz canlı auth testine dahil değildir.

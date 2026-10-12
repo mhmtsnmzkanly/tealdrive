@@ -1,6 +1,6 @@
 # TealDrive STORAGE geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** SQLite/Argon2id metadata deposu ve root-only açma/online backup altyapısı uygulandı (`src/accounts/`). Helper auth, enrollment, Wizard ve web yönetim bağlantıları devam ediyor; çalışan PAM akışı henüz bu depoya geçirilmedi. Aşağıdaki merkezi dizin ve users.d örnekleri hedef kurulum yapısıdır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
@@ -89,3 +89,15 @@ Systemd unit `/etc/systemd/system/tealdrive.service`, PAM kaydı `/etc/pam.d/tea
 - Systemd unit ve PAM kaydı sistem konumlarında kalır. Proxy dosyaları ayrı ürünlerin sorumluluğudur. İşletim sistemi kayıtlarında Linux hesabı oluşturmak sanal hesabın gereğidir.
 - Log sahipliği tek bir üst dizin izniyle değil, yazan bileşenin yetkisine göre belirlenecek. Server log yazma yetkisi güvenlik tavanını değiştirme yetkisi vermez.
 
+
+## Uygulanan hesap deposu
+
+`accounts.db` root:root0600; ebeveynler root sahibi/yazmaya kapalı. Symlink, geniş DB/WAL/SHM/journal izinleri ve bilinmeyen schema sürümü reddedilir. Init mevcut dosyayı benimsemez veya overwrite etmez. WAL, synchronous FULL, foreign keys, strict tablolar, trusted_schema OFF; mutasyonlarda immediate transaction. Online SQLite backup committed WAL içeriğini de taşır, yeni root0600 hedefe yazılır; hedef üzerine yazılmaz.
+
+Tablolar accounts, quota_pool, admin_budgets, security_state, enrollment, login_limits. Son iki tablo auth gateway bağlantısı için hazırdır, henüz canlı login davranışını değiştirmez. Kullanıcı dosyaları ve gerçek kullanım sayaçları SQLite'a yazılmaz. Public Account metadata parola/hash içermez. Username/UID tekil; gerçek OS eşleştirme gateway'de ayrıca zorunludur.
+
+Root havuzdan admin bütçesi verir; admin yalnızca kendi sanal alt hesaplarına tahsis yapar. Linux hesap kotası burada tutulmaz. Root bir nologin UID'ye bağlı sanal admin yaratabilir; sanal adminin kendi dosya üst sınırı admin bütçesi eksi alt hesap rezervasyonlarıdır. Gerçek kullanım helper'dan ayrıca ölçülmelidir; bütçe azaltırken kullanımı da denetleme gateway işidir, DB allocation kontrolü kullanım ölçümü olarak sunulmaz. Deleted hesap tahsisi veri purge başarılı olana kadar korunur.
+
+Parola PHC Argon2id v19, random16-byte salt, 19MiB/t2/p1 başlangıç maliyeti. En az12 Unicode karakter, en fazla1024byte. Verification PHC maliyetleri ve output/salt boyutları bounded; bilinmeyen hesap için dummy hash çalışır. Parola/root hash public JSON'a çıkmaz. Parola değişimi/suspend/revoke/delete generation artırır; yeni helper ticket denetimi bu generation'a bağlanacak. Sanal kullanıcı self-revoke yapamaz; logout ayrı oturum işlemidir.
+
+Bu depo tek başına yeni auth modelinin tamamlandığı anlamına gelmez. Protected IPC, PAM enrollment ve bilet/aktif oturum iptali tamamlanmadan SDK enrollment/virtual backend capability açılmaz.

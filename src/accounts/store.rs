@@ -175,7 +175,10 @@ pub(super) fn account(connection: &Connection, id: &str) -> Result<Account, Stor
         .optional()?
         .ok_or(StoreError::NotFound)
 }
-fn authorized(connection: &Connection, actor: &Authority) -> Result<Option<Account>, StoreError> {
+pub(super) fn authorized(
+    connection: &Connection,
+    actor: &Authority,
+) -> Result<Option<Account>, StoreError> {
     match actor {
         Authority::Root => Ok(None),
         Authority::Account { id, generation } => {
@@ -190,7 +193,11 @@ fn authorized(connection: &Connection, actor: &Authority) -> Result<Option<Accou
         }
     }
 }
-fn manage(connection: &Connection, actor: &Authority, target: &Account) -> Result<(), StoreError> {
+pub(super) fn manage(
+    connection: &Connection,
+    actor: &Authority,
+    target: &Account,
+) -> Result<(), StoreError> {
     if let Some(actor) = authorized(connection, actor)? {
         if actor.role != Role::Admin
             || target.owner_admin_id.as_deref() != Some(&actor.id)

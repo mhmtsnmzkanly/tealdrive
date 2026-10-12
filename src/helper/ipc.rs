@@ -615,6 +615,8 @@ pub fn run_secure_helper<R: Read, W: Write>(
                         &account,
                         config.home_template.as_ref(),
                     )?;
+                    crate::helper::account_gateway::apply_persisted_policy(&mut config, &account)
+                        .map_err(|_| TealDriveError::PermissionDenied)?;
                     if account.username != user.username
                         || account.uid != user.uid
                         || account.gid != user.gid

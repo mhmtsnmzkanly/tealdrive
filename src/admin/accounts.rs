@@ -6,7 +6,7 @@ use crate::{
     ws::server::{extract_session_id, WsHelperBackend, WsServerState},
 };
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -26,7 +26,89 @@ enum Action {
     List(AccountKind),
     Access(AccountKind, String, bool),
     Approve(String),
+    PolicyGet(Option<String>, Option<AccountKind>),
+    PolicySet(
+        Option<String>,
+        Option<AccountKind>,
+        u64,
+        Vec<crate::policy::access::Rule>,
+    ),
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PolicyQuery {
+    account_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PolicyPayload {
+    account_id: Option<String>,
+    expected_generation: u64,
+    rules: Vec<crate::policy::access::Rule>,
+}
+pub async fn own_policy<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::PolicyGet(None, None)).await
+}
+pub async fn set_own_policy<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Json(p): Json<PolicyPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    if p.account_id.is_some() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    dispatch(
+        state,
+        headers,
+        Action::PolicySet(None, None, p.expected_generation, p.rules),
+    )
+    .await
+}
+macro_rules! policy_handlers {
+    ($get:ident,$set:ident,$kind:expr) => {
+        pub async fn $get<H>(
+            State(state): State<WsServerState<H>>,
+            headers: HeaderMap,
+            Query(p): Query<PolicyQuery>,
+        ) -> Response
+        where
+            H: WsHelperBackend + Clone + 'static,
+        {
+            dispatch(
+                state,
+                headers,
+                Action::PolicyGet(Some(p.account_id), Some($kind)),
+            )
+            .await
+        }
+        pub async fn $set<H>(
+            State(state): State<WsServerState<H>>,
+            headers: HeaderMap,
+            Json(p): Json<PolicyPayload>,
+        ) -> Response
+        where
+            H: WsHelperBackend + Clone + 'static,
+        {
+            let Some(id) = p.account_id else {
+                return StatusCode::BAD_REQUEST.into_response();
+            };
+            dispatch(
+                state,
+                headers,
+                Action::PolicySet(Some(id), Some($kind), p.expected_generation, p.rules),
+            )
+            .await
+        }
+    };
+}
+policy_handlers!(system_policy, set_system_policy, AccountKind::Linux);
+policy_handlers!(virtual_policy, set_virtual_policy, AccountKind::Virtual);
 pub async fn list_system<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
@@ -130,7 +212,7 @@ where
     if !session.allowed_by(&cfg) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    if !matches!(action, Action::List(_))
+    if !matches!(action, Action::List(_) | Action::PolicyGet(..))
         && !crate::session::csrf::validate_header(&session, &headers)
     {
         return StatusCode::FORBIDDEN.into_response();
@@ -139,13 +221,37 @@ where
         return StatusCode::FORBIDDEN.into_response();
     };
     let operation = match &action {
-        Action::List(_) => None,
+        Action::List(_) | Action::PolicyGet(..) => None,
+        Action::PolicySet(..) => Some("change_account_policy"),
         Action::Approve(_) => Some("approve_linux_account"),
         Action::Access(_, _, true) => Some("enable_web_access"),
         Action::Access(_, _, false) => Some("suspend_web_access"),
     };
     let command = match action {
         Action::List(kind) => AccountCommand::ListAccounts { grant, kind },
+        Action::PolicyGet(account_id, kind) => AccountCommand::GetPolicy {
+            grant,
+            account_id,
+            kind,
+        },
+        Action::PolicySet(account_id, kind, expected_generation, rules) => {
+            if rules.len() > 512 || expected_generation == 0 {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            let layer = if account_id.is_some() {
+                crate::accounts::policies::PolicyLayer::Admin
+            } else {
+                crate::accounts::policies::PolicyLayer::Personal
+            };
+            AccountCommand::SetPolicy {
+                grant,
+                account_id,
+                kind,
+                expected_generation,
+                layer,
+                rules,
+            }
+        }
         Action::Access(kind, account_id, enabled) => AccountCommand::SetAccountAccess {
             grant,
             account_id,
@@ -182,6 +288,7 @@ where
     .await
     {
         Ok(Ok(AccountReply::Accounts(accounts))) => Json(accounts).into_response(),
+        Ok(Ok(AccountReply::Policy{account,rules,deny_system_components})) => Json(serde_json::json!({"account":account,"rules":rules,"deny_system_components":deny_system_components})).into_response(),
         Ok(Ok(AccountReply::AccountUpdated(account))) => {
             if let Some(operation) = operation {
                 let mut event = crate::audit::event::AuditEvent::new(
@@ -190,6 +297,7 @@ where
                     session.uid,
                     session.gid,
                     match operation {
+                        "change_account_policy" => crate::audit::event::AuditAction::PolicyChanged,
                         "approve_linux_account" => {
                             crate::audit::event::AuditAction::AccountApproved
                         }

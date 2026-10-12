@@ -1,4 +1,5 @@
 //! Protected hybrid account storage: metadata here, user contents remain on disk.
 pub mod grants;
 pub mod password;
+pub mod policies;
 pub mod store;

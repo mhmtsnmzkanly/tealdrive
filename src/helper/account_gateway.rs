@@ -76,6 +76,19 @@ pub enum AccountCommand {
         grant: SessionGrant,
         username: String,
     },
+    GetPolicy {
+        grant: SessionGrant,
+        account_id: Option<String>,
+        kind: Option<AccountKind>,
+    },
+    SetPolicy {
+        grant: SessionGrant,
+        account_id: Option<String>,
+        kind: Option<AccountKind>,
+        expected_generation: u64,
+        layer: crate::accounts::policies::PolicyLayer,
+        rules: Vec<crate::policy::access::Rule>,
+    },
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
@@ -90,6 +103,11 @@ pub enum AccountReply {
     PasswordChanged,
     Accounts(Vec<Account>),
     AccountUpdated(Account),
+    Policy {
+        account: Account,
+        rules: crate::policy::access::UserRules,
+        deny_system_components: Vec<String>,
+    },
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GatewayFailure {
@@ -256,6 +274,65 @@ fn dispatch(
 ) -> Result<AccountReply, GatewayFailure> {
     let at = crate::session::store::InMemorySessionStore::now_epoch_seconds();
     match command {
+        AccountCommand::GetPolicy {
+            grant,
+            account_id,
+            kind,
+        } => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let (target, authority) = policy_target(store, config, &actor, account_id, kind)?;
+            let mut rules = store
+                .policy(&authority, &target.id)
+                .map_err(GatewayFailure::from)?;
+            rules
+                .root_rules
+                .extend(config.access_policy.root_rules.clone());
+            if let Some(trusted) = config.access_policy.users.get(&target.username) {
+                rules.root_rules.extend(trusted.root_rules.clone());
+                // TOML rules remain Root-owned even if their historical labels
+                // describe an admin/personal source. Web edits cannot remove them.
+                rules.root_rules.extend(trusted.admin_rules.clone());
+                rules.root_rules.extend(trusted.personal_rules.clone());
+            }
+            Ok(AccountReply::Policy {
+                account: target,
+                rules,
+                deny_system_components: config.access_policy.deny_system_components.clone(),
+            })
+        }
+        AccountCommand::SetPolicy {
+            grant,
+            account_id,
+            kind,
+            expected_generation,
+            layer,
+            rules,
+        } => {
+            use crate::accounts::policies::PolicyLayer;
+            if layer == PolicyLayer::Root || rules.len() > 512 || expected_generation == 0 {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            if (layer == PolicyLayer::Personal && (account_id.is_some() || kind.is_some()))
+                || (layer == PolicyLayer::Admin && (account_id.is_none() || kind.is_none()))
+            {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let (target, authority) = policy_target(store, config, &actor, account_id, kind)?;
+            if layer == PolicyLayer::Admin && target.role == crate::accounts::store::Role::Admin {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let updated = store
+                .set_policy(&authority, &target.id, expected_generation, layer, rules)
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(updated))
+        }
         AccountCommand::Login(request) => {
             let account = store
                 .verify_password(&request.username, &request.password)
@@ -494,6 +571,55 @@ fn dispatch(
             Ok(AccountReply::LoggedOut)
         }
     }
+}
+
+fn policy_target(
+    store: &AccountStore,
+    config: &AppConfig,
+    actor: &Account,
+    id: Option<String>,
+    kind: Option<AccountKind>,
+) -> Result<(Account, crate::accounts::store::Authority), GatewayFailure> {
+    match (id, kind) {
+        (None, None) => Ok((
+            actor.clone(),
+            crate::accounts::store::Authority::Account {
+                id: actor.id.clone(),
+                generation: actor.generation,
+            },
+        )),
+        (Some(id), Some(kind)) if id.len() <= 128 => {
+            let authority = management_authority(config, actor, kind)?;
+            let target = store.get(&id).map_err(GatewayFailure::from)?;
+            if target.kind != kind {
+                return Err(GatewayFailure::Forbidden);
+            }
+            store
+                .policy(&authority, &id)
+                .map_err(GatewayFailure::from)?;
+            Ok((target, authority))
+        }
+        _ => Err(GatewayFailure::Forbidden),
+    }
+}
+
+/// Read only after the operation grant and current NSS identity were verified.
+pub(crate) fn apply_persisted_policy(
+    config: &mut AppConfig,
+    account: &Account,
+) -> Result<(), GatewayFailure> {
+    let store = AccountStore::open(std::path::Path::new(crate::layout::ACCOUNTS))
+        .map_err(GatewayFailure::from)?;
+    let rules = store
+        .policy(&crate::accounts::store::Authority::Root, &account.id)
+        .map_err(GatewayFailure::from)?;
+    let mut ceiling = crate::policy::access::AccessPolicy::default();
+    ceiling.users.insert(account.username.clone(), rules);
+    config.access_policy.extend_ceiling(&ceiling);
+    config
+        .access_policy
+        .validate()
+        .map_err(|_| GatewayFailure::Unavailable)
 }
 
 #[cfg(test)]

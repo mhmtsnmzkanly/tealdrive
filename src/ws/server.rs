@@ -264,6 +264,21 @@ where
         )
         .route("/api/session", get(session_handler::<H>))
         .route(
+            "/api/account/policy",
+            get(crate::admin::accounts::own_policy::<H>)
+                .post(crate::admin::accounts::set_own_policy::<H>),
+        )
+        .route(
+            "/api/admin/system/policy",
+            get(crate::admin::accounts::system_policy::<H>)
+                .post(crate::admin::accounts::set_system_policy::<H>),
+        )
+        .route(
+            "/api/admin/virtual/policy",
+            get(crate::admin::accounts::virtual_policy::<H>)
+                .post(crate::admin::accounts::set_virtual_policy::<H>),
+        )
+        .route(
             "/api/admin/accounts/system",
             get(crate::admin::accounts::list_system::<H>),
         )

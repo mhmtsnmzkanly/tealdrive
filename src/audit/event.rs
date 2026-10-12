@@ -739,6 +739,7 @@ pub enum AuditAction {
     AccountApproved,
     AccountEnabled,
     AccountSuspended,
+    PolicyChanged,
     HttpRequest,
     SearchFiles,
     ListTrash,

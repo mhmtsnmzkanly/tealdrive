@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "playwright": "1.64.0"
+  },
+  "name": "tealdrive-development-checks",
+  "private": true
+}

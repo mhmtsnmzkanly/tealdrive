@@ -100,3 +100,6 @@ Root
 | Kota | Config kökü bazında uygulama kotası | Sanal hesaba TealDrive kotası; Linux hesabında OS kotası gösterimi |
 | Kurulum | Elle komutlar; Caddy odaklı | Wizard ve proxy'siz/proxy'li kabul testleri |
 
+
+
+Yeni aşama: [Web kimliği/hesap yönetimi raporu](AUTH_MANAGEMENT_REPORT.md), [geliştirme araçları](../../tools/dev/README.md), [temizlik kaydı](../../tools/dev/CLEANUP.md).

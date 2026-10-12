@@ -1,1 +1,4 @@
 /target
+
+/tools/dev/node_modules/
+/tools/dev/results/

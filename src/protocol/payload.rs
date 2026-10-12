@@ -929,3 +929,10 @@ mod tests {
         assert_eq!(decoded, value);
     }
 }
+
+#[derive(Clone, Serialize, Deserialize, zeroize::ZeroizeOnDrop)]
+pub struct AuthLoginRequest {
+    #[zeroize(skip)]
+    pub username: String,
+    pub password: String,
+}

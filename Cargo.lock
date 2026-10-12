@@ -995,6 +995,7 @@ dependencies = [
  "tar",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-tungstenite",
  "toml",
  "tower",
  "uuid",

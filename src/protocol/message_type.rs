@@ -12,6 +12,8 @@ pub enum MessageType {
     ProtocolReady = 0x0003,
     ConnectionStatus = 0x0004,
     Error = 0x0005,
+    AuthLogin = 0x0010,
+    AuthResult = 0x0011,
     ListDirectory = 0x0100,
     DirectoryList = 0x0101,
     FileMetadata = 0x0102,
@@ -54,15 +56,15 @@ impl MessageType {
     pub fn direction(self) -> MessageTypeDirection {
         use MessageType::*;
         match self {
-            ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile | SaveTextFile
-            | SearchFiles | ListTrash | UploadBegin | UploadChunk | UploadEnd | UploadAbort
-            | DownloadBegin | CreateFolder | RenameFile | MoveFile | CopyFile | MoveToTrash
-            | RestoreFromTrash | DeletePermanently | ChmodFile | CompressZip | CompressTarGz
-            | ExtractArchive => MessageTypeDirection::ClientToServer,
-            ServerHello | ProtocolReady | ConnectionStatus | DirectoryList | FileMetadata
-            | TextFileContent | SearchResults | TrashList | DownloadChunk | DownloadEnd
-            | OperationStarted | OperationProgress | OperationDone | OperationFailed
-            | PermissionDenied | PolicyDenied | ValidationError => {
+            AuthLogin | ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile
+            | SaveTextFile | SearchFiles | ListTrash | UploadBegin | UploadChunk | UploadEnd
+            | UploadAbort | DownloadBegin | CreateFolder | RenameFile | MoveFile | CopyFile
+            | MoveToTrash | RestoreFromTrash | DeletePermanently | ChmodFile | CompressZip
+            | CompressTarGz | ExtractArchive => MessageTypeDirection::ClientToServer,
+            AuthResult | ServerHello | ProtocolReady | ConnectionStatus | DirectoryList
+            | FileMetadata | TextFileContent | SearchResults | TrashList | DownloadChunk
+            | DownloadEnd | OperationStarted | OperationProgress | OperationDone
+            | OperationFailed | PermissionDenied | PolicyDenied | ValidationError => {
                 MessageTypeDirection::ServerToClient
             }
             Error => MessageTypeDirection::ServerToClient,
@@ -106,6 +108,8 @@ impl TryFrom<u16> for MessageType {
             0x0003 => Ok(ProtocolReady),
             0x0004 => Ok(ConnectionStatus),
             0x0005 => Ok(Error),
+            0x0010 => Ok(AuthLogin),
+            0x0011 => Ok(AuthResult),
             0x0100 => Ok(ListDirectory),
             0x0101 => Ok(DirectoryList),
             0x0102 => Ok(FileMetadata),

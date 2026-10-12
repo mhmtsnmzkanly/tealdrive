@@ -98,6 +98,8 @@ pub struct WsServerState<H> {
     pub config: DynamicConfig,
     pub shutdown: crate::shutdown::Shutdown,
     pub operation_slots: Arc<tokio::sync::Semaphore>,
+    pub pre_auth_slots: Arc<tokio::sync::Semaphore>,
+    pub auth_bridges: Arc<Mutex<std::collections::HashMap<String, crate::ws::auth::CookieBridge>>>,
     pub session_store: Arc<Mutex<InMemorySessionStore>>,
     pub helper_client: Arc<H>,
     pub audit_sink: Arc<JsonlAuditSink>,
@@ -204,6 +206,8 @@ impl<H> WsServerState<H> {
             config: DynamicConfig::new(config, config_path).with_audit_sink(audit_sink.clone()),
             shutdown: crate::shutdown::Shutdown::default(),
             operation_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            pre_auth_slots: Arc::new(tokio::sync::Semaphore::new(64)),
+            auth_bridges: Arc::new(Mutex::new(std::collections::HashMap::new())),
             session_store: Arc::new(Mutex::new(session_store)),
             helper_client: Arc::new(helper_client),
             audit_sink,
@@ -220,6 +224,8 @@ impl<H> Clone for WsServerState<H> {
             config: self.config.clone(),
             shutdown: self.shutdown.clone(),
             operation_slots: self.operation_slots.clone(),
+            pre_auth_slots: self.pre_auth_slots.clone(),
+            auth_bridges: self.auth_bridges.clone(),
             session_store: self.session_store.clone(),
             helper_client: self.helper_client.clone(),
             audit_sink: self.audit_sink.clone(),
@@ -271,6 +277,8 @@ where
             get(crate::admin::api::get_users_handler::<H>),
         )
         .route("/ws", get(websocket_upgrade::<H>))
+        .route("/ws/auth", get(crate::ws::auth::upgrade::<H>))
+        .route("/api/session/bind", post(crate::ws::auth::bind_cookie::<H>))
         .fallback(crate::ui::serve_fallback::<H>)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -457,9 +465,10 @@ where
         audit.response(StatusCode::UNAUTHORIZED, &HeaderMap::new());
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let csrf_invalid = session
-        .as_ref()
-        .is_some_and(|s| !crate::session::csrf::validate_header(s, request.headers()))
+    let csrf_invalid = request.uri().path() != "/api/session/bind"
+        && session
+            .as_ref()
+            .is_some_and(|s| !crate::session::csrf::validate_header(s, request.headers()))
         && matches!(
             *request.method(),
             axum::http::Method::POST | axum::http::Method::PATCH | axum::http::Method::DELETE
@@ -781,7 +790,7 @@ impl Drop for UploadCleanup {
     }
 }
 
-async fn handle_socket_connection<H>(
+pub(super) async fn handle_socket_connection<H>(
     socket: WebSocket,
     state: WsServerState<H>,
     context: WsConnectionContext,
@@ -806,8 +815,10 @@ where
     };
     let initial_config = config.load_full();
     let (mut sender, mut receiver) = socket.split();
-    let server_hello = create_server_hello_frame(&initial_config)?;
-    send_frame(&mut sender, &shutdown, &server_hello).await?;
+    if !context.protocol_ready {
+        let server_hello = create_server_hello_frame(&initial_config)?;
+        send_frame(&mut sender, &shutdown, &server_hello).await?;
+    }
 
     let _ = audit_sink.emit(&AuditEvent::websocket_connect(
         RequestId::new(),

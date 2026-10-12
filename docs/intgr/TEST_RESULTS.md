@@ -42,3 +42,10 @@ AuthRequest/LoginPayload drop sırasında zeroize; PAM password CString yerine z
 - cargo test --locked --lib auth::: 14 passed.
 - cargo test --locked --lib helper::ipc::tests: 10 passed.
 - cargo clippy --locked --all-targets -- -D warnings: passed.
+
+## 2026-10-12 — WS-first auth
+
+- cargo test --locked --test ws_auth --test browser_contract: 2 passed.
+- ws::handshake::tests: 7 passed.
+- Gerçek ephemeral TCP WS: kötü Origin reddi, login öncesi list reddi, binary hello, yanlış parola, aynı WS'de doğru parola, HttpOnly bind ve replay reddi; audit içinde parola/bind token yok.
+- Legacy /ws korunur; SDK /ws/auth ayrı sınırlı pre-auth durum makinesi.

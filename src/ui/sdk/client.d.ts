@@ -88,6 +88,9 @@ export interface Session {
   roots: Array<{
     rootId: string;
     readOnly: boolean;
+    isWebRoot: boolean;
+    uploadsAllowed: boolean;
+    usedBytes: number | null;
     quotaBytes: number | null;
   }>;
 }

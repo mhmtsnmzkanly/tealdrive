@@ -839,7 +839,8 @@ export class TealDriveClient {
     }
     await this._getSession();
     if (!this._session) fail("SESSION_BIND_FAILED");
-    if (this._mode === "managed") await this._refreshState();
+    if (this._mode === "managed" && this._session.roots.length)
+      await this._refreshState();
     return freeze(clone(this._session));
   }
   async _logout() {

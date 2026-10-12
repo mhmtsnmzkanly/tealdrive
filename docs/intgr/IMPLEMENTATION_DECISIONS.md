@@ -112,3 +112,9 @@ ServerHello.authentication gerçek mode/enrollment/self-registration bilgisini y
 ## D025 — Bodyless cookie bridge audit sonucu
 
 204/205/304 HTTP body üretmez; Hyper body wrapper'ı poll etmeyebilir. HttpAudit bu status'ları expected0 kabul eder, başarılı cookie bridge'i yanlış ConnectionClosed olarak işaretlemez. HEAD semantiği korunur; gerçek yarım download hâlâ Failed.
+
+## D026 — Virtual grant quota ve görünür home roots
+
+Authenticated/Validated account view sanal hesapta effectiveQuota verir: virtual admin bütçe-child allocations; tahsis yoksa0. File helper root quota'yı bu DB tavanıyla minimum alır, service snapshot genişletemez. Linux OS quota ölçümü ayrı PLAN işidir. Web session/login response sadece NSS home ile eşleşen configured root'ları sunar; başkasının alias'ı görünmez. Henüz root template atanmayan hesap authenticated olabilir, roots boş gelir; SDK başarılı auth'u directory refresh hatasına çevirmez. Automatic home templates/provisioning + gerçek iki UID quota kabulü bekler.
+
+Web parola ayrı bir credential/hash'tir; kullanıcının Linux parolasıyla aynı değeri seçmesi server tarafından ayrıca karşılaştırılmıyor. Farklı değer seçilmesi önerilir. Linux parola/fingerprint'ı kalıcı tutmadan ve yanlış PAM denemeleriyle OS lockout üretmeden ilk kayıt yapılır.

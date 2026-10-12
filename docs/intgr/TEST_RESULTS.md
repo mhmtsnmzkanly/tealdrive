@@ -184,3 +184,4 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 ### Bodyless audit düzeltmesi
 
 Native testte204 cookie bridge başarıyla cookie bağladığı halde audit ConnectionClosed kaydediyordu. Status204/205/304 bodyless testinde guard end() çağrılmadan drop edildiğinde Success/0byte/no reason geçti; interrupted download ayrımı korundu. Web-mode root guard'ı exact NSS home olarak daraltıldı; child path home root'a relative olur, ayrı user-controlled parent-symlink sub-root sunulmaz.
+- Virtual account view testinde initial budget0, admin budget600-child200=own400, child200 doğrulandı. Helper snapshot DB effective quota üstüne çıkamaz; gerçek virtual UID provisioning/enforcement native kabulü ayrı PLAN 5'tedir. Session metadata configured root'ları exact home'a filtreler.

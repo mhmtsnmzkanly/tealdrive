@@ -583,7 +583,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 gid: request.gid,
             };
             let config = if elevated {
-                let config = crate::helper::security::trusted_config()
+                let mut config = crate::helper::security::trusted_config()
                     .map_err(|_| TealDriveError::PermissionDenied)?;
                 if config.web_accounts.enabled {
                     let Some(grant) = grant else {
@@ -625,6 +625,13 @@ pub fn run_secure_helper<R: Read, W: Write>(
                                 "Root is outside the authenticated home.",
                             ),
                         );
+                    }
+                    if account.kind == crate::accounts::store::AccountKind::Virtual {
+                        let quota = account.quota_bytes.unwrap_or(0);
+                        for root in &mut config.roots {
+                            root.quota_bytes =
+                                Some(root.quota_bytes.map_or(quota, |ceiling| ceiling.min(quota)));
+                        }
                     }
                 } else {
                     if grant.is_some() {

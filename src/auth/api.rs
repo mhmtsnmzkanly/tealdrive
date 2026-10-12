@@ -398,6 +398,13 @@ where
     let roots = cfg
         .allowed_roots()
         .iter()
+        .filter(|root| {
+            !web_mode
+                || auth_success
+                    .home_dir
+                    .as_ref()
+                    .is_some_and(|home| &root.base_path == home)
+        })
         .map(|r| RootSummary {
             root_id: r.root_id.0.clone(),
             read_only: r.read_only,
@@ -545,12 +552,27 @@ where
             let roots = cfg
                 .allowed_roots()
                 .iter()
+                .filter(|root| {
+                    account
+                        .as_ref()
+                        .is_none_or(|account| root.base_path == account.home)
+                })
                 .map(|r| RootSummary {
                     root_id: r.root_id.0.clone(),
                     read_only: r.read_only,
                     is_web_root: r.is_web_root,
                     uploads_allowed: r.uploads_allowed,
-                    quota_bytes: r.quota_bytes,
+                    quota_bytes: if account.as_ref().is_some_and(|account| {
+                        account.kind == crate::accounts::store::AccountKind::Virtual
+                    }) {
+                        let quota = account
+                            .as_ref()
+                            .and_then(|account| account.quota_bytes)
+                            .unwrap_or(0);
+                        Some(r.quota_bytes.map_or(quota, |ceiling| ceiling.min(quota)))
+                    } else {
+                        r.quota_bytes
+                    },
                     used_bytes: None,
                 })
                 .collect();

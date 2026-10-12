@@ -191,6 +191,17 @@ pub fn execute(command: AccountCommand) -> Result<AccountReply, GatewayFailure> 
         .map_err(GatewayFailure::from)?;
     dispatch(&mut store, &config, caller, command)
 }
+fn account_view(store: &AccountStore, mut account: Account) -> Result<Account, GatewayFailure> {
+    if account.kind == AccountKind::Virtual {
+        account.quota_bytes = Some(
+            store
+                .effective_quota(&account.id)
+                .map_err(GatewayFailure::from)?
+                .unwrap_or(0),
+        );
+    }
+    Ok(account)
+}
 fn dispatch(
     store: &mut AccountStore,
     config: &AppConfig,
@@ -213,7 +224,10 @@ fn dispatch(
                     config.session.absolute_timeout_seconds.min(43200),
                 )
                 .map_err(GatewayFailure::from)?;
-            Ok(AccountReply::Authenticated { account, grant })
+            Ok(AccountReply::Authenticated {
+                account: account_view(store, account)?,
+                grant,
+            })
         }
         AccountCommand::BeginEnrollment(request) => {
             let existing = store
@@ -233,8 +247,14 @@ fn dispatch(
                 return Err(GatewayFailure::Forbidden);
             }
             let before = snapshot(actual)?;
-            let authenticated = crate::auth::pam::authenticate_local(&request, &policy)
-                .map_err(|_| GatewayFailure::InvalidCredentials)?;
+            let authenticated =
+                crate::auth::pam::authenticate_local(&request, &policy).map_err(|error| {
+                    if error == crate::auth::AuthError::AuthBackendUnavailable {
+                        GatewayFailure::Unavailable
+                    } else {
+                        GatewayFailure::InvalidCredentials
+                    }
+                })?;
             if snapshot(authenticated)? != before {
                 return Err(GatewayFailure::Forbidden);
             }
@@ -265,14 +285,17 @@ fn dispatch(
                     config.session.absolute_timeout_seconds.min(43200),
                 )
                 .map_err(GatewayFailure::from)?;
-            Ok(AccountReply::Authenticated { account, grant })
+            Ok(AccountReply::Authenticated {
+                account: account_view(store, account)?,
+                grant,
+            })
         }
         AccountCommand::Validate(grant) => {
             let account = store
                 .verify_grant(&grant, &caller, at)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
-            Ok(AccountReply::Validated(account))
+            Ok(AccountReply::Validated(account_view(store, account)?))
         }
         AccountCommand::Logout(grant) => {
             store
@@ -537,5 +560,50 @@ mod tests {
             AccountCommand::Validate(second)
         )
         .is_err());
+    }
+    #[test]
+    fn virtual_account_view_uses_budget_minus_child_allocations() {
+        use crate::accounts::store::{Authority, NewAccount, Role};
+        let mut store = AccountStore::memory();
+        let admin = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "tenant".into(),
+                    uid: 200000,
+                    gid: 200000,
+                    home: "/home/tenant".into(),
+                    kind: AccountKind::Virtual,
+                    role: Role::Admin,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            account_view(&store, admin.clone()).unwrap().quota_bytes,
+            Some(0)
+        );
+        store.set_pool(&Authority::Root, 1000).unwrap();
+        store
+            .set_admin_budget(&Authority::Root, &admin.id, 600)
+            .unwrap();
+        let child = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "child".into(),
+                    uid: 200001,
+                    gid: 200001,
+                    home: "/home/child".into(),
+                    kind: AccountKind::Virtual,
+                    role: Role::User,
+                    owner_admin_id: Some(admin.id.clone()),
+                    quota_bytes: Some(200),
+                },
+            )
+            .unwrap();
+        assert_eq!(account_view(&store, admin).unwrap().quota_bytes, Some(400));
+        assert_eq!(account_view(&store, child).unwrap().quota_bytes, Some(200));
     }
 }

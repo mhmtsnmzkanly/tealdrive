@@ -213,3 +213,8 @@ SDK nesne/method isimleri, popup, çeviri ve browser reconnect helper içinde uy
 ## Gizli öğe erişimi — kesin son kapsam
 
 Gizlenen dosya/dizin webden hiç yokmuş gibi davranır: Liste/search dışı doğrudan stat/read/download/editor, recursive copy/archive, trash/undo ve audit görüntüleme de güvenli policy kontrolünden geçer. Known hidden ile missing yanıtları dışarıda aynı bulunamadı davranışına normalize edilir; iç audit gerçek policy nedenini kaydedebilir. UI filtresi yetmez; helper tüm source/target/alt içerik yollarını kontrol eder. Yeni isimle erişim/hardlink gibi dolaylı erişim sınırları test edilir, OS seviyesinde görünmezlik garantisi iddia edilmez.
+
+
+## Uygulanan hesap policy gateway'i
+
+Protected DB policy records Root/admin/personal deny katmanlarını saklar. Root-only config ceiling ve DB katmanları helper'da snapshot restrict öncesi birleştirilir. PolicyGet/Set komutları canlı process-bound grant/NSS/role/kind/owner denetimlidir; web Root katmanını seçemez. Personal yalnız kendisine, admin yalnız yetkili scope'a yazar. Değişiklik atomik generation artırır ve pending enrollment proof'larını temizler. Bozuk policy fail-closed. TOML kullanıcı kuralları Root-owned kalır. Bkz. D035 ve TEST_RESULTS policy kabulü.

@@ -262,3 +262,12 @@ Dört yeni test: doğrulanmış home kullanımı ve template kısıtlarının ko
 Aday 127.0.0.1:13101 güncel binary'lerle legacy config'te yeniden başlatıldı; `tools/dev/check.sh live ui-auth` passed. Rust1.85.0 all-target check passed. Root/PAM/Chromium bu kabulde gerçekten çalıştırıldı; OS virtual provisioning/native quota/undo bu testin kapsamında değildir.
 
 Son normal paket: **550 unit passed,1 explicit PAM ignored**; normal integration tests passed. Clippy all-targets -D warnings, fmt, diff ve Rust1.85.0 all-target check passed. Yeni test automatic mode için web-account zorunluluğu/static root karıştırma/invalid root ID/runtime PATCH reddi/serde roundtrip'i ve iki ayrı home'un aynı root ID ile snapshot paylaşamamasını doğrular.
+
+
+## 2026-10-12 — Protected policy SDK/UI/PAM kabulü
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_POLICY_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` passed. Public SDK personal add/remove/set, admin get/add/set, correct kind and owner scope, expectedGeneration/expectedRevision conflict, self-change clears SDK session, old live socket revoke, hidden file direct read NOT_FOUND, personal layer clear leaves admin chmod denial passed. Server snapshot'ta kayıtlı olmayan DB kısıtını helper bağımsız uyguladı. Native UI kişisel checkbox save→relogin→persisted restriction ve admin checkbox/remove save→persisted admin layer clear passed. Root settings/policy dosyası byte-identical; PolicyChanged audit both actors+target verified; temporary DB policy records/grants/OS users/home cleanup passed.
+
+Ek store unit: personal/cross-account/Root layer authority, atomic generation/CAS, malformed JSON fail-closed/invalid path no commit, virtual tenant admin only-own-child + cannot replace personal layer. SDK deterministic capability default false, camelCase DTO, revision-bound rule ID, invalid path, Root rule removal rejection, CSRF payload and virtual default routing passed. Normal package553 unit passed,1 PAM opt-in ignored; normal integrations passed. Clippy/fmt/MSRV1.85.0/strict d.ts ve final diff checks kaydedildi.
+
+UI native test ilk yeni denemede yanlış `#loginBtn` test selector'ında timeout verdi; gerçek `#loginForm button[type=submit]` selector'ı kullanılarak düzeltildi. Uygulama güvenlik kontrolü değişmedi.

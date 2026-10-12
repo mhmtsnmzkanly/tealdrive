@@ -176,3 +176,14 @@ D033'ün hazırladığı resolver artık Root-only `AppConfig.home_template` se�
 Legacy sensitive deny/warn listelerini template seçimiyle otomatik silmek izin genişlemesi olurdu; Root açık migration sırasında inceler. Yeni kurulum için config örneği .env pattern'lerini iki listeden de çıkarır, sistem bileşeni deny motoru korunur. Native fixture'da .env deny kaldırılınca ilk deneme POLICY_DENIED verdi: warn_read listesi de mevcut sensitive motorunda erişim kontrolüne katılıyor. Test config'i açıkça iki listeyi güncelledi; production Root kuralları gevşetilmedi.
 
 Aday binary/helper birlikte yenilendi; eski binary'ler private rollback dizininde tutulur. Caddy backend'i ve gerçek kullanıcı verileri taşınmadı. Kullanıcı admin/personal policy mutation uçları ve Wizard Root rol/policy düzenlemesi henüz uygulanmadı; home maddesi bütünüyle tamamlanmış sayılmaz.
+
+
+## D035 — Protected kullanıcı politikası kalıcılığı ve CAS
+
+Kullanıcı policy metadata'sı root-only accounts.db `security_state` içinde `account_policy_v1:<account-id>` şemalı/versioned bounded JSON olarak tutulur. Ayrı kullanıcı dosyalarını service yazabilir yapmak veya Root-owned users.d'yi server'a açmak yerine mevcut protected SQLite control plane kullanılır. İlk explicit hesap kaydı default kullanır; var olan bozuk/version-unknown kayıt sessiz default'a düşmez. En fazla512 kural/katman, serialized record512KiB, shared AccessPolicy doğrulaması uygulanır.
+
+Root CLI store Authority::Root ile Root katmanını yönetebilir. Web gateway Root katmanını reddeder. Personal yalnız kendisi; admin yalnız Root roster+DB Linux admin veya kendi virtual children scope. Kind endpoint'e bağlıdır. Root TOML'deki eski admin/personal etiketli kurallar bile web açısından immutable Root rules olarak gösterilir. Bunlar editable DB katmanıyla birleştirilip bağımsız helper ceiling olarak uygulanır; snapshot onları çıkaramaz.
+
+Katman replacement + generation++ + pending PAM proof silme aynı immediate transaction'dır. expectedGeneration zorunlu CAS'tir. Eski cookie/grant/lease geçersizdir, SDK kendi hesabı değiştiyse session/state'i temizler. Admitted eski işlemin değişiklikten önce tamamlanması tüm harici writer yarışlarını sıfırlama iddiası değildir; yeni helper girişleri güncel generation/NSS/Root policy kontrolünden geçer. Rule ID revision-bound index'tir (`personal_0` vb), kalıcı inode kimliği değildir. SDK add/remove current revision'ı okur, tek CAS write yapar; conflict otomatik yeniden denenmez.
+
+`authentication.policy_management` ayrı capability; eski hello'da default false. SDK files.policy ve admin system/virtual policy surfaces tipler/cookbook ile bağlandı. UI salt okunur üst katmanlar ve checkbox deny seçimi kullanır; başarılı kişisel save yeniden girişe yönlendirir. Servis DB'yi açmaz, Root config'i yazmaz. PolicyChanged audit actor/target ve operation içerir; policy/parola içeriği merkezi loga yazılmaz. Trusted Root journal/undo sonraki ayrı aşamadır.

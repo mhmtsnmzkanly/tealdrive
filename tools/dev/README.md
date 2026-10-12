@@ -80,3 +80,11 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_ADMIN_A
 ```
 
 Root template static roots'u değiştirir; geçici hesapların home'u NSS'den gelir. Existing production Root policy restore edilir. `.env` açık/.ssh doğrudan kapalı, public HTTP download ve cross-home reddi ayrıca doğrulanır. Native config geçici olduğu için mevcut adayda eşzamanlı yeni enrollment çalıştırmayın.
+
+Protected policy public SDK/UI/actual UID kabulü:
+
+```sh
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_POLICY_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+```
+
+Temporary policy rows also cleaned; never changes a permanent user's policy/role/password.

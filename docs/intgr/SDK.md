@@ -157,3 +157,18 @@ await API.admin.systemUsers.allow({accountId: approved.id}); // Root deny/NSS ko
 ```
 
 `authentication.linuxApproval` onay uçlarının capability'sidir; eski server'da false. UID/GID/home/role/parola args kabul edilmez. Root/admin atanması bu API'nin işi değildir. Virtual admin global Linux işlemlerini yapamaz; kendi virtual children için list/disable/enable kullanır. Create/delete/quota henüz kapalıdır. SDK types: AccountMetadata/UserCandidate/UserCandidates; hata401/403/409/503 kanonik karşılıklarla döner.
+
+
+## Çalışan policy API
+
+`getInfo().authentication.policyManagement` true olduğunda çalışır; eski server default false. Personal yalnız kendi katmanını, system/virtual yönetim yalnız admin katmanını değiştirir. Root kuralları salt okunur; başka Root feature/filesystem kısıtları da uygulanır. Success bütün hedef session'larını iptal eder.
+
+```js
+const view = await api.files.policy.get();
+await api.files.policy.set({ expectedGeneration: view.account.generation, rules: [{ path: "private", recursive: true, deny: ["discover"] }] });
+// Kişisel save kendi oturumunu kapatır; yeni handshake/login gerekir.
+const target = await api.admin.virtualUsers.getPolicy({ accountId: "acct_customer" });
+await api.admin.virtualUsers.setPolicy({ accountId: target.account.id, expectedGeneration: target.account.generation, rules: [{ path: "production", recursive: true, deny: ["chmod", "delete", "move"] }] });
+```
+
+Add/remove convenience method'ları tek CAS write kullanır, conflict'te retry yapmaz. Get revision-bound `ruleId` ve `revision` döndürür; remove yalnız editable layer ID'sini alır. `admin.policy` kind verilmezse virtual admin için virtual, Linux admin için Linux seçer; açık system/virtual method'ları tercih edilir. Tam result/options/error tipleri client.d.ts'de.

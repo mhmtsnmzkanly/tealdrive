@@ -101,7 +101,7 @@ export interface Quota {
   warningPercent: number;
   measuredAt: number | string | null;
   stale: boolean;
-  measurement: "logical_bytes";
+  measurement: "logical_bytes" | "allocated_bytes";
   source: "helper";
 }
 export interface QuotaWarning {
@@ -134,6 +134,8 @@ export interface ServerInfo {
     accountManagement: boolean;
     linuxApproval: boolean;
     policyManagement: boolean;
+    virtualAccounts: boolean;
+    virtualDelete: boolean;
     enrollment: boolean;
     selfRegistration: boolean;
   }>;
@@ -372,6 +374,16 @@ export interface UserCandidates {
   users: readonly UserCandidate[];
   truncated: boolean;
 }
+export type AccountVersion =
+  | { expectedGeneration: number; expectedRevision?: never }
+  | { expectedRevision: string; expectedGeneration?: never };
+export interface AdminBudget {
+  limitBytes: number;
+  reservedBytes: number;
+  remainingBytes: number;
+  usedBytes?: number;
+  enforcement: "application" | "user_quota";
+}
 export interface AdminAPI {
   settings: {
     get(): Promise<unknown>;
@@ -407,22 +419,27 @@ export interface AdminAPI {
       limit?: number;
       cursor?: string | null;
     }): Promise<unknown>;
+    /** Creates a locked/nologin OS identity and initial web password atomically in metadata.
+     * A repeated idempotency key returns the same account and NEVER resets its password.
+     * On a network failure error.params.idempotencyKey can be reused. No credentials are stored by SDK. */
     create(options: {
       name: string;
       quotaBytes: number;
-      idempotencyKey: string;
-    }): Promise<unknown>;
-    setQuota(options: {
-      accountId: string;
-      quotaBytes: number;
-      expectedRevision: string;
-    }): Promise<unknown>;
+      password: string;
+      idempotencyKey?: string;
+    }): Promise<AccountMetadata>;
+    setQuota(
+      options: { accountId: string; quotaBytes: number } & AccountVersion,
+    ): Promise<AccountMetadata>;
     disable(options: { accountId: string }): Promise<AccountMetadata>;
     enable(options: { accountId: string }): Promise<AccountMetadata>;
-    delete(options: { accountId: string }): Promise<void>;
+    /** Root must explicitly enable deletion. Access ends immediately; data stays for Root retention (default36h). */
+    delete(
+      options: { accountId: string } & AccountVersion,
+    ): Promise<AccountMetadata>;
   };
   policy: AdminPolicyAPI;
-  quota: { getBudget(): Promise<unknown> };
+  quota: { getBudget(): Promise<AdminBudget> };
 }
 export interface ClientOptions {
   stateMode?: "managed" | "client";

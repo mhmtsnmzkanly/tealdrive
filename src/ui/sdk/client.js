@@ -342,26 +342,17 @@ export class TealDriveClient {
                         method === "list" ? "GET" : "POST",
                         o,
                       )
-                    : this._featureHttp(
-                        "virtual_accounts",
-                        `/api/admin/virtual/${method}`,
-                        method === "list" ? "GET" : "POST",
-                        o,
-                        true,
-                      ),
+                    : method === "create"
+                      ? this._createVirtual(o)
+                      : method === "setQuota"
+                        ? this._virtualQuota(o)
+                        : this._deleteVirtual(o),
           ]),
         ),
       ),
       policy: this._policyAPI("admin"),
       quota: Object.freeze({
-        getBudget: async () =>
-          this._featureHttp(
-            "virtual_accounts",
-            "/api/admin/budget",
-            "GET",
-            {},
-            true,
-          ),
+        getBudget: async () => this._http("/api/admin/budget", "GET", {}, true),
       }),
     });
   }
@@ -489,6 +480,8 @@ export class TealDriveClient {
         account_management: false,
         linux_approval: false,
         policy_management: false,
+        virtual_accounts: false,
+        virtual_delete: false,
         enrollment: false,
         self_registration: false,
         ...this._hello.authentication,
@@ -706,6 +699,125 @@ export class TealDriveClient {
       response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) throw httpError(response, data);
     return publicValue(data);
+  }
+  _virtualRequired(deletion = false) {
+    this._require(true);
+    if (
+      !this._hello?.authentication?.[
+        deletion ? "virtual_delete" : "virtual_accounts"
+      ]
+    )
+      fail("FEATURE_DISABLED");
+  }
+  async _createVirtual(o) {
+    this._virtualRequired();
+    object(o, ["name", "quotaBytes", "password", "idempotencyKey"]);
+    if (
+      typeof o.name !== "string" ||
+      !/^[a-z][a-z0-9_.-]{0,63}$/.test(o.name) ||
+      typeof o.password !== "string" ||
+      [...o.password].length < 12 ||
+      new TextEncoder().encode(o.password).length > 1024 ||
+      o.password.includes("\0")
+    )
+      fail("INVALID_ARGUMENT");
+    integer(o.quotaBytes, 1, Number.MAX_SAFE_INTEGER, "quotaBytes");
+    const idempotencyKey = o.idempotencyKey ?? uuid();
+    if (
+      typeof idempotencyKey !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idempotencyKey,
+      )
+    )
+      fail("INVALID_ARGUMENT");
+    try {
+      const created = await this._http("/api/admin/virtual/create", "POST", {
+        ...o,
+        idempotencyKey,
+      });
+      this._emit("accounts.changed", {
+        operation: "create",
+        accountId: created.id,
+        kind: "virtual",
+      });
+      return freeze(created);
+    } catch (error) {
+      error.params = { ...error.params, idempotencyKey };
+      throw error;
+    }
+  }
+  _accountGeneration(o) {
+    if (o.expectedGeneration !== undefined && o.expectedRevision !== undefined)
+      fail("INVALID_ARGUMENT");
+    if (o.expectedGeneration !== undefined)
+      return integer(
+        o.expectedGeneration,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "expectedGeneration",
+      );
+    if (
+      typeof o.expectedRevision !== "string" ||
+      !/^[1-9][0-9]*$/.test(o.expectedRevision)
+    )
+      fail("INVALID_ARGUMENT");
+    return integer(
+      Number(o.expectedRevision),
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "expectedRevision",
+    );
+  }
+  async _virtualQuota(o) {
+    this._virtualRequired();
+    object(o, [
+      "accountId",
+      "quotaBytes",
+      "expectedGeneration",
+      "expectedRevision",
+    ]);
+    if (
+      typeof o.accountId !== "string" ||
+      !o.accountId.length ||
+      o.accountId.length > 128
+    )
+      fail("INVALID_ARGUMENT");
+    const updated = await this._http("/api/admin/virtual/setQuota", "POST", {
+      accountId: o.accountId,
+      quotaBytes: integer(
+        o.quotaBytes,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "quotaBytes",
+      ),
+      expectedGeneration: this._accountGeneration(o),
+    });
+    this._emit("accounts.changed", {
+      operation: "quota",
+      accountId: updated.id,
+      kind: "virtual",
+    });
+    return freeze(updated);
+  }
+  async _deleteVirtual(o) {
+    this._virtualRequired(true);
+    object(o, ["accountId", "expectedGeneration", "expectedRevision"]);
+    if (
+      typeof o.accountId !== "string" ||
+      !o.accountId.length ||
+      o.accountId.length > 128
+    )
+      fail("INVALID_ARGUMENT");
+    const updated = await this._http("/api/admin/virtual/delete", "POST", {
+      accountId: o.accountId,
+      expectedGeneration: this._accountGeneration(o),
+    });
+    this._emit("accounts.changed", {
+      operation: "delete",
+      accountId: updated.id,
+      kind: "virtual",
+    });
+    return freeze(updated);
   }
   _policyAPI(scope) {
     return Object.freeze({

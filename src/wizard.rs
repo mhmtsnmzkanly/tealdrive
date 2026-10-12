@@ -803,6 +803,7 @@ fn install(bundle: &Path, update: bool) -> Result<()> {
         cfg.home_template = Some(crate::policy::home::default_template());
         cfg.server.bind_addr = "127.0.0.1:13100".into();
         cfg.server.behind_tls_proxy = false;
+        cfg.server.require_tls = Some(false);
         cfg.session.secure_cookies = false;
         cfg.security.allowed_origins = vec!["http://127.0.0.1:13100".into()];
         cfg.features.save_text_file = true;

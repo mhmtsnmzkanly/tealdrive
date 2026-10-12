@@ -750,6 +750,7 @@ pub enum AuditAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditReason {
+    TlsRequired,
     AccountNotAllowed,
     ProtocolError,
     Cancelled,

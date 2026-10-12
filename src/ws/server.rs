@@ -426,14 +426,35 @@ where
         }
     }));
     let stop_accepting = shutdown.clone();
-    let server = axum::serve(
-        listener,
-        build_router(state).into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
-        stop_accepting.draining().await;
-    });
-    let server = std::future::IntoFuture::into_future(server);
+    let tls = crate::tls::load(&state.config.load().server).await?;
+    let service = build_router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let mut tls_stop_task = None;
+    let server: std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>> =
+        if let Some(tls) = tls {
+            let handle = axum_server::Handle::new();
+            let stop_handle = handle.clone();
+            tls_stop_task = Some(AbortTask(tokio::spawn(async move {
+                stop_accepting.draining().await;
+                stop_handle.graceful_shutdown(Some(
+                    drain_timeout + crate::shutdown::CANCEL_TIMEOUT + Duration::from_secs(2),
+                ));
+            })));
+            Box::pin(
+                axum_server::from_tcp_rustls(
+                    listener.into_std().map_err(|_| TealDriveError::Internal)?,
+                    tls,
+                )
+                .handle(handle)
+                .serve(service),
+            )
+        } else {
+            Box::pin(std::future::IntoFuture::into_future(
+                axum::serve(listener, service).with_graceful_shutdown(async move {
+                    stop_accepting.draining().await;
+                }),
+            ))
+        };
+    let _tls_stop_task = tls_stop_task;
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => return result.map_err(|_| TealDriveError::Internal),
@@ -525,6 +546,25 @@ where
         context.clone(),
         state.audit_sink.clone(),
     );
+    if cfg.server.require_tls == Some(true) && cfg.server.behind_tls_proxy {
+        let protocol_headers: Vec<_> = request
+            .headers()
+            .get_all("x-forwarded-proto")
+            .iter()
+            .collect();
+        let secure = peer.is_some_and(|peer| cfg.proxy.trusts(peer))
+            && protocol_headers.len() == 1
+            && protocol_headers[0].to_str().ok() == Some("https");
+        if !secure {
+            audit.rejected(AuditReason::TlsRequired);
+            audit.response(StatusCode::UPGRADE_REQUIRED, &HeaderMap::new());
+            return (
+                StatusCode::UPGRADE_REQUIRED,
+                axum::Json(serde_json::json!({"code":"TLS_REQUIRED"})),
+            )
+                .into_response();
+        }
+    }
     if session.as_ref().is_some_and(|s| !s.allowed_by(&cfg))
         && (request.uri().path().starts_with("/api/") || request.uri().path() == "/ws")
         && request.uri().path() != "/api/login"
@@ -720,7 +760,7 @@ fn build_upgrade_request<H>(
                 .get(axum::http::header::HOST)
                 .and_then(|h| h.to_str().ok())
                 .ok_or(TealDriveError::PermissionDenied)?;
-            let scheme = if cfg.server.behind_tls_proxy {
+            let scheme = if cfg.server.behind_tls_proxy || cfg.server.direct_tls() {
                 "https"
             } else {
                 "http"

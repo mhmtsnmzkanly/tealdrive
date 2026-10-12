@@ -163,6 +163,14 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
+        self.server
+            .validate_transport(&self.session, &self.security)?;
+        if self.server.require_tls == Some(true)
+            && self.server.behind_tls_proxy
+            && self.proxy.trusted_proxies.is_empty()
+        {
+            return Err(TealDriveError::Validation);
+        }
         self.web_accounts.validate()?;
         self.virtual_accounts.validate(self.web_accounts.enabled)?;
         if self.virtual_accounts.enforcement == crate::accounts::virtuals::Enforcement::UserQuota
@@ -349,8 +357,62 @@ impl Default for AuditConfig {
 pub struct ServerConfig {
     pub bind_addr: String,
     pub behind_tls_proxy: bool,
+    /// None preserves legacy transport declarations; new installations choose explicitly.
+    pub require_tls: Option<bool>,
+    pub tls_cert_path: Option<PathBuf>,
+    pub tls_key_path: Option<PathBuf>,
     #[serde(default)]
     pub static_dir: Option<PathBuf>,
+}
+
+impl ServerConfig {
+    pub fn direct_tls(&self) -> bool {
+        self.tls_cert_path.is_some() && self.tls_key_path.is_some()
+    }
+    pub fn same_transport(&self, other: &Self) -> bool {
+        self.bind_addr == other.bind_addr
+            && self.behind_tls_proxy == other.behind_tls_proxy
+            && self.require_tls == other.require_tls
+            && self.tls_cert_path == other.tls_cert_path
+            && self.tls_key_path == other.tls_key_path
+    }
+    fn validate_transport(
+        &self,
+        session: &SessionConfig,
+        security: &SecurityConfig,
+    ) -> Result<(), TealDriveError> {
+        if self.tls_cert_path.is_some() != self.tls_key_path.is_some()
+            || self.direct_tls() && self.behind_tls_proxy
+            || self
+                .tls_cert_path
+                .iter()
+                .chain(self.tls_key_path.iter())
+                .any(|path| {
+                    !path.is_absolute()
+                        || path
+                            .components()
+                            .any(|part| matches!(part, std::path::Component::ParentDir))
+                })
+            || self.require_tls == Some(true) && !self.direct_tls() && !self.behind_tls_proxy
+            || (self.direct_tls() || self.require_tls == Some(true))
+                && (!session.secure_cookies
+                    || security
+                        .allowed_origins
+                        .iter()
+                        .any(|origin| !origin.starts_with("https://")))
+            || self.require_tls == Some(true)
+                && self.behind_tls_proxy
+                && !self
+                    .bind_addr
+                    .parse::<std::net::SocketAddr>()
+                    .map_err(|_| TealDriveError::Validation)?
+                    .ip()
+                    .is_loopback()
+        {
+            return Err(TealDriveError::Validation);
+        }
+        Ok(())
+    }
 }
 
 impl Default for ServerConfig {
@@ -358,6 +420,9 @@ impl Default for ServerConfig {
         Self {
             bind_addr: "127.0.0.1:3000".to_owned(),
             behind_tls_proxy: true,
+            require_tls: None,
+            tls_cert_path: None,
+            tls_key_path: None,
             static_dir: None,
         }
     }
@@ -806,6 +871,9 @@ impl DynamicConfig {
     pub fn store(&self, mut new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         new_config.validate()?;
+        if !new_config.server.same_transport(&self.load().server) {
+            return Err(TealDriveError::Validation);
+        }
         self.validate_runtime(&new_config)?;
         let prepared = self.prepare_audit(&mut new_config)?;
         let arc = Arc::new(new_config);
@@ -823,11 +891,9 @@ impl DynamicConfig {
         } else {
             AppConfig::from_file(path)?
         };
-        if self.runtime_settings.is_some()
-            && loaded.server.bind_addr != self.load().server.bind_addr
-        {
+        if !loaded.server.same_transport(&self.load().server) {
             eprintln!(
-                "Listen address changes require a service restart; current configuration retained."
+                "Transport changes require a service restart; current configuration retained."
             );
             return Err(TealDriveError::Validation);
         }
@@ -932,6 +998,45 @@ impl Default for DynamicConfig {
 mod tests {
     use super::*;
 
+    #[test]
+    fn tls_transport_rejects_unsafe_and_ambiguous_modes() {
+        let mut cfg = AppConfig::default();
+        cfg.server.require_tls = Some(true);
+        cfg.server.behind_tls_proxy = false;
+        assert!(cfg.validate().is_err());
+        cfg.server.tls_cert_path = Some("/home/tealdrive/tls/cert.pem".into());
+        assert!(cfg.validate().is_err());
+        cfg.server.tls_key_path = Some("/home/tealdrive/tls/key.pem".into());
+        cfg.security.allowed_origins = vec!["https://drive.example.com".into()];
+        assert!(cfg.validate().is_ok());
+        cfg.session.secure_cookies = false;
+        assert!(cfg.validate().is_err());
+        cfg.session.secure_cookies = true;
+        cfg.security.allowed_origins = vec!["http://drive.example.com".into()];
+        assert!(cfg.validate().is_err());
+        cfg.security.allowed_origins = vec!["https://drive.example.com".into()];
+        cfg.server.behind_tls_proxy = true;
+        assert!(cfg.validate().is_err());
+        cfg.server.tls_cert_path = None;
+        cfg.server.tls_key_path = None;
+        cfg.proxy.trusted_proxies = vec!["127.0.0.1/32".into()];
+        assert!(cfg.validate().is_ok());
+        cfg.server.bind_addr = "0.0.0.0:3000".into();
+        assert!(cfg.validate().is_err());
+    }
+    #[test]
+    fn tls_transport_changes_require_restart_but_ui_path_does_not() {
+        let before = ServerConfig::default();
+        let mut next = before.clone();
+        next.require_tls = Some(true);
+        assert!(!before.same_transport(&next));
+        next = before.clone();
+        next.tls_key_path = Some("/home/tealdrive/tls/key.pem".into());
+        assert!(!before.same_transport(&next));
+        next = before.clone();
+        next.static_dir = Some("/home/tealdrive/ui/custom".into());
+        assert!(before.same_transport(&next));
+    }
     #[test]
     fn app_config_default_is_safe() {
         let config = AppConfig::default();

@@ -26,3 +26,11 @@ Aktif program/dosya çakışması notu, chmod izin kaldırma/special-bit açıkl
 - cargo test --locked --test browser_permissions --test browser_shutdown --test browser_contract: 3 passed.
 - Deterministic UI testi: cancel mutation göndermiyor, onaylanan chmod doğru mode gönderiyor, invalid octal reddediliyor, special bit uyarısı, existing world-write yeniden onay istemiyor, success/denial/network login'de parola alanı temiz.
 - node --check src/ui/static/app.js: passed.
+
+## 2026-10-12 — Script CSP
+
+script-src 'unsafe-inline' kaldırıldı; programatik event listener/property handler çalışması korunur. Style inline henüz kaldırılmadı.
+
+- cargo test --locked ui::tests --lib: 3 passed.
+- Gerçek Chromium: mevcut dış app script'i çalıştı; eklenen inline script çalışmadı; operasyon notu ve 6 viewport taşma kontrolü başarılı.
+- Browser script: /root/tdrv-ui-check/csp-current.cjs (sunucuya özel test aracı, repo dışı).

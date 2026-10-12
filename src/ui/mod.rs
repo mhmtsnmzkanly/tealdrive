@@ -13,7 +13,7 @@ use axum::response::{Html, IntoResponse, Response};
 use crate::ui::assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLE_CSS};
 use crate::ws::server::{WsHelperBackend, WsServerState};
 
-const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;";
+const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:;";
 
 fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));

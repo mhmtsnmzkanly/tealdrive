@@ -20,4 +20,5 @@ pub mod shutdown;
 pub mod trash;
 pub mod ui;
 pub mod upload;
+pub mod wizard;
 pub mod ws;

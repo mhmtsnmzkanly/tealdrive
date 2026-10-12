@@ -14,6 +14,7 @@ pub struct WebAccountsConfig {
     pub denied_users: Vec<String>,
     pub virtual_min_uid: u32,
     pub virtual_max_uid: u32,
+    pub allowed_nologin_users: Vec<String>,
 }
 impl Default for WebAccountsConfig {
     fn default() -> Self {
@@ -24,6 +25,7 @@ impl Default for WebAccountsConfig {
             denied_users: Vec::new(),
             virtual_min_uid: 200000,
             virtual_max_uid: 299999,
+            allowed_nologin_users: Vec::new(),
         }
     }
 }
@@ -33,6 +35,14 @@ impl WebAccountsConfig {
             || self.virtual_min_uid < 1000
             || self.virtual_min_uid > self.virtual_max_uid
             || self.denied_users.len() > 1024
+            || self.allowed_nologin_users.len() > 1024
+            || self.allowed_nologin_users.iter().any(|name| {
+                name.is_empty()
+                    || name.len() > 256
+                    || name.chars().any(|c| {
+                        c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\' | ':')
+                    })
+            })
             || self.denied_users.iter().any(|s| {
                 s.is_empty()
                     || s.len() > 256
@@ -108,6 +118,17 @@ pub enum AccountCommand {
         expected_generation: u64,
     },
     Budget(SessionGrant),
+    LocalEnroll {
+        linux_password: zeroize::Zeroizing<String>,
+        web_password: zeroize::Zeroizing<String>,
+    },
+    LocalStatus,
+    LocalRevoke,
+    LocalPolicy,
+    LocalSetPolicy {
+        expected_generation: u64,
+        rules: Vec<crate::policy::access::Rule>,
+    },
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
@@ -166,7 +187,7 @@ fn snapshot(identity: AuthSuccess) -> Result<EnrollmentIdentity, GatewayFailure>
         home: identity.home_dir.ok_or(GatewayFailure::Forbidden)?,
     })
 }
-fn linux_policy(
+pub(crate) fn linux_policy(
     config: &AppConfig,
     identity: &AuthSuccess,
     approved: bool,
@@ -188,7 +209,7 @@ fn linux_policy(
     // Registration extends only this authenticated subject; service/root checks stay mandatory.
     policy.reject_root = true;
     policy.reject_system_accounts = true;
-    policy.reject_disabled_shells = true;
+    policy.reject_disabled_shells = !web.allowed_nologin_users.contains(&identity.username);
     if !policy.allowed_users.contains(&identity.username) {
         policy.allowed_users.push(identity.username.clone());
     }
@@ -255,7 +276,21 @@ pub fn execute(command: AccountCommand) -> Result<AccountReply, GatewayFailure> 
     }
     let config = super::security::trusted_config().map_err(|_| GatewayFailure::Unavailable)?;
     let caller = CallerBinding::capture().map_err(|_| GatewayFailure::Forbidden)?;
-    authorize_caller(&config, &caller)?;
+    if !matches!(
+        &command,
+        AccountCommand::LocalEnroll { .. }
+            | AccountCommand::LocalStatus
+            | AccountCommand::LocalRevoke
+            | AccountCommand::LocalPolicy
+            | AccountCommand::LocalSetPolicy { .. }
+    ) {
+        authorize_caller(&config, &caller)?;
+    } else if !config.web_accounts.enabled
+        || caller.uid == 0
+        || config.web_accounts.server_uid == Some(caller.uid)
+    {
+        return Err(GatewayFailure::Forbidden);
+    }
     let mut store = AccountStore::open(std::path::Path::new(crate::layout::ACCOUNTS))
         .map_err(GatewayFailure::from)?;
     dispatch(&mut store, &config, caller, command)
@@ -300,6 +335,107 @@ fn dispatch(
 ) -> Result<AccountReply, GatewayFailure> {
     let at = crate::session::store::InMemorySessionStore::now_epoch_seconds();
     match command {
+        AccountCommand::LocalEnroll {
+            mut linux_password,
+            web_password,
+        } => {
+            let identity = super::security::account_by_uid(caller.uid)
+                .map_err(|_| GatewayFailure::Forbidden)?;
+            let proof = dispatch(
+                store,
+                config,
+                caller.clone(),
+                AccountCommand::BeginEnrollment(AuthRequest {
+                    username: identity.username,
+                    password: std::mem::take(&mut *linux_password),
+                    ip: None,
+                }),
+            )?;
+            let AccountReply::Enrollment(proof) = proof else {
+                return Err(GatewayFailure::Forbidden);
+            };
+            let reply = dispatch(
+                store,
+                config,
+                caller.clone(),
+                AccountCommand::CompleteEnrollment {
+                    proof,
+                    password: web_password,
+                },
+            )?;
+            let AccountReply::Authenticated { account, grant } = reply else {
+                return Err(GatewayFailure::Forbidden);
+            };
+            store
+                .revoke_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(account))
+        }
+        AccountCommand::LocalStatus
+        | AccountCommand::LocalRevoke
+        | AccountCommand::LocalPolicy
+        | AccountCommand::LocalSetPolicy { .. } => {
+            let account = store
+                .find_uid(caller.uid)
+                .map_err(GatewayFailure::from)?
+                .ok_or(GatewayFailure::Forbidden)?;
+            validate_account(config, &account)?;
+            let authority = crate::accounts::store::Authority::Account {
+                id: account.id.clone(),
+                generation: account.generation,
+            };
+            match command {
+                AccountCommand::LocalStatus => Ok(AccountReply::AccountUpdated(account)),
+                AccountCommand::LocalRevoke => {
+                    if account.kind != AccountKind::Linux {
+                        return Err(GatewayFailure::Forbidden);
+                    }
+                    Ok(AccountReply::AccountUpdated(
+                        store
+                            .transition(
+                                &authority,
+                                &account.id,
+                                crate::accounts::store::AccountStatus::Revoked,
+                                true,
+                            )
+                            .map_err(GatewayFailure::from)?,
+                    ))
+                }
+                AccountCommand::LocalPolicy => {
+                    let mut rules = store
+                        .policy(&authority, &account.id)
+                        .map_err(GatewayFailure::from)?;
+                    rules
+                        .root_rules
+                        .extend(config.access_policy.root_rules.clone());
+                    if let Some(trusted) = config.access_policy.users.get(&account.username) {
+                        rules.root_rules.extend(trusted.root_rules.clone());
+                        rules.root_rules.extend(trusted.admin_rules.clone());
+                        rules.root_rules.extend(trusted.personal_rules.clone());
+                    }
+                    Ok(AccountReply::Policy {
+                        rules,
+                        account,
+                        deny_system_components: config.access_policy.deny_system_components.clone(),
+                    })
+                }
+                AccountCommand::LocalSetPolicy {
+                    expected_generation,
+                    rules,
+                } => Ok(AccountReply::AccountUpdated(
+                    store
+                        .set_policy(
+                            &authority,
+                            &account.id,
+                            expected_generation,
+                            crate::accounts::policies::PolicyLayer::Personal,
+                            rules,
+                        )
+                        .map_err(GatewayFailure::from)?,
+                )),
+                _ => Err(GatewayFailure::Forbidden),
+            }
+        }
         AccountCommand::CreateVirtual {
             grant,
             name,

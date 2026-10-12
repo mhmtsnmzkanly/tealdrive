@@ -665,8 +665,10 @@ pub(crate) fn set_quota(
             return Err(StoreError::QuotaExceeded);
         }
     }
+    let committed_remaining = std::cell::Cell::new(new_parent);
     let result =
         store.set_child_quota_with(authority, &target.id, generation, bytes, |remaining| {
+            committed_remaining.set(remaining);
             if let Some((parent_root, _, used)) = &parent {
                 if remaining < *used {
                     return Err(StoreError::QuotaExceeded);
@@ -695,7 +697,7 @@ pub(crate) fn set_quota(
         Ok(updated) => {
             native_set(cfg, &target_root, target.uid, bytes)?;
             if let Some((parent_root, _, _)) = &parent {
-                native_set(cfg, parent_root, owner.uid, new_parent)?;
+                native_set(cfg, parent_root, owner.uid, committed_remaining.get())?;
             }
             store.connection.execute(
                 "DELETE FROM security_state WHERE key=?1",
@@ -704,6 +706,73 @@ pub(crate) fn set_quota(
             Ok(updated)
         }
     }
+}
+
+/// Root budget updates serialize with provisioning and account-directory writes.
+pub(crate) fn set_budget(
+    store: &mut AccountStore,
+    cfg: &AppConfig,
+    id: &str,
+    bytes: u64,
+) -> Result<(), StoreError> {
+    let _global = lock()?;
+    let target = store.get(id)?;
+    if cfg.virtual_accounts.enforcement == Enforcement::UserQuota && bytes % 1024 != 0 {
+        return Err(StoreError::InvalidInput);
+    }
+    let held = own_reservation(store, cfg, &target)?;
+    let old_remaining = store.budget(id)?["remaining_bytes"]
+        .as_u64()
+        .ok_or(StoreError::InvalidInput)?;
+    let new_remaining = std::cell::Cell::new(old_remaining);
+    let result = store.set_admin_budget_with(&Authority::Root, id, bytes, |remaining| {
+        new_remaining.set(remaining);
+        if let Some((root, _, used)) = &held {
+            if remaining < *used {
+                return Err(StoreError::QuotaExceeded);
+            }
+            if remaining < old_remaining {
+                native_set(cfg, root, target.uid, remaining)?;
+            }
+        }
+        Ok(())
+    });
+    match result {
+        Err(error) => {
+            if let Some((root, _, _)) = &held {
+                let _ = native_set(cfg, root, target.uid, old_remaining);
+            }
+            Err(error)
+        }
+        Ok(()) => {
+            if let Some((root, _, _)) = &held {
+                native_set(cfg, root, target.uid, new_remaining.get())?;
+            }
+            Ok(())
+        }
+    }
+}
+/// Root repair of committed quota changes; never changes allocation metadata.
+pub(crate) fn sync_limits(store: &mut AccountStore, cfg: &AppConfig) -> Result<(), StoreError> {
+    let _global = lock()?;
+    if cfg.virtual_accounts.enforcement != Enforcement::UserQuota {
+        return Err(StoreError::InvalidInput);
+    }
+    for target in store.list(&Authority::Root, AccountKind::Virtual)? {
+        crate::helper::account_gateway::validate_account(cfg, &target)
+            .map_err(|_| StoreError::Forbidden)?;
+        let root = root(cfg, &target)?;
+        let _held = crate::helper::quota::Reservation::acquire(&root).map_err(io_error)?;
+        let limit = store
+            .effective_quota(&target.id)?
+            .ok_or(StoreError::Forbidden)?;
+        native_set(cfg, &root, target.uid, limit)?;
+        store.connection.execute(
+            "DELETE FROM security_state WHERE key=?1",
+            [format!("virtual_quota_sync_v1:{}", target.id)],
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

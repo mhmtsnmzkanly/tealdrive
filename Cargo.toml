@@ -16,6 +16,14 @@ path = "src/main.rs"
 name = "tealdrive-helper"
 path = "src/bin/tealdrive-helper.rs"
 
+[[bin]]
+name = "tealdrive-wizard"
+path = "src/bin/tealdrive-wizard.rs"
+
+[[bin]]
+name = "tealdrive-ctl"
+path = "src/bin/tealdrive-ctl.rs"
+
 [dependencies]
 libc = "0.2"
 axum = { version = "0.7", features = ["ws"] }

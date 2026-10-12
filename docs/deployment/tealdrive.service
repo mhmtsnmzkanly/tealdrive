@@ -6,9 +6,8 @@ After=network.target
 Type=simple
 User=tealdrive
 Group=tealdrive
-WorkingDirectory=/var/lib/tealdrive
-Environment=TEALDRIVE_AUDIT_PATH=/var/lib/tealdrive/audit.jsonl
-ExecStart=/usr/local/bin/tealdrive-server --config /var/lib/tealdrive/config.toml --helper-bin /usr/local/libexec/tealdrive-helper
+WorkingDirectory=/home/tealdrive/data/runtime
+ExecStart=/home/tealdrive/bin/tealdrive-server --config /home/tealdrive/policy/server.toml --runtime-config /home/tealdrive/config/settings.toml --helper-bin /home/tealdrive/bin/tealdrive-helper
 Restart=on-failure
 RestartSec=3
 UMask=0077

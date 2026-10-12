@@ -337,6 +337,48 @@ impl AccountStore {
     pub fn get(&self, id: &str) -> Result<Account, StoreError> {
         account(&self.connection, id)
     }
+    pub fn find_uid(&self, uid: u32) -> Result<Option<Account>, StoreError> {
+        Ok(self
+            .connection
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM accounts WHERE uid=?1"),
+                [uid],
+                row_account,
+            )
+            .optional()?)
+    }
+    pub fn set_role(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        role: Role,
+    ) -> Result<Account, StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target = account(&tx, id)?;
+        if target.kind != AccountKind::Linux || target.status != AccountStatus::Active {
+            return Err(StoreError::Forbidden);
+        }
+        tx.execute(
+            "UPDATE accounts SET role=?1,generation=generation+1,updated_at=?2 WHERE id=?3",
+            params![
+                if role == Role::Admin { "admin" } else { "user" },
+                number(now())?,
+                id
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM enrollment WHERE username=?1",
+            [target.username],
+        )?;
+        let result = account(&tx, id)?;
+        tx.commit()?;
+        Ok(result)
+    }
     pub fn find_username(&self, username: &str) -> Result<Option<Account>, StoreError> {
         Ok(self
             .connection
@@ -519,6 +561,15 @@ impl AccountStore {
         id: &str,
         bytes: u64,
     ) -> Result<(), StoreError> {
+        self.set_admin_budget_with(actor, id, bytes, |_| Ok(()))
+    }
+    pub(super) fn set_admin_budget_with(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        bytes: u64,
+        mut before_commit: impl FnMut(u64) -> Result<(), StoreError>,
+    ) -> Result<(), StoreError> {
         if !matches!(actor, Authority::Root) {
             return Err(StoreError::Forbidden);
         }
@@ -557,7 +608,25 @@ impl AccountStore {
         if bytes < children || bytes > pool - (allocated - current) {
             return Err(StoreError::QuotaExceeded);
         }
+        before_commit((bytes - children) as u64)?;
         tx.execute("INSERT INTO admin_budgets(account_id,limit_bytes) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET limit_bytes=excluded.limit_bytes",params![id,bytes])?;
+        tx.commit()?;
+        Ok(())
+    }
+    /// Offline restore never resurrects enrollment proofs or browser grants.
+    pub fn invalidate_restored_sessions(&mut self, actor: &Authority) -> Result<(), StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("DELETE FROM session_grants", [])?;
+        tx.execute("DELETE FROM enrollment", [])?;
+        tx.execute(
+            "UPDATE accounts SET generation=generation+1,updated_at=?1",
+            [number(now())?],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -733,6 +802,64 @@ mod tests {
             id: account.id.clone(),
             generation: account.generation,
         }
+    }
+    #[test]
+    fn root_role_change_and_restore_invalidate_prior_authority() {
+        let mut store = AccountStore::memory();
+        let before = store
+            .create(&Authority::Root, linux("alice", 1000, Role::User))
+            .unwrap();
+        assert!(matches!(
+            store.set_role(&authority(&before), &before.id, Role::Admin),
+            Err(StoreError::Forbidden)
+        ));
+        let promoted = store
+            .set_role(&Authority::Root, &before.id, Role::Admin)
+            .unwrap();
+        assert!(promoted.generation > before.generation);
+        assert!(matches!(
+            authorized(&store.connection, &authority(&before)),
+            Err(StoreError::Forbidden)
+        ));
+        assert!(store
+            .invalidate_restored_sessions(&authority(&promoted))
+            .is_err());
+        store
+            .invalidate_restored_sessions(&Authority::Root)
+            .unwrap();
+        assert!(matches!(
+            authorized(&store.connection, &authority(&promoted)),
+            Err(StoreError::Forbidden)
+        ));
+        assert_eq!(store.get(&before.id).unwrap().role, Role::Admin);
+    }
+    #[test]
+    fn budget_usage_callback_runs_after_authorization_and_rolls_back() {
+        let mut store = AccountStore::memory();
+        let parent = store
+            .create(&Authority::Root, linux("parent", 1000, Role::Admin))
+            .unwrap();
+        store.set_pool(&Authority::Root, 1000).unwrap();
+        store
+            .set_admin_budget(&Authority::Root, &parent.id, 600)
+            .unwrap();
+        let called = std::cell::Cell::new(false);
+        assert!(store
+            .set_admin_budget_with(&Authority::Root, &parent.id, 1001, |_| {
+                called.set(true);
+                Ok(())
+            })
+            .is_err());
+        assert!(!called.get());
+        assert!(store
+            .set_admin_budget_with(&Authority::Root, &parent.id, 400, |remaining| {
+                assert_eq!(remaining, 400);
+                called.set(true);
+                Err(StoreError::QuotaExceeded)
+            })
+            .is_err());
+        assert!(called.get());
+        assert_eq!(store.budget(&parent.id).unwrap()["limit_bytes"], 600);
     }
     #[test]
     fn password_lifecycle_public_metadata_and_generation_revocation() {

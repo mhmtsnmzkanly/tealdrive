@@ -204,3 +204,12 @@ Native testte204 cookie bridge başarıyla cookie bağladığı halde audit Conn
 - SDK contract: eksik capability reddi, kısa parola reddi, başarılı password/revoke sonrası state/connection temizliği passed.
 - Gerçek Chromium `tests/live/ui-credentials.cjs`: CSRF'siz POST403, yanlış mevcut parola401, UI submit sonrası logout, yeniden girişte generation artışı passed. Test parola değerini koruyup sadece yeni hash/generation oluşturur; açık mutation opt-in gerektirir.
 - Aday localhost13101 kullanıldı. Caddy production13000 değişmedi. Sanal hesap provisioning ve public admin API kabulü bu testin kapsamı değildir.
+
+
+## 2026-10-12 — Hesap erişim yönetimi gateway'i
+
+- Root roster + DB role / tenant isolation unit testi passed: Linux DB admin root listesinde yoksa global yönetemez; virtual admin root listesine yazılsa bile global yetki alamaz; user role yönetemez.
+- Gerçek PAM fixture'a user role ile ListAccounts/SetAccountAccess negatif testleri eklendi ve passed.
+- Tam paket 544 unit passed, 1 opt-in ignored; normal integration testleri passed. Clippy all-targets -D warnings passed.
+- Registered system account listesi ile NSS aday listesi farklı SDK method'larında; tamamlanmayan create/delete/quota capability kapalı tutuldu.
+- Başarılı admin suspend/enable için public endpoint → gerçek OS hesabı kabul testi henüz yok; önceki root suspend testi yeni public admin endpoint testi sayılmaz. Sanal provisioning/multi-UID testi ayrıca bekler.

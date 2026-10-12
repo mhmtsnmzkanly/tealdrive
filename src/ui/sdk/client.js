@@ -302,22 +302,12 @@ export class TealDriveClient {
       }),
       systemUsers: Object.freeze({
         list: async () => this._http("/api/admin/users", "GET", {}, true),
+        accounts: async () =>
+          this._managementHttp("/api/admin/accounts/system", "GET", {}),
         allow: async (o) =>
-          this._featureHttp(
-            "account_management",
-            "/api/admin/system/allow",
-            "POST",
-            o,
-            true,
-          ),
+          this._managementHttp("/api/admin/system/allow", "POST", o),
         deny: async (o) =>
-          this._featureHttp(
-            "account_management",
-            "/api/admin/system/deny",
-            "POST",
-            o,
-            true,
-          ),
+          this._managementHttp("/api/admin/system/deny", "POST", o),
       }),
       virtualUsers: Object.freeze(
         Object.fromEntries(
@@ -325,13 +315,19 @@ export class TealDriveClient {
             (method) => [
               method,
               async (o) =>
-                this._featureHttp(
-                  "virtual_accounts",
-                  `/api/admin/virtual/${method}`,
-                  method === "list" ? "GET" : "POST",
-                  o,
-                  true,
-                ),
+                ["list", "disable", "enable"].includes(method)
+                  ? this._managementHttp(
+                      `/api/admin/virtual/${method}`,
+                      method === "list" ? "GET" : "POST",
+                      o,
+                    )
+                  : this._featureHttp(
+                      "virtual_accounts",
+                      `/api/admin/virtual/${method}`,
+                      method === "list" ? "GET" : "POST",
+                      o,
+                      true,
+                    ),
             ],
           ),
         ),
@@ -705,6 +701,21 @@ export class TealDriveClient {
       response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) throw httpError(response, data);
     return publicValue(data);
+  }
+  _managementHttp(url, method, body = {}) {
+    this._require(true);
+    if (!this._hello?.authentication?.account_management)
+      fail("FEATURE_DISABLED");
+    if (method === "POST") {
+      object(body, ["accountId"]);
+      if (
+        typeof body.accountId !== "string" ||
+        !body.accountId.length ||
+        body.accountId.length > 128
+      )
+        fail("INVALID_ARGUMENT");
+    }
+    return this._http(url, method, body, true);
   }
   _featureHttp(feature, url, method, body, auth) {
     this._require(auth);

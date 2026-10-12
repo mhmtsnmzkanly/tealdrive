@@ -264,6 +264,30 @@ where
         )
         .route("/api/session", get(session_handler::<H>))
         .route(
+            "/api/admin/accounts/system",
+            get(crate::admin::accounts::list_system::<H>),
+        )
+        .route(
+            "/api/admin/virtual/list",
+            get(crate::admin::accounts::list_virtual::<H>),
+        )
+        .route(
+            "/api/admin/system/allow",
+            post(crate::admin::accounts::enable::<H>),
+        )
+        .route(
+            "/api/admin/system/deny",
+            post(crate::admin::accounts::disable::<H>),
+        )
+        .route(
+            "/api/admin/virtual/enable",
+            post(crate::admin::accounts::enable_virtual::<H>),
+        )
+        .route(
+            "/api/admin/virtual/disable",
+            post(crate::admin::accounts::disable_virtual::<H>),
+        )
+        .route(
             "/api/download",
             get(crate::download::api::download_handler::<H>),
         )

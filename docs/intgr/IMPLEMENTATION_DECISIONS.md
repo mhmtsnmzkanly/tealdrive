@@ -127,3 +127,10 @@ Web parola ayrı bir credential/hash'tir; kullanıcının Linux parolasıyla ayn
 `POST /api/auth/revoke` yalnız Linux hesabının kendi erişimini kapatır. Sanal hesap helper'da reddedilir; logout kullanabilir. Kullanıcı dosyaları ve OS hesabı tutulur. Öz iptal administrative deny değildir: root/self-registration politikası uygunsa yeniden PAM kaydı yapılabilir. Suspend/administrative deny üstün kalır. Her iki işlem CSRF ve canlı process-bound grant gerektirir; grant/kimlik client JSON'undan alınmaz. `authentication.password_change` ve `authentication.self_revoke` bağımsız capability'lerdir; eski web-password sürümü bu uçlara sahip sayılmaz.
 
 UI Account security formunda parola alanları gönderim/iptalde temizlenir. JS/HTTP parolalarının bellekte mutlak silinmesi vaat edilmez. Başarılı değişiklikler PasswordChanged/SessionRevoked audit kaydı üretir; parola içerikleri kayda yazılmaz.
+
+
+## D028 — Hesap listesi ve erişim yönetimi
+
+Registered account metadata listesi NSS aday listesinden ayrıdır: SDK `admin.systemUsers.list()` mevcut aday listesini korur, `accounts()` DB'ye kayıtlı Linux hesaplarını getirir. `allow/deny({accountId})` yalnız mevcut hesabın web girişini açar/askıya alır; yeni OS hesabı veya rol oluşturmaz. Başkasının parola hash'i ve grant'leri dönmez. Linux admin için DB admin rolü + root admin_users listesi birlikte gerekir; virtual admin Root listesinde adı bulunsa bile global yetki kazanmaz. Virtual admin yalnız kendi virtual children'ı yönetir. Endpoint Linux/virtual türünü helper'a sabit parametre olarak gönderir; başka türün ID'si reddedilir.
+
+Admin öz askıya alma ve başka admin hesabına müdahale bu ilk yönetim yüzeyinde kapalıdır; root Wizard ayrı olacak. Enable root deny/NSS uygunluğunu genişletemez. Account deletion/provisioning/setQuota tamamlanmadığı için virtual_accounts capability açılmadı; yalnız tamamlanmış list/enable/disable `authentication.account_management` ile açılır. Henüz kayıtlı olmayan Linux kullanıcıları öz PAM enrollment kullanır; admin onayıyla ilk kayıt Wizard/approval aşamasında ele alınacak.

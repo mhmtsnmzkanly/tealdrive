@@ -29,6 +29,13 @@ const fs = require("node:fs");
       throw Error("Password field retained secret");
     if (!(await page.locator("#settingsBtn").isDisabled()))
       throw Error("Unprivileged enrollment acquired administration");
+    const managementDenied = await page.evaluate(async () => {
+      const system = await fetch("/api/admin/accounts/system");
+      const virtual = await fetch("/api/admin/virtual/list");
+      return system.status === 403 && virtual.status === 403;
+    });
+    if (!managementDenied)
+      throw Error("Unprivileged account read management metadata");
     await page.click("#logoutBtn");
     await page.waitForSelector("#loginModal:not(.hidden)");
     if (errors.length) throw Error("Browser errors: " + errors.join(","));

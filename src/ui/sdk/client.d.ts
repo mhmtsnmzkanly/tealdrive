@@ -131,10 +131,32 @@ export interface ServerInfo {
     webPassword: boolean;
     passwordChange: boolean;
     selfRevoke: boolean;
+    accountManagement: boolean;
     enrollment: boolean;
     selfRegistration: boolean;
   }>;
   authenticated: boolean;
+}
+/** Public account metadata. Password hashes and grant nonces are never returned. */
+export interface AccountMetadata {
+  id: string;
+  username: string;
+  uid: number;
+  gid: number;
+  home: string;
+  kind: "linux" | "virtual";
+  role: "user" | "admin";
+  ownerAdminId: string | null;
+  status: "active" | "suspended" | "revoked" | "deleted";
+  loginEnabled: boolean;
+  generation: number;
+  passwordEnrolled: boolean;
+  quotaBytes: number | null;
+  undoHours: number | null;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  denyEnrollment: boolean;
 }
 export interface AuthAPI {
   /** Same established WebSocket; no HTTP password submission. @throws INVALID_CREDENTIALS, RATE_LIMITED */
@@ -288,8 +310,10 @@ export interface AdminAPI {
   };
   systemUsers: {
     list(): Promise<unknown>;
-    allow(options: { accountId: string }): Promise<unknown>;
-    deny(options: { accountId: string }): Promise<void>;
+    /** Registered system web accounts, distinct from eligible NSS login candidates. */
+    accounts(): Promise<readonly AccountMetadata[]>;
+    allow(options: { accountId: string }): Promise<AccountMetadata>;
+    deny(options: { accountId: string }): Promise<AccountMetadata>;
   };
   virtualUsers: {
     list(options?: {
@@ -306,8 +330,8 @@ export interface AdminAPI {
       quotaBytes: number;
       expectedRevision: string;
     }): Promise<unknown>;
-    disable(options: { accountId: string }): Promise<void>;
-    enable(options: { accountId: string }): Promise<unknown>;
+    disable(options: { accountId: string }): Promise<AccountMetadata>;
+    enable(options: { accountId: string }): Promise<AccountMetadata>;
     delete(options: { accountId: string }): Promise<void>;
   };
   policy: {

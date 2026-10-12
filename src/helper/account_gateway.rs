@@ -57,6 +57,16 @@ pub enum AccountCommand {
     Validate(SessionGrant),
     Logout(SessionGrant),
     RevokeSelf(SessionGrant),
+    ListAccounts {
+        grant: SessionGrant,
+        kind: AccountKind,
+    },
+    SetAccountAccess {
+        grant: SessionGrant,
+        account_id: String,
+        kind: AccountKind,
+        enabled: bool,
+    },
     ChangePassword {
         grant: SessionGrant,
         current_password: zeroize::Zeroizing<String>,
@@ -74,6 +84,8 @@ pub enum AccountReply {
     LoggedOut,
     AccessRevoked,
     PasswordChanged,
+    Accounts(Vec<Account>),
+    AccountUpdated(Account),
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GatewayFailure {
@@ -210,6 +222,27 @@ fn account_view(store: &AccountStore, mut account: Account) -> Result<Account, G
     }
     Ok(account)
 }
+fn management_authority(
+    config: &AppConfig,
+    actor: &Account,
+    kind: AccountKind,
+) -> Result<crate::accounts::store::Authority, GatewayFailure> {
+    use crate::accounts::store::{Authority, Role};
+    if actor.role != Role::Admin {
+        return Err(GatewayFailure::Forbidden);
+    }
+    if actor.kind == AccountKind::Linux && config.account_policy.is_admin(&actor.username) {
+        Ok(Authority::Root)
+    } else if kind == AccountKind::Virtual {
+        Ok(Authority::Account {
+            id: actor.id.clone(),
+            generation: actor.generation,
+        })
+    } else {
+        Err(GatewayFailure::Forbidden)
+    }
+}
+
 fn dispatch(
     store: &mut AccountStore,
     config: &AppConfig,
@@ -305,6 +338,54 @@ fn dispatch(
             validate_account(config, &account)?;
             Ok(AccountReply::Validated(account_view(store, account)?))
         }
+        AccountCommand::ListAccounts { grant, kind } => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let authority = management_authority(config, &actor, kind)?;
+            let accounts = store.list(&authority, kind).map_err(GatewayFailure::from)?;
+            Ok(AccountReply::Accounts(accounts))
+        }
+        AccountCommand::SetAccountAccess {
+            grant,
+            account_id,
+            kind,
+            enabled,
+        } => {
+            if account_id.len() > 128 {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let target = store.get(&account_id).map_err(GatewayFailure::from)?;
+            if target.kind != kind {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let authority = management_authority(config, &actor, target.kind)?;
+            if target.id == actor.id || target.role == crate::accounts::store::Role::Admin {
+                return Err(GatewayFailure::Forbidden);
+            }
+            // Enabling never overrides root eligibility or root explicit deny.
+            if enabled {
+                validate_account(config, &target)?;
+            }
+            let result = store
+                .transition(
+                    &authority,
+                    &target.id,
+                    if enabled {
+                        crate::accounts::store::AccountStatus::Active
+                    } else {
+                        crate::accounts::store::AccountStatus::Suspended
+                    },
+                    false,
+                )
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(result))
+        }
         AccountCommand::RevokeSelf(grant) => {
             let account = store
                 .verify_grant(&grant, &caller, at)
@@ -388,6 +469,41 @@ mod tests {
         config.web_accounts.enabled = true;
         config.web_accounts.server_uid = Some(995);
         config
+    }
+    #[test]
+    fn management_authority_keeps_root_roster_and_tenant_boundaries() {
+        use crate::accounts::store::{Authority, NewAccount, Role};
+        let mut store = AccountStore::memory();
+        let mut config = config();
+        let mut actor = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "operator".into(),
+                    uid: 1000,
+                    gid: 1000,
+                    home: "/home/operator".into(),
+                    kind: AccountKind::Linux,
+                    role: Role::Admin,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+            )
+            .unwrap();
+        assert!(management_authority(&config, &actor, AccountKind::Linux).is_err());
+        config.account_policy.admin_users.push("operator".into());
+        assert!(matches!(
+            management_authority(&config, &actor, AccountKind::Linux),
+            Ok(Authority::Root)
+        ));
+        actor.kind = AccountKind::Virtual;
+        assert!(management_authority(&config, &actor, AccountKind::Linux).is_err());
+        assert!(matches!(
+            management_authority(&config, &actor, AccountKind::Virtual),
+            Ok(Authority::Account { .. })
+        ));
+        actor.role = Role::User;
+        assert!(management_authority(&config, &actor, AccountKind::Virtual).is_err());
     }
     #[test]
     fn backend_must_be_explicit_and_nonroot_caller_bound() {
@@ -541,6 +657,32 @@ mod tests {
             AccountReply::Authenticated { account, grant } => (account, grant),
             _ => panic!("expected authenticated"),
         };
+        assert!(matches!(
+            dispatch(
+                &mut store,
+                &config,
+                binding.clone(),
+                AccountCommand::ListAccounts {
+                    grant: first.clone(),
+                    kind: AccountKind::Linux
+                }
+            ),
+            Err(GatewayFailure::Forbidden)
+        ));
+        assert!(matches!(
+            dispatch(
+                &mut store,
+                &config,
+                binding.clone(),
+                AccountCommand::SetAccountAccess {
+                    grant: first.clone(),
+                    account_id: account.id.clone(),
+                    kind: AccountKind::Linux,
+                    enabled: false
+                }
+            ),
+            Err(GatewayFailure::Forbidden)
+        ));
         assert_eq!(account.uid, principal.uid);
         assert_eq!(account.home, principal.home_dir.unwrap());
         assert!(dispatch(

@@ -74,6 +74,10 @@ export interface OperationResult {
   safeMessage?: string | null;
 }
 export interface Session {
+  accountId?: string;
+  accountGeneration?: number;
+  accountKind?: "linux" | "virtual";
+  role?: "user" | "admin";
   authenticated: true;
   isAdmin: boolean;
   username: string;
@@ -120,6 +124,11 @@ export interface ServerInfo {
   protocolVersion: number;
   limits: Readonly<Record<string, number>>;
   features: Readonly<Record<string, boolean>>;
+  authentication: Readonly<{
+    webPassword: boolean;
+    enrollment: boolean;
+    selfRegistration: boolean;
+  }>;
   authenticated: boolean;
 }
 export interface AuthAPI {
@@ -129,14 +138,21 @@ export interface AuthAPI {
   logout(): Promise<void>;
   /** Linux accounts only; virtual accounts require their administrator. */
   revokeSelf(): Promise<void>;
+  /** PAM verifies only this Linux account. Continue on the same WebSocket within 300s.
+   * No proof/token is exposed or persisted in browser storage.
+   * @throws FEATURE_DISABLED, INVALID_CREDENTIALS, RATE_LIMITED, ALREADY_AUTHENTICATED
+   */
   beginEnrollment(options: {
     username: string;
     linuxPassword: string;
-  }): Promise<{ id: string; expiresAt: string }>;
+  }): Promise<{ enrollmentRequired: true; expiresAt: number }>;
+  /** Set a web password (12+ Unicode characters, <=1024 UTF-8 bytes, no NUL).
+   * Uses the pending server-side proof, binds an HttpOnly session and returns your account.
+   * @throws ENROLLMENT_REQUIRED, INVALID_ARGUMENT, INVALID_CREDENTIALS, CONNECTION_CLOSED
+   */
   completeEnrollment(options: {
-    enrollmentId: string;
     webPassword: string;
-  }): Promise<void>;
+  }): Promise<Readonly<Session>>;
   changePassword(options: {
     currentPassword: string;
     newPassword: string;

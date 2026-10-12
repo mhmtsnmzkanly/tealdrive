@@ -136,27 +136,27 @@ export const examples = {
    */
   login: (API) => API.auth.login({ username: "alice", password: "<prompt ile alınan parola>" }),
 
-  // API.auth.beginEnrollment({ username: "alice", linuxPassword: "<prompt ile alınan Linux parolası>" }); — İlk PAM doğrulamasından sonra tek kullanımlık kayıt yetkisi üretir; dosya erişim oturumu vermez.
+  // API.auth.beginEnrollment({ username: "alice", linuxPassword: "<prompt ile alınan Linux parolası>" }); — İlk PAM doğrulamasından sonra tek kullanımlık kayıt yetkisi üretir; dosya erişim oturumu vermez. Proof ID browser'a verilmez; expiresAt epoch saniyesidir.
   /**
-   * İlk PAM doğrulamasından sonra tek kullanımlık kayıt yetkisi üretir; dosya erişim oturumu vermez.
+   * İlk PAM doğrulamasından sonra tek kullanımlık kayıt yetkisi üretir; dosya erişim oturumu vermez. Proof ID browser'a verilmez; expiresAt epoch saniyesidir.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
    * @example API.auth.beginEnrollment({ username: "alice", linuxPassword: "<prompt ile alınan Linux parolası>" });
    * @description SDK yöntemi parametreleri: options: { username: string, linuxPassword: string }.
-   * @returns {Promise<{ id: string, expiresAt: string }>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} HANDSHAKE_REQUIRED, INVALID_CREDENTIALS, ALREADY_ENROLLED, REGISTRATION_DENIED, RATE_LIMITED.
+   * @returns {Promise<{ enrollmentRequired: true, expiresAt: number }>} Örnek çağrının sonucu.
+   * @throws {TealDriveError} HANDSHAKE_REQUIRED, INVALID_CREDENTIALS, ALREADY_AUTHENTICATED, FEATURE_DISABLED, RATE_LIMITED.
    */
   beginEnrollment: (API) => API.auth.beginEnrollment({ username: "alice", linuxPassword: "<prompt ile alınan Linux parolası>" }),
 
-  // API.auth.completeEnrollment({ enrollmentId: "enroll_example", webPassword: "<yeni web parolası>" }); — Web parolasını oluşturur; kayıt yetkisi tek kullanımlıktır. Session alınmadan dosya çağrısı yapılmaz.
+  // API.auth.completeEnrollment({ webPassword: "<yeni web parolası>" }); — Web parolasını oluşturur; kayıt yetkisi tek kullanımlıktır. Aynı WS'de kalır; private proof sunucudadır. Başarıda HttpOnly session bağlanır.
   /**
-   * Web parolasını oluşturur; kayıt yetkisi tek kullanımlıktır. Session alınmadan dosya çağrısı yapılmaz.
+   * Web parolasını oluşturur; kayıt yetkisi tek kullanımlıktır. Aynı WS'de kalır; private proof sunucudadır. Başarıda HttpOnly session bağlanır.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.auth.completeEnrollment({ enrollmentId: "enroll_example", webPassword: "<yeni web parolası>" });
-   * @description SDK yöntemi parametreleri: options: { enrollmentId: string, webPassword: string }.
-   * @returns {Promise<{ enrolled: boolean }>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} HANDSHAKE_REQUIRED, ENROLLMENT_EXPIRED, ENROLLMENT_USED, PASSWORD_POLICY_DENIED, SAME_AS_LINUX_PASSWORD.
+   * @example API.auth.completeEnrollment({ webPassword: "<yeni web parolası>" });
+   * @description SDK yöntemi parametreleri: options: { webPassword: string }.
+   * @returns {Promise<Session>} Örnek çağrının sonucu.
+   * @throws {TealDriveError} HANDSHAKE_REQUIRED, ENROLLMENT_REQUIRED, INVALID_ARGUMENT, INVALID_CREDENTIALS, CONNECTION_CLOSED.
    */
-  completeEnrollment: (API) => API.auth.completeEnrollment({ enrollmentId: "enroll_example", webPassword: "<yeni web parolası>" }),
+  completeEnrollment: (API) => API.auth.completeEnrollment({ webPassword: "<yeni web parolası>" }),
 
   // API.auth.changePassword({ currentPassword: "<mevcut web parolası>", newPassword: "<yeni web parolası>" }); — Web parolasını değiştirir ve eski oturum/biletleri iptal eder; yeniden giriş gerekir.
   /**

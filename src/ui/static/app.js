@@ -48,6 +48,9 @@
     shutdownRetryBtn: document.getElementById('shutdownRetryBtn'),
     loginModal: document.getElementById('loginModal'),
     loginForm: document.getElementById('loginForm'),
+    registerWeb: document.getElementById('registerWeb'),
+    webPasswordConfirm: document.getElementById('webPasswordConfirm'),
+    webPasswordGroup: document.getElementById('webPasswordGroup'),
     usernameInput: document.getElementById('usernameInput'),
     passwordInput: document.getElementById('passwordInput'),
     loginError: document.getElementById('loginError'),
@@ -788,6 +791,7 @@
   function showLoginModal() {
     el.loginModal.classList.remove('hidden');
     el.userInfo.classList.add('hidden');
+    getAuthClient().catch(()=>{});
   }
 
   function onSessionActive() {
@@ -816,41 +820,82 @@
     connectWebSocket();
   }
 
+  let authClient = null;
+  let enrolling = false;
+  let authImport = null;
+  let webPasswords = false;
+  async function getAuthClient() {
+    if (!authClient) {
+      authImport ??= import('/sdk/v1/tealdrive.js');
+      const {createClient} = await authImport;
+      authClient ??= createClient({stateMode:'client'});
+    }
+    const info = await authClient.handshake();
+    webPasswords = Boolean(info?.authentication?.webPassword);
+    document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
+    if (!enrolling) document.getElementById('passwordLabel').textContent = webPasswords?'Web password':'Password';
+    return authClient;
+  }
   async function performLogin(username, password) {
     el.loginError.classList.add('hidden');
     el.passwordInput.value='';
     try {
-      const resp = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        credentials: 'same-origin'
-      });
-      if (resp.ok) {
-        await checkSession();
-      } else {
-        const err = await resp.json().catch(() => ({ error: 'Login failed' }));
-        el.loginError.textContent = err.error || 'Invalid credentials';
+      await getAuthClient();
+      if (enrolling) {
+        const confirm = el.webPasswordConfirm.value;
+        el.webPasswordConfirm.value='';
+        if (password !== confirm) throw {code:'PASSWORD_MISMATCH'};
+        await authClient.auth.completeEnrollment({webPassword:password});
+      } else if (el.registerWeb.checked) {
+        await authClient.auth.beginEnrollment({username,linuxPassword:password});
+        enrolling = true;
+        el.usernameInput.readOnly = true;
+        el.registerWeb.disabled = true;
+        el.webPasswordGroup.classList.remove('hidden');
+        el.webPasswordConfirm.required = true;
+        el.passwordInput.autocomplete = 'new-password';
+        document.getElementById('passwordLabel').textContent='New web password';
+        el.loginError.textContent = 'Linux identity verified. Choose a separate web password (at least 12 characters), then confirm it below.';
         el.loginError.classList.remove('hidden');
+        el.passwordInput.focus();
+        return;
+      } else {
+        await authClient.auth.login({username,password});
       }
+      enrolling = false;
+      el.usernameInput.readOnly = false;
+      el.registerWeb.checked = false;
+      el.registerWeb.disabled = false;
+      el.webPasswordGroup.classList.add('hidden');
+      el.webPasswordConfirm.required = false;
+      el.passwordInput.autocomplete = 'current-password';
+      authClient.disconnect();
+      authClient = null;
+      await checkSession();
     } catch(err) {
-      el.loginError.textContent = 'Connection error. Please try again.';
+      const messages = {PASSWORD_MISMATCH:'The web passwords do not match.',INVALID_ARGUMENT:'Enter a web password of at least 12 characters.',FEATURE_DISABLED:'Self-registration is not enabled on this server.',INVALID_CREDENTIALS:'Invalid credentials or account access is disabled.',ENROLLMENT_REQUIRED:'Start registration again.',SESSION_BIND_FAILED:'Session could not be established. Please sign in again.'};
+      el.loginError.textContent = messages[err.code] || 'Connection or authentication error. Please try again.';
       el.loginError.classList.remove('hidden');
+      if (['DISCONNECTED','CONNECTION_CLOSED','CONNECTION_FAILED','HANDSHAKE_REQUIRED','SESSION_BIND_FAILED','ENROLLMENT_REQUIRED'].includes(err.code)) {
+        authClient?.disconnect(); authClient=null; enrolling=false;
+        el.usernameInput.readOnly=false; el.registerWeb.disabled=false;
+        el.webPasswordGroup.classList.add('hidden'); el.webPasswordConfirm.required=false;
+        el.passwordInput.autocomplete='current-password';
+      }
     } finally {
-      password='';
-      el.passwordInput.value='';
+      password=''; el.passwordInput.value=''; el.webPasswordConfirm.value='';
     }
   }
 
   async function performLogout() {
     try {
-      await fetch('/api/logout', {
-        method: 'POST',
-        headers: { 'x-csrf-token': state.csrfToken },
-        credentials: 'same-origin'
+      const response = await fetch('/api/logout', {
+        method: 'POST', headers: { 'x-csrf-token': state.csrfToken }, credentials: 'same-origin'
       });
-    } catch(e) {}
-    window.location.reload();
+      if (!response.ok) throw new Error('Sign-out could not be completed. Please retry.');
+      authClient?.disconnect();
+      window.location.reload();
+    } catch(error) { showToast(error.message || 'Sign-out could not be completed. Please retry.', 'error'); }
   }
 
   // --- Utility Functions ---
@@ -1078,6 +1123,11 @@
     el.settingsCancelBtn.onclick = () => el.settingsModal.classList.add('hidden');
     el.cfgSaveBtn.onclick = saveSettings;
     el.cfgReloadBtn.onclick = reloadSettingsFromDisk;
+    el.registerWeb.onchange = () => {
+      document.getElementById('passwordLabel').textContent=el.registerWeb.checked?'Linux password':(webPasswords?'Web password':'Password');
+      el.passwordInput.autocomplete=el.registerWeb.checked?'off':'current-password';
+      el.passwordInput.value='';
+    };
     el.loginForm.onsubmit = (e) => {
       e.preventDefault();
       performLogin(el.usernameInput.value.trim(), el.passwordInput.value);

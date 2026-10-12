@@ -40,7 +40,8 @@ HTTPS/WSS sertifika/şifrelemesini tarayıcı yapar; handshake JS kripto değild
 | Helper quota get, condition/event observer | Uygulandı; ölçüm/hata/threshold; observer varken sınırlı polling |
 | Managed/client state, browser storage | Uygulandı; kullanıcı namespace; path restore yeniden doğrulanır |
 | Admin settings ve Linux user picker | Mevcut endpointlerle uygulandı |
-| Ayrı web parola/enroll, kalıcı revoke, policy/history/undo/virtual management | SDK yüzeyi tanımlı; ilgili backend capability açılmadan FEATURE_DISABLED; devam eden plan |
+| PAM first-enrollment + ayrı web parola login + nonce logout | Uygulandı; proof server WS'de, credentials WS'den; private grant user API'de yok |
+| Password change/self-revoke, policy/history/undo/virtual management | SDK yüzeyi tanımlı; ilgili backend capability açılmadan FEATURE_DISABLED; devam eden plan |
 
 Bu tablo işin bitiş raporu değildir. Son sütundaki backendler tamamlanmadan destek varmış gibi UI'de sunulmaz. Public sözleşme yeni SDK feature'ı için tasarlanmıştır; legacy wire API'nin bozularak yeniden adlandırılması değildir.
 
@@ -117,3 +118,28 @@ TealDriveError: code/params/requestId/retryable/status. Rust legacy bitişik hat
 Major yalnızca uyumsuz değişimde; minor yeni uyumlu feature; patch düzeltme. Ortak options/result/state/event/hata şemaları genişlemeyi kolaylaştırır. UI geliştiricisi yeni feature görünümünü ekler; mevcut list filter'ı yeniden yazmaz.
 
 Bütün imzalar ve tipler [client.d.ts](../../src/ui/sdk/client.d.ts), runtime [client.js](../../src/ui/sdk/client.js), kullanım taslağı [sdk-api.js](../../sdk-api.js). [STATE.md](STATE.md), [TEST_RESULTS.md](TEST_RESULTS.md), [IMPLEMENTATION_DECISIONS.md](IMPLEMENTATION_DECISIONS.md).
+
+## İlk kayıt: hangi parola, hangi bağlantı?
+
+```javascript
+const info = await API.handshake();
+if (info.authentication.webPassword) {
+  // Normal girişte web parolası kullanılır; Linux parolası reset yöntemi değildir.
+  await API.auth.login({ username, password: webPassword });
+}
+```
+
+Yeni uygun Linux hesabı için UI iki ayrı adım sunar:
+
+```javascript
+const pending = await API.auth.beginEnrollment({ username, linuxPassword });
+// pending: { enrollmentRequired: true, expiresAt: epochSeconds }
+// Linux input'unu temizleyin; pending içinde token/id yoktur.
+const session = await API.auth.completeEnrollment({ webPassword });
+// Aynı API ve WS; 300 saniye içinde. Parola 12+ Unicode karakter / <=1024 UTF-8 byte.
+// session: accountId/accountGeneration/accountKind/role + username/roots/CSRF.
+```
+
+Kayıt başladıktan sonra sayfa/bağlantı kapanırsa yeniden PAM gerekir. SDK Linux veya web parolasını storage'a yazmaz. Managed storage namespace account ID/generation/origin ile ayrılır; içerik/credential yok. Virtual hesap PAM self-enrollment kullanmaz; admin/root provisioning bekler. Root deny/suspend, kayıt formu açıkken değişse bile completion'da tekrar denetlenir.
+
+`getInfo().authentication.webPassword` giriş yöntemidir; `changePassword()` endpoint'inin hazır olduğu anlamına gelmez. Bu endpoint ve self-revoke henüz FEATURE_DISABLED. UI auth SDK'ya taşındı; dosya UI'sının tümüyle SDK dönüşümü ve i18n ayrı PLAN maddesidir.

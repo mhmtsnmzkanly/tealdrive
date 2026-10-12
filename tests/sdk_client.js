@@ -53,6 +53,30 @@ globalThis.crypto = webcrypto;
         return;
       }
       if (f.messageType === M.AuthLogin) {
+        if (p.action === "enrollmentBegin") {
+          this.enrollmentUsername = p.username;
+          this.reply(
+            M.AuthResult,
+            {
+              enrollment_required: true,
+              expires_at: Math.floor(Date.now() / 1000) + 300,
+            },
+            f.requestId,
+          );
+          return;
+        }
+        if (p.action === "enrollmentComplete") {
+          if (!this.enrollmentUsername) {
+            this.reply(
+              M.AuthResult,
+              { authenticated: false, code: "ENROLLMENT_REQUIRED" },
+              f.requestId,
+            );
+            return;
+          }
+          p.username = this.enrollmentUsername;
+          this.enrollmentUsername = null;
+        }
         if (p.password === "wrong") {
           this.reply(
             M.AuthResult,
@@ -316,6 +340,38 @@ globalThis.crypto = webcrypto;
   assert.ok(Object.isFrozen(first));
   api.disconnect();
   assert.equal(api._pending.size, 0);
+  session = null; // New browser with no session cookie.
+  const enrolling = createClient({
+    WebSocket: Socket,
+    fetch,
+    location,
+    storage,
+    stateMode: "client",
+    timeoutMs: 100,
+  });
+  await enrolling.handshake();
+  await assert.rejects(
+    enrolling.auth.completeEnrollment({ webPassword: "short" }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
+  await assert.rejects(
+    enrolling.auth.completeEnrollment({ webPassword: "long-web-password" }),
+    (e) => e.code === "ENROLLMENT_REQUIRED",
+  );
+  const begun = await enrolling.auth.beginEnrollment({
+    username: "new-user",
+    linuxPassword: "linux-password",
+  });
+  assert.equal(begun.enrollmentRequired, true);
+  assert.equal(typeof begun.expiresAt, "number");
+  assert.ok(!("id" in begun));
+  const enrollmentFrame = frames.at(-1).payload;
+  assert.equal(enrollmentFrame.action, "enrollmentBegin");
+  const enrolled = await enrolling.auth.completeEnrollment({
+    webPassword: "separate-web-password",
+  });
+  assert.equal(enrolled.username, "new-user");
+  enrolling.disconnect();
   assert.ok(TealDriveError);
 })().catch((e) => {
   if (e.stack)

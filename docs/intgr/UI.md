@@ -84,3 +84,7 @@ Default UI yolu custom JS runtime hatasında da açılabilir. CSP script inline/
 ## Uygulandı — kaynak dosyaları
 
 HTML/CSS/JS/SVG src/ui/static altında ayrı dosyalardır; assets.rs include_str ile gömer. Browser contract ve shutdown testleri geçti (TEST_RESULTS). Auth/file-manager modül ayrımı ve SDK entegrasyonu sonraki işlerdir.
+
+## Uygulanan auth UI (2026-10-12)
+
+Login artık SDK handshake/WS login kullanır; HTTP'ye parola body göndermez. ServerHello.authentication enrollment/mode'a göre ilk kayıt seçeneği görünür ve password label değişir. Linux verification sonrası username kilitlenir, yeni web password + confirmation istenir. Input'lar ağdan önce ve finally'de temizlenir; mismatch/weak password/proof-expiry/backend hata mesajları gösterilir. Disconnect olursa pending kayıt tekrar başlamalıdır; token storage'a konmaz. Global settings düğmesi Root-verified Linux admin role + root roster ister. Logout503'ü başarı saymaz, yeniden deneme mesajı verir. File-manager UI mevcut transport'tadır; tam SDK dönüşümü/TR-EN işi devam eder.

@@ -228,16 +228,8 @@ export class TealDriveClient {
       logout: () => this._logout(),
       revokeSelf: async () =>
         this._featureHttp("self_revoke", "/api/auth/revoke", "POST", {}, true),
-      beginEnrollment: async (o) =>
-        this._featureHttp("enrollment", "/api/auth/enroll", "POST", o, false),
-      completeEnrollment: async (o) =>
-        this._featureHttp(
-          "enrollment",
-          "/api/auth/enroll/complete",
-          "POST",
-          o,
-          false,
-        ),
+      beginEnrollment: async (o) => this._beginEnrollment(o),
+      completeEnrollment: async (o) => this._completeEnrollment(o),
       changePassword: async (o) =>
         this._featureHttp(
           "web_password",
@@ -490,6 +482,13 @@ export class TealDriveClient {
       protocolVersion: this._hello.protocol_version,
       limits: publicValue(this._limits),
       features: publicValue(this._hello.feature_flags),
+      authentication: publicValue(
+        this._hello.authentication ?? {
+          web_password: false,
+          enrollment: false,
+          self_registration: false,
+        },
+      ),
       authenticated: Boolean(this._session),
     });
   }
@@ -782,6 +781,52 @@ export class TealDriveClient {
       { username: options.username, password: options.password },
       { auth: false },
     );
+    return this._bindAuthentication(result);
+  }
+  async _beginEnrollment(options) {
+    object(options, ["username", "linuxPassword"]);
+    this._require(false);
+    if (this._session) fail("ALREADY_AUTHENTICATED");
+    if (
+      typeof options.username !== "string" ||
+      typeof options.linuxPassword !== "string"
+    )
+      fail("INVALID_ARGUMENT");
+    const result = await this._request(
+      "AuthLogin",
+      {
+        action: "enrollmentBegin",
+        username: options.username,
+        password: options.linuxPassword,
+      },
+      { auth: false },
+    );
+    if (!result.enrollment_required) fail("PROTOCOL_ERROR");
+    return freeze({ enrollmentRequired: true, expiresAt: result.expires_at });
+  }
+  async _completeEnrollment(options) {
+    object(options, ["webPassword"]);
+    this._require(false);
+    if (this._session) fail("ALREADY_AUTHENTICATED");
+    if (
+      typeof options.webPassword !== "string" ||
+      [...options.webPassword].length < 12 ||
+      new TextEncoder().encode(options.webPassword).length > 1024 ||
+      options.webPassword.includes("\0")
+    )
+      fail("INVALID_ARGUMENT", { params: { field: "webPassword" } });
+    const result = await this._request(
+      "AuthLogin",
+      {
+        action: "enrollmentComplete",
+        username: "",
+        password: options.webPassword,
+      },
+      { auth: false },
+    );
+    return this._bindAuthentication(result);
+  }
+  async _bindAuthentication(result) {
     const bind = await this._fetch("/api/session/bind", {
       method: "POST",
       credentials: "same-origin",

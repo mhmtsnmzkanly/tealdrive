@@ -143,11 +143,16 @@
           <input type="text" id="usernameInput" class="form-input" required autocomplete="username" autofocus>
         </div>
         <div class="form-group">
-          <label for="passwordInput">Password</label>
+          <label id="passwordLabel" for="passwordInput">Password</label>
           <input type="password" id="passwordInput" class="form-input" required autocomplete="current-password">
         </div>
+        <label id="registerWebOption" class="hidden"><input type="checkbox" id="registerWeb"> First-time web access: verify my Linux password</label>
+        <div class="form-group hidden" id="webPasswordGroup">
+          <label for="webPasswordConfirm">Confirm new web password</label>
+          <input type="password" id="webPasswordConfirm" class="form-input" autocomplete="new-password">
+        </div>
         <div class="modal-actions">
-          <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+          <button type="submit" class="btn btn-primary btn-block">Continue</button>
         </div>
       </form>
     </div>

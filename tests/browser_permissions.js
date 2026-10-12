@@ -14,7 +14,8 @@ globalThis.setTimeout = () => 1;
 globalThis.WebSocket = {OPEN:1};
 const init = '  // Initialize\n  setupEvents();\n  checkSession();';
 assert.ok(application.includes(init));
-vm.runInThisContext(application.replace(init,
+const testedApplication = application.replace("import('/sdk/v1/tealdrive.js')", `Promise.resolve({createClient:()=>({handshake:async()=>{},disconnect(){},auth:{login:async(options)=>{const r=await fetch('/api/login',{body:JSON.stringify(options)});if(!r.ok)throw {code:'INVALID_CREDENTIALS'};}}})})`);
+vm.runInThisContext(testedApplication.replace(init,
   'globalThis.ui={state,el,openEditor,openChmodModal,syncChmodFromCode,performLogin,setupEvents,inject(fn){requestWs=fn;loadDirectory=()=>{};}};'));
 const {state,el,openChmodModal,syncChmodFromCode,performLogin,setupEvents}=ui;
 setupEvents();

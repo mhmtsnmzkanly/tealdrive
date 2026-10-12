@@ -264,6 +264,22 @@ where
         )
         .route("/api/session", get(session_handler::<H>))
         .route(
+            "/api/admin/virtual/create",
+            post(crate::admin::accounts::create_virtual::<H>),
+        )
+        .route(
+            "/api/admin/virtual/setQuota",
+            post(crate::admin::accounts::quota_virtual::<H>),
+        )
+        .route(
+            "/api/admin/virtual/delete",
+            post(crate::admin::accounts::delete_virtual::<H>),
+        )
+        .route(
+            "/api/admin/budget",
+            get(crate::admin::accounts::budget::<H>),
+        )
+        .route(
             "/api/account/policy",
             get(crate::admin::accounts::own_policy::<H>)
                 .post(crate::admin::accounts::set_own_policy::<H>),
@@ -850,7 +866,7 @@ pub(super) async fn handle_socket_connection<H>(
 where
     H: WsHelperBackend + 'static,
 {
-    let account = {
+    let mut account = {
         let session = state.session_store.lock().await.get_session(
             &context.session_id,
             InMemorySessionStore::now_epoch_seconds(),
@@ -864,6 +880,7 @@ where
             _ => return Err(TealDriveError::PermissionDenied),
         }
     };
+    let auth_state = state.clone();
     let WsServerState {
         config,
         session_store,
@@ -952,6 +969,21 @@ where
                 };
 
                 let request_id = frame.header.request_id;
+                if account.as_ref().is_some_and(|account| {
+                    account.kind == crate::accounts::store::AccountKind::Virtual
+                        && account.role == crate::accounts::store::Role::Admin
+                }) {
+                    let session = session_store.lock().await.get_session(
+                        &context.session_id,
+                        InMemorySessionStore::now_epoch_seconds(),
+                    );
+                    let crate::session::store::SessionLookupResult::Found(session) = session else {
+                        return Err(TealDriveError::PermissionDenied);
+                    };
+                    account = crate::auth::api::validated_session_account(&auth_state, &session)
+                        .await
+                        .map_err(|_| TealDriveError::PermissionDenied)?;
+                }
                 let current_config = config.load_full();
                 let current_config = match account.as_ref() {
                     Some(account) => Arc::new(crate::policy::home::resolve(

@@ -59,6 +59,7 @@ pub struct UserContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub virtual_accounts: crate::accounts::virtuals::VirtualConfig,
     pub web_accounts: crate::helper::account_gateway::WebAccountsConfig,
     pub access_policy: crate::policy::access::AccessPolicy,
     pub quota_warning_percent: u8,
@@ -88,6 +89,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            virtual_accounts: crate::accounts::virtuals::VirtualConfig::default(),
             web_accounts: crate::helper::account_gateway::WebAccountsConfig::default(),
             access_policy: crate::policy::access::AccessPolicy::default(),
             quota_warning_percent: 80,
@@ -162,6 +164,16 @@ impl AppConfig {
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
         self.web_accounts.validate()?;
+        self.virtual_accounts.validate(self.web_accounts.enabled)?;
+        if self.virtual_accounts.enforcement == crate::accounts::virtuals::Enforcement::UserQuota
+            && self
+                .home_template
+                .as_ref()
+                .and_then(|root| root.quota_bytes)
+                .is_some_and(|bytes| bytes < 4096 || bytes % 1024 != 0)
+        {
+            return Err(TealDriveError::Validation);
+        }
         self.access_policy.validate()?;
         if !(1..=100).contains(&self.quota_warning_percent) {
             return Err(TealDriveError::Validation);

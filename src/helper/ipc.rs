@@ -583,6 +583,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 gid: request.gid,
             };
             let mut authenticated_account = None;
+            let mut authenticated_grant = None;
             let config = if elevated {
                 let mut config = crate::helper::security::trusted_config()
                     .map_err(|_| TealDriveError::PermissionDenied)?;
@@ -596,6 +597,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                             ),
                         );
                     };
+                    authenticated_grant = Some(grant.clone());
                     let reply = crate::helper::account_gateway::execute(
                         crate::helper::account_gateway::AccountCommand::Validate(grant),
                     );
@@ -666,7 +668,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 None if elevated => return Err(TealDriveError::PermissionDenied),
                 None => config,
             };
-            let config = match authenticated_account.as_ref() {
+            let mut config = match authenticated_account.as_ref() {
                 Some(account) => crate::policy::home::resolve(&config, account, None)?,
                 None => config,
             };
@@ -704,7 +706,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     ),
                 );
             }
-            let reservation = if matches!(
+            let mut reservation = if matches!(
                 request.command,
                 HelperCommand::QuotaUsage
                     | HelperCommand::ListDirectory
@@ -722,6 +724,83 @@ pub fn run_secure_helper<R: Read, W: Write>(
                         .map_err(|_| TealDriveError::PermissionDenied)?,
                 )
             };
+            if let (Some(held), Some(grant)) = (reservation.as_mut(), authenticated_grant.as_ref())
+            {
+                // A quota/policy transition may have happened while flock waited.
+                // Recheck authority and ceilings inside the same directory lock.
+                let reply = crate::helper::account_gateway::execute(
+                    crate::helper::account_gateway::AccountCommand::Validate(grant.clone()),
+                );
+                let Ok(crate::helper::account_gateway::AccountReply::Validated(account)) = reply
+                else {
+                    return Err(TealDriveError::PermissionDenied);
+                };
+                let trusted = crate::helper::security::trusted_config()
+                    .map_err(|_| TealDriveError::PermissionDenied)?;
+                let mut trusted = crate::policy::home::resolve(
+                    &trusted,
+                    &account,
+                    trusted.home_template.as_ref(),
+                )?;
+                crate::helper::account_gateway::apply_persisted_policy(&mut trusted, &account)
+                    .map_err(|_| TealDriveError::PermissionDenied)?;
+                config = crate::helper::policy::restrict(
+                    policy.as_ref().ok_or(TealDriveError::PermissionDenied)?,
+                    &trusted,
+                )?;
+                crate::helper::policy::authorize(&request, &config)?;
+                let root = config
+                    .roots
+                    .iter()
+                    .find(|root| root.root_id == request.root_id)
+                    .ok_or(TealDriveError::PermissionDenied)?;
+                let used = if account.kind == crate::accounts::store::AccountKind::Virtual
+                    && config.virtual_accounts.enforcement
+                        == crate::accounts::virtuals::Enforcement::UserQuota
+                {
+                    crate::helper::native_quota::assert_limit(
+                        root,
+                        account.uid,
+                        trusted
+                            .roots
+                            .iter()
+                            .find(|root| root.root_id == request.root_id)
+                            .and_then(|root| root.quota_bytes)
+                            .unwrap_or(0),
+                        config.virtual_accounts.max_inodes,
+                    )
+                    .map_err(|_| TealDriveError::PermissionDenied)?
+                    .used_bytes
+                } else {
+                    held.used_bytes
+                };
+                held.available = root.quota_bytes.map(|limit| limit.saturating_sub(used));
+            } else if let Some(account) = authenticated_account.as_ref() {
+                if account.kind == crate::accounts::store::AccountKind::Virtual
+                    && config.virtual_accounts.enforcement
+                        == crate::accounts::virtuals::Enforcement::UserQuota
+                {
+                    let trusted = crate::helper::security::trusted_config()
+                        .map_err(|_| TealDriveError::PermissionDenied)?;
+                    let trusted = crate::policy::home::resolve(
+                        &trusted,
+                        account,
+                        trusted.home_template.as_ref(),
+                    )?;
+                    let root = trusted
+                        .roots
+                        .iter()
+                        .find(|root| root.root_id == request.root_id)
+                        .ok_or(TealDriveError::PermissionDenied)?;
+                    crate::helper::native_quota::assert_limit(
+                        root,
+                        account.uid,
+                        root.quota_bytes.unwrap_or(0),
+                        config.virtual_accounts.max_inodes,
+                    )
+                    .map_err(|_| TealDriveError::PermissionDenied)?;
+                }
+            }
             if crate::helper::security::enter_identity(&user).is_err() {
                 return write_helper_response(
                     writer,

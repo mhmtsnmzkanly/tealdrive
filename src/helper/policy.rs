@@ -44,6 +44,8 @@ pub fn restrict(
 ) -> Result<AppConfig, TealDriveError> {
     snapshot.validate()?;
     let mut config = snapshot.config.clone();
+    config.virtual_accounts = ceiling.virtual_accounts.clone();
+    config.web_accounts = ceiling.web_accounts.clone();
     config.access_policy.extend_ceiling(&ceiling.access_policy);
     config.access_policy.validate()?;
     for root in &mut config.roots {

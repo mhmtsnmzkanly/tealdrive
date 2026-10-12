@@ -168,6 +168,15 @@ pub fn move_file_to_trash_with_roots(
         }
     };
 
+    if crate::helper::quota::budget().is_some_and(|remaining| entry_bytes.len() as u64 > remaining)
+    {
+        return helper_error(
+            request,
+            ErrorKind::DiskFull,
+            "Quota cannot accommodate trash metadata.",
+            "quota_exceeded",
+        );
+    }
     if fs::write(&info_path, &entry_bytes).is_err() {
         return helper_error(
             request,
@@ -634,7 +643,9 @@ fn helper_error_from_trash_io(request: &HelperRequest, error: std::io::Error) ->
             "already_exists",
         ),
         _ => match error.raw_os_error() {
-            Some(28) => (ErrorKind::DiskFull, "Disk is full.", "disk_full"),
+            Some(libc::ENOSPC | libc::EDQUOT) => {
+                (ErrorKind::DiskFull, "Disk is full.", "disk_full")
+            }
             _ => (
                 ErrorKind::InternalError,
                 "Filesystem error.",
@@ -705,6 +716,29 @@ mod tests {
         };
         assert_eq!(entry.display_name, "file.txt");
         assert!(!entry.trash_id.is_empty());
+    }
+
+    #[test]
+    fn quota_rejection_preserves_source_and_does_not_publish_metadata() {
+        let base = temp_root();
+        fs::write(base.join("file.txt"), b"data").unwrap();
+        let response = crate::helper::quota::with_budget(Some(0), || {
+            move_file_to_trash_with_roots(
+                &trash_request("file.txt"),
+                &[root(base.clone())],
+                &SensitivePolicyConfig::default(),
+            )
+        });
+        assert!(!response.success);
+        assert_eq!(response.error_kind, Some(ErrorKind::DiskFull));
+        assert_eq!(fs::read(base.join("file.txt")).unwrap(), b"data");
+        assert_eq!(
+            fs::read_dir(base.join(TRASH_DIR_NAME).join("info"))
+                .unwrap()
+                .count(),
+            0
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

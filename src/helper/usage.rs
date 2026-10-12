@@ -5,7 +5,15 @@ pub fn measure(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
     let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
         return HelperResponse::permission_denied(request, "Unknown root.");
     };
-    match scan(&root.base_path) {
+    let native = config.web_accounts.enabled
+        && config.virtual_accounts.enforcement == crate::accounts::virtuals::Enforcement::UserQuota
+        && request.uid >= config.web_accounts.virtual_min_uid
+        && request.uid <= config.web_accounts.virtual_max_uid;
+    match if native {
+        crate::helper::native_quota::read(root, request.uid).map(|usage| usage.used_bytes)
+    } else {
+        scan(&root.base_path)
+    } {
         Ok(used) => {
             let mut response = HelperResponse::operation_done(request, "Usage measured.");
             response.payload = HelperResponsePayload::Usage {

@@ -99,7 +99,9 @@ fn helper_error_from_io(request: &HelperRequest, error: io::Error) -> HelperResp
                 "Parent is not a directory.",
                 "parent_not_directory",
             ),
-            Some(28) => (ErrorKind::DiskFull, "Disk is full.", "disk_full"),
+            Some(libc::ENOSPC | libc::EDQUOT) => {
+                (ErrorKind::DiskFull, "Disk is full.", "disk_full")
+            }
             Some(36) => (ErrorKind::NameTooLong, "Name too long.", "name_too_long"),
             _ => (
                 ErrorKind::InternalError,

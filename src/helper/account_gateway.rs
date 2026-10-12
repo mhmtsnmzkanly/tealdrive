@@ -89,6 +89,25 @@ pub enum AccountCommand {
         layer: crate::accounts::policies::PolicyLayer,
         rules: Vec<crate::policy::access::Rule>,
     },
+    CreateVirtual {
+        grant: SessionGrant,
+        name: String,
+        quota_bytes: u64,
+        password: zeroize::Zeroizing<String>,
+        idempotency_key: String,
+    },
+    SetVirtualQuota {
+        grant: SessionGrant,
+        account_id: String,
+        expected_generation: u64,
+        quota_bytes: u64,
+    },
+    DeleteVirtual {
+        grant: SessionGrant,
+        account_id: String,
+        expected_generation: u64,
+    },
+    Budget(SessionGrant),
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
@@ -108,6 +127,7 @@ pub enum AccountReply {
         rules: crate::policy::access::UserRules,
         deny_system_components: Vec<String>,
     },
+    Budget(serde_json::Value),
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GatewayFailure {
@@ -116,13 +136,15 @@ pub enum GatewayFailure {
     InvalidCredentials,
     Conflict,
     Unavailable,
+    QuotaExceeded,
 }
 impl From<StoreError> for GatewayFailure {
     fn from(error: StoreError) -> Self {
         match error {
             StoreError::InvalidCredentials | StoreError::NotFound => Self::InvalidCredentials,
             StoreError::Forbidden | StoreError::InvalidInput => Self::Forbidden,
-            StoreError::Conflict | StoreError::QuotaExceeded => Self::Conflict,
+            StoreError::Conflict => Self::Conflict,
+            StoreError::QuotaExceeded => Self::QuotaExceeded,
             _ => Self::Unavailable,
         }
     }
@@ -193,7 +215,10 @@ fn matches_nss(account: &Account, identity: &AuthSuccess) -> bool {
         && Some(&account.home) == identity.home_dir.as_ref()
         && (account.kind == AccountKind::Virtual || account.username == identity.username)
 }
-fn validate_account(config: &AppConfig, account: &Account) -> Result<(), GatewayFailure> {
+pub(crate) fn validate_account(
+    config: &AppConfig,
+    account: &Account,
+) -> Result<(), GatewayFailure> {
     if config.web_accounts.denied_users.contains(&account.username) {
         return Err(GatewayFailure::Forbidden);
     }
@@ -217,6 +242,7 @@ fn validate_account(config: &AppConfig, account: &Account) -> Result<(), Gateway
             actual.shell.as_deref(),
             Some("/usr/sbin/nologin" | "/sbin/nologin" | "/bin/false")
         )
+        || !crate::accounts::virtuals::locked_os_password(&actual.username)
     {
         return Err(GatewayFailure::Forbidden);
     }
@@ -274,6 +300,119 @@ fn dispatch(
 ) -> Result<AccountReply, GatewayFailure> {
     let at = crate::session::store::InMemorySessionStore::now_epoch_seconds();
     match command {
+        AccountCommand::CreateVirtual {
+            grant,
+            name,
+            quota_bytes,
+            password,
+            idempotency_key,
+        } => {
+            if !config.virtual_accounts.enabled || config.home_template.is_none() {
+                return Err(GatewayFailure::Disabled);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            management_authority(config, &actor, AccountKind::Virtual)?;
+            let created = crate::accounts::virtuals::provision(
+                store,
+                config,
+                &actor,
+                &name,
+                quota_bytes,
+                &password,
+                &idempotency_key,
+            )
+            .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(created))
+        }
+        AccountCommand::SetVirtualQuota {
+            grant,
+            account_id,
+            expected_generation,
+            quota_bytes,
+        } => {
+            if !config.virtual_accounts.enabled || config.home_template.is_none() {
+                return Err(GatewayFailure::Disabled);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let authority = management_authority(config, &actor, AccountKind::Virtual)?;
+            let target = store.get(&account_id).map_err(GatewayFailure::from)?;
+            store
+                .policy(&authority, &target.id)
+                .map_err(GatewayFailure::from)?;
+            if target.kind != AccountKind::Virtual
+                || target.role != crate::accounts::store::Role::User
+            {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let updated = crate::accounts::virtuals::set_quota(
+                store,
+                config,
+                &authority,
+                &target,
+                expected_generation,
+                quota_bytes,
+            )
+            .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(updated))
+        }
+        AccountCommand::DeleteVirtual {
+            grant,
+            account_id,
+            expected_generation,
+        } => {
+            if !config.virtual_accounts.enabled || !config.virtual_accounts.allow_admin_delete {
+                return Err(GatewayFailure::Disabled);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let authority = management_authority(config, &actor, AccountKind::Virtual)?;
+            let target = store.get(&account_id).map_err(GatewayFailure::from)?;
+            if target.kind != AccountKind::Virtual
+                || target.role != crate::accounts::store::Role::User
+            {
+                return Err(GatewayFailure::Forbidden);
+            }
+            if target.generation != expected_generation {
+                return Err(GatewayFailure::Conflict);
+            }
+            let updated = store
+                .transition_expected(
+                    &authority,
+                    &target.id,
+                    crate::accounts::store::AccountStatus::Deleted,
+                    true,
+                    expected_generation,
+                )
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccountUpdated(updated))
+        }
+        AccountCommand::Budget(grant) => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            management_authority(config, &actor, AccountKind::Virtual)?;
+            let mut budget = store.budget(&actor.id).map_err(GatewayFailure::from)?;
+            if actor.kind == AccountKind::Virtual {
+                let root = crate::accounts::virtuals::root(config, &actor)
+                    .map_err(GatewayFailure::from)?;
+                budget["used_bytes"] = serde_json::Value::from(
+                    crate::accounts::virtuals::usage(config, &root, actor.uid)
+                        .map_err(GatewayFailure::from)?,
+                );
+            }
+            budget["enforcement"] = serde_json::to_value(config.virtual_accounts.enforcement)
+                .map_err(|_| GatewayFailure::Unavailable)?;
+            Ok(AccountReply::Budget(budget))
+        }
         AccountCommand::GetPolicy {
             grant,
             account_id,

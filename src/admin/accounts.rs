@@ -22,6 +22,27 @@ pub struct AccessPayload {
 pub struct ApprovalPayload {
     username: String,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateVirtualPayload {
+    name: String,
+    quota_bytes: u64,
+    password: zeroize::Zeroizing<String>,
+    idempotency_key: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VirtualQuotaPayload {
+    account_id: String,
+    quota_bytes: u64,
+    expected_generation: u64,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VirtualDeletePayload {
+    account_id: String,
+    expected_generation: u64,
+}
 enum Action {
     List(AccountKind),
     Access(AccountKind, String, bool),
@@ -33,6 +54,46 @@ enum Action {
         u64,
         Vec<crate::policy::access::Rule>,
     ),
+    CreateVirtual(CreateVirtualPayload),
+    SetVirtualQuota(VirtualQuotaPayload),
+    DeleteVirtual(VirtualDeletePayload),
+    Budget,
+}
+pub async fn create_virtual<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateVirtualPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::CreateVirtual(payload)).await
+}
+pub async fn quota_virtual<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Json(payload): Json<VirtualQuotaPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::SetVirtualQuota(payload)).await
+}
+pub async fn delete_virtual<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Json(payload): Json<VirtualDeletePayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::DeleteVirtual(payload)).await
+}
+pub async fn budget<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::Budget).await
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -196,6 +257,17 @@ where
     H: WsHelperBackend + Clone + 'static,
 {
     let cfg = state.config.load();
+    if matches!(
+        action,
+        Action::CreateVirtual(_) | Action::SetVirtualQuota(_) | Action::DeleteVirtual(_)
+    ) && (!cfg.virtual_accounts.enabled || cfg.home_template.is_none())
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"code":"FEATURE_DISABLED"})),
+        )
+            .into_response();
+    }
     if !cfg.web_accounts.enabled {
         return StatusCode::NOT_IMPLEMENTED.into_response();
     }
@@ -212,8 +284,10 @@ where
     if !session.allowed_by(&cfg) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    if !matches!(action, Action::List(_) | Action::PolicyGet(..))
-        && !crate::session::csrf::validate_header(&session, &headers)
+    if !matches!(
+        action,
+        Action::List(_) | Action::PolicyGet(..) | Action::Budget
+    ) && !crate::session::csrf::validate_header(&session, &headers)
     {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -221,13 +295,35 @@ where
         return StatusCode::FORBIDDEN.into_response();
     };
     let operation = match &action {
-        Action::List(_) | Action::PolicyGet(..) => None,
+        Action::List(_) | Action::PolicyGet(..) | Action::Budget => None,
+        Action::CreateVirtual(..) => Some("create_virtual_account"),
+        Action::SetVirtualQuota(..) => Some("change_virtual_quota"),
+        Action::DeleteVirtual(..) => Some("delete_virtual_account"),
         Action::PolicySet(..) => Some("change_account_policy"),
         Action::Approve(_) => Some("approve_linux_account"),
         Action::Access(_, _, true) => Some("enable_web_access"),
         Action::Access(_, _, false) => Some("suspend_web_access"),
     };
     let command = match action {
+        Action::CreateVirtual(p) => AccountCommand::CreateVirtual {
+            grant,
+            name: p.name,
+            quota_bytes: p.quota_bytes,
+            password: p.password,
+            idempotency_key: p.idempotency_key,
+        },
+        Action::SetVirtualQuota(p) => AccountCommand::SetVirtualQuota {
+            grant,
+            account_id: p.account_id,
+            quota_bytes: p.quota_bytes,
+            expected_generation: p.expected_generation,
+        },
+        Action::DeleteVirtual(p) => AccountCommand::DeleteVirtual {
+            grant,
+            account_id: p.account_id,
+            expected_generation: p.expected_generation,
+        },
+        Action::Budget => AccountCommand::Budget(grant),
         Action::List(kind) => AccountCommand::ListAccounts { grant, kind },
         Action::PolicyGet(account_id, kind) => AccountCommand::GetPolicy {
             grant,
@@ -288,6 +384,7 @@ where
     .await
     {
         Ok(Ok(AccountReply::Accounts(accounts))) => Json(accounts).into_response(),
+        Ok(Ok(AccountReply::Budget(budget)))=>Json(budget).into_response(),
         Ok(Ok(AccountReply::Policy{account,rules,deny_system_components})) => Json(serde_json::json!({"account":account,"rules":rules,"deny_system_components":deny_system_components})).into_response(),
         Ok(Ok(AccountReply::AccountUpdated(account))) => {
             if let Some(operation) = operation {
@@ -297,6 +394,9 @@ where
                     session.uid,
                     session.gid,
                     match operation {
+                        "create_virtual_account"=>crate::audit::event::AuditAction::AccountCreated,
+                        "change_virtual_quota"=>crate::audit::event::AuditAction::QuotaChanged,
+                        "delete_virtual_account"=>crate::audit::event::AuditAction::AccountDeleted,
                         "change_account_policy" => crate::audit::event::AuditAction::PolicyChanged,
                         "approve_linux_account" => {
                             crate::audit::event::AuditAction::AccountApproved
@@ -318,6 +418,8 @@ where
         Ok(Err(GatewayFailure::Forbidden)) => StatusCode::FORBIDDEN.into_response(),
         Ok(Err(GatewayFailure::InvalidCredentials)) => StatusCode::UNAUTHORIZED.into_response(),
         Ok(Err(GatewayFailure::Conflict)) => StatusCode::CONFLICT.into_response(),
+        Ok(Err(GatewayFailure::QuotaExceeded)) => (StatusCode::CONFLICT,Json(serde_json::json!({"code":"QUOTA_EXCEEDED"}))).into_response(),
+        Ok(Err(GatewayFailure::Disabled)) => (StatusCode::FORBIDDEN,Json(serde_json::json!({"code":"FEATURE_DISABLED"}))).into_response(),
         _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }

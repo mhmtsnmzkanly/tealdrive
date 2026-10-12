@@ -10,6 +10,7 @@ pub mod ipc;
 pub mod listing;
 pub mod metadata;
 pub mod move_copy;
+pub mod native_quota;
 pub mod policy;
 pub mod privilege;
 pub mod quota;

@@ -26,6 +26,12 @@ pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDr
             account_management: config.web_accounts.enabled,
             linux_approval: config.web_accounts.enabled,
             policy_management: config.web_accounts.enabled,
+            virtual_accounts: config.web_accounts.enabled
+                && config.virtual_accounts.enabled
+                && config.home_template.is_some(),
+            virtual_delete: config.web_accounts.enabled
+                && config.virtual_accounts.enabled
+                && config.virtual_accounts.allow_admin_delete,
             enrollment: config.web_accounts.enabled,
             self_registration: config.web_accounts.enabled && config.web_accounts.self_registration,
         },

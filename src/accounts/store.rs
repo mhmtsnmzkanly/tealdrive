@@ -98,7 +98,14 @@ pub(super) fn now() -> u64 {
 pub(super) fn number(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::InvalidInput)
 }
-fn root_parent(path: &Path) -> Result<(), StoreError> {
+pub(super) fn pending_reserved(
+    connection: &Connection,
+    owner: &str,
+    exclude: &str,
+) -> Result<i64, StoreError> {
+    Ok(connection.query_row("SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL AND key!=?2 THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state",params![owner,exclude],|r|r.get(0))?)
+}
+pub(super) fn root_parent(path: &Path) -> Result<(), StoreError> {
     if !path.is_absolute()
         || path
             .components()
@@ -361,6 +368,25 @@ impl AccountStore {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn create(&mut self, actor: &Authority, new: NewAccount) -> Result<Account, StoreError> {
+        self.create_record(actor, new, None, None)
+    }
+    pub(crate) fn create_enrolled(
+        &mut self,
+        actor: &Authority,
+        new: NewAccount,
+        password: &str,
+        request_state: Option<(&str, &str)>,
+    ) -> Result<Account, StoreError> {
+        let hash = super::password::hash(password)?;
+        self.create_record(actor, new, Some(hash), request_state)
+    }
+    fn create_record(
+        &mut self,
+        actor: &Authority,
+        new: NewAccount,
+        hash: Option<zeroize::Zeroizing<String>>,
+        request_state: Option<(&str, &str)>,
+    ) -> Result<Account, StoreError> {
         if new.username.is_empty()
             || new.username.len() > 256
             || new.username.contains(['/', '\\', '\0'])
@@ -417,7 +443,8 @@ impl AccountStore {
                 [owner],
                 |r| r.get(0),
             )?;
-            if number(quota)? > budget - allocated {
+            let pending = pending_reserved(&tx, owner, request_state.map_or("", |(key, _)| key))?;
+            if number(quota)? > budget - allocated - pending {
                 return Err(StoreError::QuotaExceeded);
             }
         } else if new.owner_admin_id.is_some() || new.quota_bytes.is_some() {
@@ -426,6 +453,18 @@ impl AccountStore {
         let id = uuid::Uuid::new_v4().to_string();
         let time = now();
         tx.execute("INSERT INTO accounts(id,username,uid,gid,home,kind,role,owner_admin_id,quota_bytes,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![id,new.username,new.uid,new.gid,new.home.to_str().ok_or(StoreError::InvalidInput)?,if new.kind==AccountKind::Linux{"linux"}else{"virtual"},if new.role==Role::Admin{"admin"}else{"user"},new.owner_admin_id,new.quota_bytes.map(number).transpose()?,number(time)?])?;
+        if let Some(hash) = hash {
+            tx.execute(
+                "UPDATE accounts SET web_password_hash=?1 WHERE id=?2",
+                params![hash.as_str(), id],
+            )?;
+        }
+        if let Some((key, state)) = request_state {
+            let mut state: serde_json::Value =
+                serde_json::from_str(state).map_err(|_| StoreError::InvalidInput)?;
+            state["account_id"] = serde_json::Value::String(id.clone());
+            tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,state.to_string()])?;
+        }
         let result = account(&tx, &id)?;
         tx.commit()?;
         Ok(result)
@@ -441,11 +480,14 @@ impl AccountStore {
         }
         // One statement observes one SQLite snapshot: concurrent budget/allocation
         // updates cannot combine an old budget with a newer child reservation.
-        let (budget, allocated): (i64, i64) = self.connection.query_row(
-            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0), coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0)",
+        let (budget, allocated, pending): (i64, i64, i64) = self.connection.query_row(
+            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0), coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0), (SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state)",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        let allocated = allocated
+            .checked_add(pending)
+            .ok_or(StoreError::QuotaExceeded)?;
         if allocated > budget {
             return Err(StoreError::QuotaExceeded);
         }
@@ -508,6 +550,9 @@ impl AccountStore {
             [id],
             |r| r.get(0),
         )?;
+        let children = children
+            .checked_add(pending_reserved(&tx, id, "")?)
+            .ok_or(StoreError::QuotaExceeded)?;
         let bytes = number(bytes)?;
         if bytes < children || bytes > pool - (allocated - current) {
             return Err(StoreError::QuotaExceeded);
@@ -563,10 +608,33 @@ impl AccountStore {
         status: AccountStatus,
         allow_admin_delete: bool,
     ) -> Result<Account, StoreError> {
+        self.transition_checked(actor, id, status, allow_admin_delete, None)
+    }
+    pub(crate) fn transition_expected(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        status: AccountStatus,
+        allow_admin_delete: bool,
+        generation: u64,
+    ) -> Result<Account, StoreError> {
+        self.transition_checked(actor, id, status, allow_admin_delete, Some(generation))
+    }
+    fn transition_checked(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        status: AccountStatus,
+        allow_admin_delete: bool,
+        generation: Option<u64>,
+    ) -> Result<Account, StoreError> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let target = account(&tx, id)?;
+        if generation.is_some_and(|generation| generation != target.generation) {
+            return Err(StoreError::Conflict);
+        }
         if let Some(caller) = authorized(&tx, actor)? {
             let own_linux_revoke = caller.id == target.id
                 && target.kind == AccountKind::Linux

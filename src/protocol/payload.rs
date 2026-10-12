@@ -21,6 +21,8 @@ pub struct AuthenticationCapabilities {
     pub account_management: bool,
     pub linux_approval: bool,
     pub policy_management: bool,
+    pub virtual_accounts: bool,
+    pub virtual_delete: bool,
     pub enrollment: bool,
     pub self_registration: bool,
 }

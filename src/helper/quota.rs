@@ -24,6 +24,7 @@ pub fn with_budget<T>(available: Option<u64>, f: impl FnOnce() -> T) -> T {
 pub struct Reservation {
     _directory: File,
     pub available: Option<u64>,
+    pub used_bytes: u64,
 }
 impl Reservation {
     pub fn acquire(root: &AllowedRoot) -> io::Result<Self> {
@@ -36,13 +37,18 @@ impl Reservation {
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(io::Error::last_os_error());
         }
-        let available = match root.quota_bytes {
-            Some(limit) => Some(limit.saturating_sub(size(&file, 0, &mut HashSet::new(), &mut 0)?)),
-            None => None,
+        let used_bytes = if root.quota_bytes.is_some() {
+            size(&file, 0, &mut HashSet::new(), &mut 0)?
+        } else {
+            0
         };
+        let available = root
+            .quota_bytes
+            .map(|limit| limit.saturating_sub(used_bytes));
         Ok(Self {
             _directory: file,
             available,
+            used_bytes,
         })
     }
 }

@@ -8,6 +8,7 @@ pub const LEGACY_HELPER_KEY: &str = "/etc/tealdrive/helper.key";
 pub const SERVER_CONFIG: &str = "/home/tealdrive/policy/server.toml";
 pub const SETTINGS: &str = "/home/tealdrive/config/settings.toml";
 pub const ACCOUNTS: &str = "/home/tealdrive/auth/accounts.db";
+pub const VIRTUAL_HOMES: &str = "/home/tealdrive/virtual-homes";
 #[derive(Debug, Clone)]
 pub struct Layout {
     pub home: PathBuf,

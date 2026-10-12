@@ -32,6 +32,24 @@ where
     if !session.allowed_by(&config) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+    let account = match crate::auth::api::validated_session_account(&state, &session).await {
+        Ok(account) => account,
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+    let native = account
+        .as_ref()
+        .is_some_and(|account| account.kind == crate::accounts::store::AccountKind::Virtual)
+        && config.virtual_accounts.enforcement == crate::accounts::virtuals::Enforcement::UserQuota;
+    let config = std::sync::Arc::new(match account.as_ref() {
+        Some(account) => {
+            match crate::policy::home::resolve(&config, account, config.home_template.as_ref()) {
+                Ok(config) => config,
+                Err(_) => return StatusCode::FORBIDDEN.into_response(),
+            }
+        }
+        None if config.home_template.is_none() => config.as_ref().clone(),
+        _ => return StatusCode::FORBIDDEN.into_response(),
+    });
     let root_id = query.root_id.unwrap_or_else(|| {
         config
             .roots
@@ -114,7 +132,7 @@ where
     let percent = limit_bytes
         .filter(|limit| *limit > 0)
         .map(|limit| used_bytes as f64 * 100.0 / limit as f64);
-    let mut response=Json(serde_json::json!({"used_bytes":used_bytes,"limit_bytes":limit_bytes,"usage_percent":percent,"warning_percent":config.quota_warning_percent,"measured_at":now,"measurement":"logical_bytes","source":"helper","stale":false})).into_response();
+    let mut response=Json(serde_json::json!({"used_bytes":used_bytes,"limit_bytes":limit_bytes,"usage_percent":percent,"warning_percent":config.quota_warning_percent,"measured_at":now,"measurement":if native{"allocated_bytes"}else{"logical_bytes"},"source":"helper","stale":false})).into_response();
     response
         .headers_mut()
         .insert("cache-control", "no-store".parse().unwrap());

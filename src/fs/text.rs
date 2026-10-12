@@ -300,6 +300,7 @@ fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
         Some(ErrorKind::InvalidPath) => TealDriveError::InvalidPath,
         Some(ErrorKind::InvalidTarget) => TealDriveError::InvalidTarget,
         Some(ErrorKind::FileTooLarge) => TealDriveError::FileTooLarge,
+        Some(ErrorKind::DiskFull) => TealDriveError::DiskFull,
         Some(ErrorKind::ReadOnlyFilesystem) => TealDriveError::ReadOnlyRoot,
         Some(ErrorKind::UnsupportedBinaryFile) => TealDriveError::UnsupportedBinaryFile,
         Some(ErrorKind::InvalidTextEncoding) => TealDriveError::InvalidTextEncoding,
@@ -318,6 +319,22 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
+
+    #[test]
+    fn quota_rejection_is_reported_as_disk_full() {
+        let mut response = HelperResponse::permission_denied(
+            &crate::helper::ipc::tests_support::sample_request(
+                crate::helper::types::HelperCommand::WriteFile,
+            ),
+            "test",
+        );
+        response.success = false;
+        response.error_kind = Some(ErrorKind::DiskFull);
+        assert_eq!(
+            helper_response_to_error(&response),
+            TealDriveError::DiskFull
+        );
+    }
 
     struct InProcessHelper {
         roots: Vec<AllowedRoot>,

@@ -273,7 +273,9 @@ fn helper_error_from_move_io(request: &HelperRequest, error: io::Error) -> Helpe
                 "Parent is not a directory.",
                 "parent_not_directory",
             ),
-            Some(28) => (ErrorKind::DiskFull, "Disk is full.", "disk_full"),
+            Some(libc::ENOSPC | libc::EDQUOT) => {
+                (ErrorKind::DiskFull, "Disk is full.", "disk_full")
+            }
             Some(36) => (ErrorKind::NameTooLong, "Name too long.", "name_too_long"),
             _ => (
                 ErrorKind::InternalError,
@@ -299,7 +301,9 @@ fn helper_error_from_copy_io(request: &HelperRequest, error: io::Error) -> Helpe
             "permission_denied",
         ),
         _ => match error.raw_os_error() {
-            Some(28) => (ErrorKind::DiskFull, "Disk is full.", "disk_full"),
+            Some(libc::ENOSPC | libc::EDQUOT) => {
+                (ErrorKind::DiskFull, "Disk is full.", "disk_full")
+            }
             Some(36) => (ErrorKind::NameTooLong, "Name too long.", "name_too_long"),
             _ => (
                 ErrorKind::InternalError,

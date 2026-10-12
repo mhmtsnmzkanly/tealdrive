@@ -528,6 +528,24 @@ mod tests {
             .complete_enrollment(&proof.id, &caller, &identity, "separate-web-password", 1001)
             .is_err());
         assert!(!store.get(&account.id).unwrap().login_enabled);
+        store
+            .transition(&Authority::Root, &account.id, AccountStatus::Active, false)
+            .unwrap();
+        assert!(store
+            .complete_enrollment(&proof.id, &caller, &identity, "separate-web-password", 1002)
+            .is_err());
+        let new_proof = store
+            .begin_enrollment(&identity, caller.clone(), 1002, 300)
+            .unwrap();
+        assert!(store
+            .complete_enrollment(
+                &new_proof.id,
+                &caller,
+                &identity,
+                "separate-web-password",
+                1003
+            )
+            .is_ok());
     }
     #[test]
     fn session_grants_are_bounded_and_expired_records_are_reclaimed() {

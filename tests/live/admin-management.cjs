@@ -8,7 +8,7 @@ const fs = require("node:fs");
   const manifest = process.env.TEALDRIVE_ADMIN_FIXTURE_MANIFEST;
   if (!manifest || fs.statSync(manifest).mode & 0o077)
     throw Error("Private fixture manifest required");
-  const { users } = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  const { users, config_dir } = JSON.parse(fs.readFileSync(manifest, "utf8"));
   const phase = process.env.TEALDRIVE_ADMIN_ACCEPTANCE_PHASE ?? "access";
   const browser = await chromium.launch({ headless: true });
   const url = "http://127.0.0.1:13102";
@@ -145,7 +145,180 @@ const fs = require("node:fs");
       },
       { user: users[1], generation: targetSession.accountGeneration },
     );
-    if (phase !== "access") throw Error("Phase not implemented yet");
+    if (phase !== "access") {
+      const pending = await browser.newPage();
+      await pending.goto(url);
+      await pending.evaluate(async (user) => {
+        const { createClient } = await import("/sdk/v1/tealdrive.js");
+        globalThis.testApi = createClient({
+          stateMode: "client",
+          storage: null,
+          quotaPollMs: 0,
+        });
+        await testApi.handshake();
+        if (testApi.getInfo().authentication.selfRegistration)
+          throw Error("Fixture self-registration must be off");
+        try {
+          await testApi.auth.beginEnrollment({
+            username: user.username,
+            linuxPassword: user.linuxPassword,
+          });
+          throw Error("Unapproved enrollment accepted");
+        } catch (error) {
+          if (error.code !== "INVALID_CREDENTIALS") throw error;
+        }
+      }, users[2]);
+      await target.evaluate(async (username) => {
+        try {
+          await testApi.admin.systemUsers.approve({ username });
+          throw Error("Normal user approved account");
+        } catch (error) {
+          if (error.status !== 403) throw error;
+        }
+      }, users[2].username);
+      const helperPath = "/home/tealdrive/policy/helper.toml";
+      const original = fs.readFileSync(helperPath);
+      const denied = fs.readFileSync(config_dir + "/helper-deny-pending.toml");
+      const replace = (data) => {
+        const path = helperPath + ".approval-test-new";
+        fs.writeFileSync(path, data, { mode: 0o600, flag: "wx" });
+        fs.renameSync(path, helperPath);
+      };
+      replace(denied);
+      try {
+        await admin.evaluate(async (username) => {
+          try {
+            await testApi.admin.systemUsers.approve({ username });
+            throw Error("Admin overrode root deny");
+          } catch (error) {
+            if (error.status !== 403) throw error;
+          }
+        }, users[2].username);
+      } finally {
+        if (!fs.readFileSync(helperPath).equals(denied))
+          throw Error("Helper policy modified externally");
+        replace(original);
+      }
+      const approved = await admin.evaluate(async (username) => {
+        const session = await testApi.auth.getSession();
+        const extra = await fetch("/api/admin/system/approve", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": session.csrfToken,
+          },
+          body: JSON.stringify({
+            username,
+            role: "admin",
+            uid: 0,
+            home: "/root",
+          }),
+        });
+        if (extra.status !== 422)
+          throw Error("Client identity/role fields accepted");
+        for (const forbidden of ["root", "www-data", "tealdrive"]) {
+          try {
+            await testApi.admin.systemUsers.approve({ username: forbidden });
+            throw Error("Service approval accepted");
+          } catch (error) {
+            if (error.status !== 403) throw error;
+          }
+        }
+        const account = await testApi.admin.systemUsers.approve({ username });
+        if (
+          account.role !== "user" ||
+          account.passwordEnrolled ||
+          account.kind !== "linux"
+        )
+          throw Error("Approval set credentials or elevated role");
+        try {
+          await testApi.admin.systemUsers.approve({ username });
+          throw Error("Repeat approval silently reset account");
+        } catch (error) {
+          if (error.status !== 409) throw error;
+        }
+        return account;
+      }, users[2].username);
+      await pending.evaluate(async (user) => {
+        try {
+          await testApi.auth.login({
+            username: user.username,
+            password: user.password,
+          });
+          throw Error("Approved user skipped PAM");
+        } catch (error) {
+          if (error.code !== "INVALID_CREDENTIALS") throw error;
+        }
+        await testApi.auth.beginEnrollment({
+          username: user.username,
+          linuxPassword: user.linuxPassword,
+        });
+      }, users[2]);
+      await admin.evaluate(
+        (id) => testApi.admin.systemUsers.deny({ accountId: id }),
+        approved.id,
+      );
+      await pending.evaluate(async (user) => {
+        try {
+          await testApi.auth.completeEnrollment({ webPassword: user.password });
+          throw Error("Suspended pending proof completed");
+        } catch (error) {
+          if (error.code !== "INVALID_CREDENTIALS") throw error;
+        }
+      }, users[2]);
+      try {
+        await admin.evaluate(
+          (username) => testApi.admin.systemUsers.approve({ username }),
+          users[2].username,
+        );
+        throw Error("Approval cleared admin suspension");
+      } catch (error) {
+        if (!error.message.includes("CONFLICT")) throw error;
+      }
+      await admin.evaluate(
+        (id) => testApi.admin.systemUsers.allow({ accountId: id }),
+        approved.id,
+      );
+      await pending.evaluate(async (user) => {
+        try {
+          await testApi.auth.completeEnrollment({ webPassword: user.password });
+          throw Error("Old PAM proof revived after reenable");
+        } catch (error) {
+          if (error.code !== "INVALID_CREDENTIALS") throw error;
+        }
+        // The bounded pre-auth socket permits five attempts. Restart the transport
+        // after the negative cases; do not weaken that security limit for a test.
+        testApi.disconnect();
+        await testApi.handshake();
+        await testApi.auth.beginEnrollment({
+          username: user.username,
+          linuxPassword: user.linuxPassword,
+        });
+        const session = await testApi.auth.completeEnrollment({
+          webPassword: user.password,
+        });
+        if (session.role !== "user" || session.accountId === undefined)
+          throw Error("Approved enrollment changed role");
+        await testApi.files.list({
+          rootId: session.roots[0].rootId,
+          path: "/",
+        });
+        await testApi.auth.logout();
+      }, users[2]);
+      await pending.close();
+      console.log(
+        JSON.stringify({
+          adminApproval: true,
+          rootDenyWins: true,
+          serviceAccountsDenied: true,
+          noClientIdentityOrRole: true,
+          approvalRequiresPam: true,
+          suspendInvalidatesPendingProof: true,
+          oldProofDoesNotRevive: true,
+          approvedUserEnrolled: true,
+        }),
+      );
+    }
     await target.evaluate(() => testApi.auth.logout());
     await admin.evaluate(() => testApi.auth.logout());
     console.log(

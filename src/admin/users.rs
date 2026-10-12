@@ -61,28 +61,7 @@ fn candidates(passwd: &str, shells: &str, minimum_uid: u32) -> UserCandidates {
             allowed_users: vec![username.into()],
             ..Default::default()
         };
-        let service_name = [
-            "root",
-            "caddy",
-            "www-data",
-            "wwwdata",
-            "nginx",
-            "apache",
-            "apache2",
-            "httpd",
-            "tealdrive",
-            "postgres",
-            "postgresql",
-            "mysql",
-            "mariadb",
-            "redis",
-            "memcached",
-            "nobody",
-            "_www",
-            "_caddy",
-        ]
-        .iter()
-        .any(|name| username.eq_ignore_ascii_case(name));
+        let service_name = crate::auth::account::is_reserved_service_username(username);
         let disabled = matches!(
             Path::new(shell).file_name().and_then(|s| s.to_str()),
             Some("nologin" | "false")

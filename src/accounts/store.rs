@@ -585,6 +585,11 @@ impl AccountStore {
             AccountStatus::Deleted => ("deleted", false),
         };
         tx.execute("UPDATE accounts SET status=?1,login_enabled=?2,generation=generation+1,updated_at=?3,deleted_at=?4,deny_enrollment=?6 WHERE id=?5",params![state,login,number(now())?,if status==AccountStatus::Deleted{Some(number(now())?)}else{None},id,deny_enrollment])?;
+        // An old PAM proof must not revive after administrative suspend + enable.
+        tx.execute(
+            "DELETE FROM enrollment WHERE username=?1",
+            [&target.username],
+        )?;
         let result = account(&tx, id)?;
         tx.commit()?;
         Ok(result)

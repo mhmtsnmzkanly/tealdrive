@@ -55,3 +55,11 @@ Root-only, explicit opt-in. Driver UUID adlarıyla üç geçici Linux UID/GID/ho
 Chromium public SDK→HTTP→setuid helper yolunu kullanır; admin suspend/enable, canlı socket kapanışı, yeniden login reddi, eski cookie'nin geri açılmaması, gerçek kullanıcı UID'siyle dosya erişimi, CSRF/role/kind sınırları doğrulanır. Driver durdurduğu process yalnız kendi fixture server'ıdır; cleanup yalnız kendi UUID usernames/UIDs/DB rows/home'larını siler. Bütün DB'yi eski backup'a döndürmez. Dışarıdan helper policy değişirse onun üzerine yazmaz; root-private original dosyasını bırakarak hata verir. SIGKILL/power-loss için finally garantisi yoktur; private manifest/backup ile root onarımı gerekir.
 
 Fixture bootstrap example bir Wizard veya public admin rol verme API'si değildir. Root önceden admin rolünü atar; browser rol/UID/path seçmez. Python/Node scriptleri credential'ları komut argümanı veya stdout'a koymaz.
+
+
+```bash
+# İlk onay + gerçek PAM + suspend edilmiş pending proof kabulü:
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=approval tools/dev/check.sh admin
+```
+
+Approval phase Root deny'ı yalnız test operator'ı geçici uygulayıp geri alır; browser'ın Root dosyasına yazabildiği bir uç değildir. Fixture server runtime overlay kullanır (Root config byte-preservation); var olan hesap approve ile reset edilmez. Negatif auth senaryolarından sonra test yeni transport açar; server'ın5 deneme limiti gevşetilmez.

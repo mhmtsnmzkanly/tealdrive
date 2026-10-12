@@ -42,6 +42,7 @@ def main():
     lock = os.open('/home/tealdrive/auth/.admin-acceptance.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     with socket.socket() as check:
+        check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         check.bind(('127.0.0.1', 13102))  # Refuse an occupied test port.
     suffix = secrets.token_hex(5)
     config_dir = pathlib.Path('/home/tealdrive/policy/.admin-acceptance-' + suffix)
@@ -57,6 +58,7 @@ def main():
     applied = None
     log = None
     audit = pathlib.Path('/home/tealdrive/logs/server/admin-acceptance-' + suffix + '.jsonl')
+    runtime = pathlib.Path('/home/tealdrive/config/.admin-acceptance-' + suffix + '.toml')
     manifest = private_dir / 'manifest.json'
     try:
         for label, role, bootstrap in [('a', 'admin', True), ('u', 'user', True), ('p', 'user', False)]:
@@ -82,7 +84,7 @@ def main():
         applied = (config_dir / 'helper.toml').read_bytes()
         atomic(HELPER_CONFIG, applied, original_mode)
         log = (private_dir / 'server.log').open('wb')
-        process = subprocess.Popen(['/usr/sbin/runuser', '-u', 'tealdrive', '--', '/home/tealdrive/bin/tealdrive-server', '--config', str(config_dir / 'server.toml'), '--helper-bin', '/home/tealdrive/bin/tealdrive-helper'], stdout=log, stderr=log, start_new_session=True)
+        process = subprocess.Popen(['/usr/sbin/runuser', '-u', 'tealdrive', '--', '/home/tealdrive/bin/tealdrive-server', '--config', str(config_dir / 'server.toml'), '--runtime-config', str(runtime), '--helper-bin', '/home/tealdrive/bin/tealdrive-helper'], stdout=log, stderr=log, start_new_session=True)
         for _ in range(100):
             if process.poll() is not None:
                 raise RuntimeError('Fixture server exited; inspect private log')
@@ -136,6 +138,7 @@ def main():
             raise RuntimeError('Helper policy restoration failed')
         for path in audit.parent.glob(audit.name + '*'):
             path.unlink()
+        runtime.unlink(missing_ok=True)
         shutil.rmtree(config_dir)
         shutil.rmtree(private_dir)
         os.close(lock)

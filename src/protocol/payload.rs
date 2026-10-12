@@ -19,6 +19,7 @@ pub struct AuthenticationCapabilities {
     pub password_change: bool,
     pub self_revoke: bool,
     pub account_management: bool,
+    pub linux_approval: bool,
     pub enrollment: bool,
     pub self_registration: bool,
 }

@@ -190,6 +190,19 @@ globalThis.crypto = webcrypto;
       session = null;
       return { ok: true, status: 204 };
     }
+    if (url === "/api/admin/system/approve") {
+      assert.equal(JSON.parse(options.body).username, "approved-user");
+      assert.ok(options.headers["x-csrf-token"]);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "approved-id",
+          role: "user",
+          password_enrolled: false,
+        }),
+      };
+    }
     if (url === "/api/logout") {
       session = null;
       return { ok: true, status: 200, json: async () => ({}) };
@@ -396,9 +409,31 @@ globalThis.crypto = webcrypto;
     web_password: true,
     password_change: true,
     self_revoke: true,
+    linux_approval: true,
   };
+  await assert.rejects(
+    enrolling.admin.systemUsers.approve({ username: "eligible" }),
+    (e) => e.code === "FEATURE_DISABLED",
+  );
+  assert.equal(enrolling.getInfo().authentication.linuxApproval, false);
   enrolling.disconnect();
   await enrolling.handshake();
+  await assert.rejects(
+    enrolling.admin.systemUsers.approve({ username: "bad/path" }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
+  await assert.rejects(
+    enrolling.admin.systemUsers.approve({
+      username: "approved-user",
+      role: "admin",
+    }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
+  const approved = await enrolling.admin.systemUsers.approve({
+    username: "approved-user",
+  });
+  assert.equal(approved.passwordEnrolled, false);
+  assert.equal(approved.role, "user");
   await enrolling.auth.changePassword({
     currentPassword: "right",
     newPassword: "replacement-web-password",

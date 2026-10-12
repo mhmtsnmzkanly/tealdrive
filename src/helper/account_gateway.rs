@@ -72,6 +72,10 @@ pub enum AccountCommand {
         current_password: zeroize::Zeroizing<String>,
         new_password: zeroize::Zeroizing<String>,
     },
+    ApproveLinux {
+        grant: SessionGrant,
+        username: String,
+    },
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
@@ -128,7 +132,8 @@ fn linux_policy(
     approved: bool,
 ) -> Result<crate::config::AccountPolicyConfig, GatewayFailure> {
     let web = &config.web_accounts;
-    if identity.uid == 0
+    if crate::auth::account::is_reserved_service_username(&identity.username)
+        || identity.uid == 0
         || identity.primary_gid == 0
         || web.server_uid == Some(identity.uid)
         || web.denied_users.contains(&identity.username)
@@ -337,6 +342,54 @@ fn dispatch(
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
             Ok(AccountReply::Validated(account_view(store, account)?))
+        }
+        AccountCommand::ApproveLinux { grant, username } => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let authority = management_authority(config, &actor, AccountKind::Linux)?;
+            if username.is_empty()
+                || username.len() > 256
+                || username
+                    .chars()
+                    .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\' | ':'))
+            {
+                return Err(GatewayFailure::Forbidden);
+            }
+            if store
+                .find_username(&username)
+                .map_err(GatewayFailure::from)?
+                .is_some()
+            {
+                return Err(GatewayFailure::Conflict);
+            }
+            let identity =
+                super::security::account(&username).map_err(|_| GatewayFailure::Forbidden)?;
+            linux_policy(config, &identity, true)?;
+            let account = store
+                .create(
+                    &authority,
+                    crate::accounts::store::NewAccount {
+                        username: identity.username,
+                        uid: identity.uid,
+                        gid: identity.primary_gid,
+                        home: identity.home_dir.ok_or(GatewayFailure::Forbidden)?,
+                        kind: AccountKind::Linux,
+                        role: crate::accounts::store::Role::User,
+                        owner_admin_id: None,
+                        quota_bytes: None,
+                    },
+                )
+                .map_err(|error| match error {
+                    StoreError::Database(rusqlite::Error::SqliteFailure(ref e, _))
+                        if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+                    {
+                        GatewayFailure::Conflict
+                    }
+                    _ => GatewayFailure::from(error),
+                })?;
+            Ok(AccountReply::AccountUpdated(account))
         }
         AccountCommand::ListAccounts { grant, kind } => {
             let actor = store
@@ -555,6 +608,11 @@ mod tests {
         for shell in ["/usr/sbin/nologin", "/sbin/nologin", "/bin/false"] {
             let mut identity = identity();
             identity.shell = Some(shell.into());
+            assert!(linux_policy(&config, &identity, true).is_err());
+        }
+        for username in ["caddy", "www-data", "tealdrive", "root"] {
+            let mut identity = identity();
+            identity.username = username.into();
             assert!(linux_policy(&config, &identity, true).is_err());
         }
         let mut identity = identity();

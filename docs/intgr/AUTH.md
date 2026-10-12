@@ -68,3 +68,8 @@ Oturum callback/HTTP cookie bind/resume/GET session ve admin endpointleri root-b
 **Sınır:** Bu stage yeni kayıt/giriş/çıkış ve file grant bağlantısıdır. Self-revoke/password change web endpointleri, virtual provisioning/management, hesap başına otomatik home root template, Wizard ve canlı migration hâlâ PLAN'dadır. Global panel admin için DB Linux admin role + root admin_users gereklidir. Sanal admin global config yöneticisi değildir.
 
 Aday kurulum `/home/tealdrive` protected layout, root split config ve SQLite ile127.0.0.1:13101'de çalışır. Linux test kullanıcısının gerçek home'u `/home/tealdrive-test`; eski canlı file root `/srv/tealdrive-test` korunur. Tealdrive servis hesabının passwd home'u canlı migration'a kadar eski `/var/lib/tealdrive-test` değerinde kalır. `examples/init_accounts.rs` explicit root bootstrap örneğidir; Wizard değildir ve mevcut DB overwrite etmez.
+
+
+## İlk kayıt öncesi admin onayı
+
+Root'un hem admin roster'ında hem DB'de Linux/Admin rolünde bulunan kullanıcı `API.admin.systemUsers.approve({username: "example-user"})` çağırabilir. Root kullanıcıyı servis/sistem/deny politikasıyla reddederse admin bunu aşamaz. Başarılı onay yalnız var olan Linux kimliğine password'süz User kaydı açar; kullanıcı PAM ve ayrı web password enrollment'ını kendisi yapar. Root allowed_users config'i değişmez. `self_registration=true` ise uygun kullanıcılar onaysız öz kayıt yapabilir; false olduğunda mevcut Root whitelist veya admin onayı gerekir. Mevcut hesapta409 alınır; enable/suspend farklı işlemlerdir. Home profile yoksa kayıt/giriş yapılabilir ama files roots boş kalır; Root home profili sonraki geliştirme aşamasıdır.

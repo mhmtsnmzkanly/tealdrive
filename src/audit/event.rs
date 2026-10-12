@@ -68,6 +68,10 @@ pub struct AuditEvent {
     #[serde(default)]
     pub trash_id: Option<String>,
     #[serde(default)]
+    pub target_account_id: Option<String>,
+    #[serde(default)]
+    pub target_username: Option<String>,
+    #[serde(default)]
     pub helper_bytes_read: u64,
     #[serde(default)]
     pub helper_bytes_written: u64,
@@ -112,6 +116,8 @@ impl AuditEvent {
             transfer_id: None,
             mode: None,
             trash_id: None,
+            target_account_id: None,
+            target_username: None,
             helper_bytes_read: 0,
             helper_bytes_written: 0,
         };
@@ -730,6 +736,9 @@ pub enum AuditAction {
     ServerShutdown,
     SessionRevoked,
     PasswordChanged,
+    AccountApproved,
+    AccountEnabled,
+    AccountSuspended,
     HttpRequest,
     SearchFiles,
     ListTrash,

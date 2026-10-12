@@ -94,6 +94,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Path::new(&fixture.config_dir).join("helper.toml"),
         toml::to_string_pretty(&cfg)?,
     )?;
+    let mut denied = cfg.clone();
+    denied
+        .web_accounts
+        .denied_users
+        .push(fixture.users[2].username.clone());
+    std::fs::write(
+        Path::new(&fixture.config_dir).join("helper-deny-pending.toml"),
+        toml::to_string_pretty(&denied)?,
+    )?;
     cfg.server.bind_addr = "127.0.0.1:13102".into();
     cfg.server.behind_tls_proxy = false;
     cfg.session.secure_cookies = false;

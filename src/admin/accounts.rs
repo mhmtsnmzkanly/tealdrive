@@ -17,17 +17,27 @@ use serde::Deserialize;
 pub struct AccessPayload {
     account_id: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalPayload {
+    username: String,
+}
+enum Action {
+    List(AccountKind),
+    Access(AccountKind, String, bool),
+    Approve(String),
+}
 pub async fn list_system<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    dispatch(state, headers, Some(AccountKind::Linux), None).await
+    dispatch(state, headers, Action::List(AccountKind::Linux)).await
 }
 pub async fn list_virtual<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    dispatch(state, headers, Some(AccountKind::Virtual), None).await
+    dispatch(state, headers, Action::List(AccountKind::Virtual)).await
 }
 pub async fn enable<H>(
     State(state): State<WsServerState<H>>,
@@ -40,8 +50,7 @@ where
     dispatch(
         state,
         headers,
-        Some(AccountKind::Linux),
-        Some((payload.account_id, true)),
+        Action::Access(AccountKind::Linux, payload.account_id, true),
     )
     .await
 }
@@ -56,8 +65,7 @@ where
     dispatch(
         state,
         headers,
-        Some(AccountKind::Linux),
-        Some((payload.account_id, false)),
+        Action::Access(AccountKind::Linux, payload.account_id, false),
     )
     .await
 }
@@ -72,8 +80,7 @@ where
     dispatch(
         state,
         headers,
-        Some(AccountKind::Virtual),
-        Some((payload.account_id, true)),
+        Action::Access(AccountKind::Virtual, payload.account_id, true),
     )
     .await
 }
@@ -88,17 +95,21 @@ where
     dispatch(
         state,
         headers,
-        Some(AccountKind::Virtual),
-        Some((payload.account_id, false)),
+        Action::Access(AccountKind::Virtual, payload.account_id, false),
     )
     .await
 }
-async fn dispatch<H>(
-    state: WsServerState<H>,
+pub async fn approve<H>(
+    State(state): State<WsServerState<H>>,
     headers: HeaderMap,
-    kind: Option<AccountKind>,
-    mutation: Option<(String, bool)>,
+    Json(payload): Json<ApprovalPayload>,
 ) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::Approve(payload.username)).await
+}
+async fn dispatch<H>(state: WsServerState<H>, headers: HeaderMap, action: Action) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
@@ -119,21 +130,39 @@ where
     if !session.allowed_by(&cfg) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    if mutation.is_some() && !crate::session::csrf::validate_header(&session, &headers) {
+    if !matches!(action, Action::List(_))
+        && !crate::session::csrf::validate_header(&session, &headers)
+    {
         return StatusCode::FORBIDDEN.into_response();
     }
     let Some(grant) = session.grant.as_deref().cloned() else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let command = match (kind, mutation) {
-        (Some(kind), None) => AccountCommand::ListAccounts { grant, kind },
-        (Some(kind), Some((account_id, enabled))) => AccountCommand::SetAccountAccess {
+    let operation = match &action {
+        Action::List(_) => None,
+        Action::Approve(_) => Some("approve_linux_account"),
+        Action::Access(_, _, true) => Some("enable_web_access"),
+        Action::Access(_, _, false) => Some("suspend_web_access"),
+    };
+    let command = match action {
+        Action::List(kind) => AccountCommand::ListAccounts { grant, kind },
+        Action::Access(kind, account_id, enabled) => AccountCommand::SetAccountAccess {
             grant,
             account_id,
             kind,
             enabled,
         },
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+        Action::Approve(username) => {
+            if username.is_empty()
+                || username.len() > 256
+                || username
+                    .chars()
+                    .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\' | ':'))
+            {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            AccountCommand::ApproveLinux { grant, username }
+        }
     };
     let Ok(permit) = crate::session::lease::validation_slots()
         .acquire_owned()
@@ -153,7 +182,31 @@ where
     .await
     {
         Ok(Ok(AccountReply::Accounts(accounts))) => Json(accounts).into_response(),
-        Ok(Ok(AccountReply::AccountUpdated(account))) => Json(account).into_response(),
+        Ok(Ok(AccountReply::AccountUpdated(account))) => {
+            if let Some(operation) = operation {
+                let mut event = crate::audit::event::AuditEvent::new(
+                    crate::protocol::frame::RequestId::new(),
+                    &session.username,
+                    session.uid,
+                    session.gid,
+                    match operation {
+                        "approve_linux_account" => {
+                            crate::audit::event::AuditAction::AccountApproved
+                        }
+                        "enable_web_access" => crate::audit::event::AuditAction::AccountEnabled,
+                        _ => crate::audit::event::AuditAction::AccountSuspended,
+                    },
+                    crate::audit::event::AuditStatus::Success,
+                );
+                crate::audit::context::current().enrich(&mut event);
+                event.session_id_hash = crate::audit::context::session_hash(session.session_id);
+                event.operation = Some(operation.into());
+                event.target_account_id = Some(account.id.clone());
+                event.target_username = Some(account.username.clone());
+                let _ = state.audit_sink.emit(&event);
+            }
+            Json(account).into_response()
+        }
         Ok(Err(GatewayFailure::Forbidden)) => StatusCode::FORBIDDEN.into_response(),
         Ok(Err(GatewayFailure::InvalidCredentials)) => StatusCode::UNAUTHORIZED.into_response(),
         Ok(Err(GatewayFailure::Conflict)) => StatusCode::CONFLICT.into_response(),

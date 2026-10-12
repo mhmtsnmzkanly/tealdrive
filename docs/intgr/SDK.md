@@ -143,3 +143,17 @@ const session = await API.auth.completeEnrollment({ webPassword });
 Kayıt başladıktan sonra sayfa/bağlantı kapanırsa yeniden PAM gerekir. SDK Linux veya web parolasını storage'a yazmaz. Managed storage namespace account ID/generation/origin ile ayrılır; içerik/credential yok. Virtual hesap PAM self-enrollment kullanmaz; admin/root provisioning bekler. Root deny/suspend, kayıt formu açıkken değişse bile completion'da tekrar denetlenir.
 
 `getInfo().authentication.webPassword` giriş yöntemidir; `changePassword()` endpoint'inin hazır olduğu anlamına gelmez. Bu endpoint ve self-revoke henüz FEATURE_DISABLED. UI auth SDK'ya taşındı; dosya UI'sının tümüyle SDK dönüşümü ve i18n ayrı PLAN maddesidir.
+
+
+## Kayıt onayı ve hesap erişimi (uygulandı)
+
+```js
+const candidates = await API.admin.systemUsers.list(); // uygun yerel NSS adayları
+const accounts = await API.admin.systemUsers.accounts(); // kayıtlı Linux metadata
+const approved = await API.admin.systemUsers.approve({username: "example-user"});
+// approved.role === "user", approved.passwordEnrolled === false; kullanıcı PAM ile tamamlar.
+await API.admin.systemUsers.deny({accountId: approved.id}); // suspend + eski grant/proof iptali
+await API.admin.systemUsers.allow({accountId: approved.id}); // Root deny/NSS kontrolü + yeni generation
+```
+
+`authentication.linuxApproval` onay uçlarının capability'sidir; eski server'da false. UID/GID/home/role/parola args kabul edilmez. Root/admin atanması bu API'nin işi değildir. Virtual admin global Linux işlemlerini yapamaz; kendi virtual children için list/disable/enable kullanır. Create/delete/quota henüz kapalıdır. SDK types: AccountMetadata/UserCandidate/UserCandidates; hata401/403/409/503 kanonik karşılıklarla döner.

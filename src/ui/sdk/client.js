@@ -304,6 +304,20 @@ export class TealDriveClient {
         list: async () => this._http("/api/admin/users", "GET", {}, true),
         accounts: async () =>
           this._managementHttp("/api/admin/accounts/system", "GET", {}),
+        approve: async (o) => {
+          this._require(true);
+          if (!this._hello?.authentication?.linux_approval)
+            fail("FEATURE_DISABLED");
+          object(o, ["username"]);
+          if (
+            typeof o.username !== "string" ||
+            !o.username.length ||
+            new TextEncoder().encode(o.username).length > 256 ||
+            /[\\/\s\x00-\x1f\x7f:]/.test(o.username)
+          )
+            fail("INVALID_ARGUMENT");
+          return this._http("/api/admin/system/approve", "POST", o, true);
+        },
         allow: async (o) =>
           this._managementHttp("/api/admin/system/allow", "POST", o),
         deny: async (o) =>
@@ -481,13 +495,16 @@ export class TealDriveClient {
       protocolVersion: this._hello.protocol_version,
       limits: publicValue(this._limits),
       features: publicValue(this._hello.feature_flags),
-      authentication: publicValue(
-        this._hello.authentication ?? {
-          web_password: false,
-          enrollment: false,
-          self_registration: false,
-        },
-      ),
+      authentication: publicValue({
+        web_password: false,
+        password_change: false,
+        self_revoke: false,
+        account_management: false,
+        linux_approval: false,
+        enrollment: false,
+        self_registration: false,
+        ...this._hello.authentication,
+      }),
       authenticated: Boolean(this._session),
     });
   }

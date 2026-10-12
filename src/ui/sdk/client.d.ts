@@ -132,6 +132,7 @@ export interface ServerInfo {
     passwordChange: boolean;
     selfRevoke: boolean;
     accountManagement: boolean;
+    linuxApproval: boolean;
     enrollment: boolean;
     selfRegistration: boolean;
   }>;
@@ -303,15 +304,30 @@ export interface FilesAPI {
     }): Promise<unknown>;
   };
 }
+export interface UserCandidate {
+  username: string;
+  uid: number;
+  gid: number;
+}
+export interface UserCandidates {
+  users: readonly UserCandidate[];
+  truncated: boolean;
+}
 export interface AdminAPI {
   settings: {
     get(): Promise<unknown>;
     patch(options: { changes: Record<string, unknown> }): Promise<unknown>;
   };
   systemUsers: {
-    list(): Promise<unknown>;
+    list(): Promise<UserCandidates>;
     /** Registered system web accounts, distinct from eligible NSS login candidates. */
     accounts(): Promise<readonly AccountMetadata[]>;
+    /** Approve an existing eligible Linux identity for first PAM enrollment. Does not
+     * create an OS user, choose UID/home/role, set a password or modify root config.
+     * Existing accounts conflict; use allow/deny instead. Root deny remains superior.
+     * @throws FEATURE_DISABLED, INVALID_ARGUMENT, PERMISSION_DENIED, CONFLICT
+     */
+    approve(options: { username: string }): Promise<AccountMetadata>;
     allow(options: { accountId: string }): Promise<AccountMetadata>;
     deny(options: { accountId: string }): Promise<AccountMetadata>;
   };

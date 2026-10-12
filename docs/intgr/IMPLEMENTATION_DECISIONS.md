@@ -144,3 +144,12 @@ Admin budget ile child reservation toplamı tek SQLite SELECT içinde okunur. İ
 ## D030 — Admin kabul fixture'ının sınırları
 
 Public admin pozitif kabul testi mevcut gerçek kullanıcıyı admin'e yükseltmez veya askıya almaz. Yeni UUID OS identities/root-only metadata bootstrap ve ayrı yerel server kullanılır. Root policy fixture süresince geçici genişletilir; eski byte'lar atomik restore, cleanup sadece fixture identities/grants/proofs/home'larıdır. Server veya browser'a Root authority/rol verme komutu eklenmez. Root example yalnız development bootstrap'tır; final Wizard yetki atama akışı halen ayrı PLAN işidir.
+
+
+## D031 — Admin onayı ve bekleyen PAM kanıtları
+
+`admin.systemUsers.approve({username})` / `POST /api/admin/system/approve` yalnız Root roster + DB Linux admin rolündeki aktöre açılır. Helper NSS'den UID/GID/home alır, Root mandatory eligibility/deny uygular ve DB'de password'süz Linux/User metadata kaydı oluşturur. Root allowed_users dosyası değişmez; mevcut OS hesabı, parola veya rol değiştirilmez. Öz kayıt kapalıyken onaylı kullanıcı ilk PAM→web password kayıt akışına devam edebilir. Öz kayıt açıkken uygun hesapların onay beklemesi zorunlu değildir. Var olan hesap409; approve suspended/revoked/deleted hesabı yeniden açmaz. UID alias yarışında SQLite unique constraint409; arbitrary DB/I/O hatası503 kalır.
+
+Root/sys/service identity filtresi discovery ile helper'da aynı shared reserved-name kontrolünü kullanır. Yüksek UID/interactive shell tek başına bilinen servis adına izin vermez. `.env`/home policy veya Root UID tavanları onayla genişletilmez. Bu aşama automatic home template oluşturmaz; dosya erişimi hâlâ Root'un gerçek NSS home ile eşleşen profiline bağlıdır.
+
+Access transition aynı immediate transaction'da bekleyen enrollment proof'larını da siler. Suspend→enable sonrası önceki PAM proof canlanamaz; kullanıcı yeni PAM doğrulaması yapar. Native kabulde eski cookie/grant ve eski proof ayrı ayrı reddedildi. Onay/enable/suspend başarıları actor ve target account ID/username ile audit'e yazılır; secret yoktur. TLS/central root journal rollout'u ayrı PLAN maddesidir.

@@ -7,6 +7,33 @@ use thiserror::Error;
 
 use crate::config::AccountPolicyConfig;
 
+/// Known service identities are never eligible for web enrollment/approval.
+/// Applies to the web-account boundary and discovery; legacy PAM policy stays explicit.
+pub(crate) fn is_reserved_service_username(username: &str) -> bool {
+    [
+        "root",
+        "caddy",
+        "www-data",
+        "wwwdata",
+        "nginx",
+        "apache",
+        "apache2",
+        "httpd",
+        "tealdrive",
+        "postgres",
+        "postgresql",
+        "mysql",
+        "mariadb",
+        "redis",
+        "memcached",
+        "nobody",
+        "_www",
+        "_caddy",
+    ]
+    .iter()
+    .any(|name| username.eq_ignore_ascii_case(name))
+}
+
 pub trait Authenticator: Send + Sync {
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError>;
     fn account_command(

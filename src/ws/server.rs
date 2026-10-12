@@ -272,6 +272,10 @@ where
             get(crate::admin::accounts::list_virtual::<H>),
         )
         .route(
+            "/api/admin/system/approve",
+            post(crate::admin::accounts::approve::<H>),
+        )
+        .route(
             "/api/admin/system/allow",
             post(crate::admin::accounts::enable::<H>),
         )

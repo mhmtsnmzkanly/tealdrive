@@ -116,6 +116,10 @@ def main():
         for action in ('AccountSuspended', 'AccountEnabled') + (() if phase == 'access' else ('AccountApproved',)):
             if not any(event.get('action') == action and event.get('target_account_id') and event.get('target_username') in identities and event.get('username') == users[0]['username'] for event in events):
                 raise RuntimeError('Missing actor/target account audit event')
+        if os.environ.get('TEALDRIVE_POLICY_ACCEPTANCE') == '1':
+            for actor in (users[0]['username'], users[1]['username']):
+                if not any(event.get('action') == 'PolicyChanged' and event.get('username') == actor and event.get('target_account_id') for event in events):
+                    raise RuntimeError('Missing policy actor/target audit event')
         if (config_dir / 'helper.toml').read_bytes() != HELPER_CONFIG.read_bytes():
             raise RuntimeError('Public API modified root helper policy')
         print(json.dumps(dict(actorTargetAudit=True, noCredentialAudit=True, rootPolicyUnmodifiedByApi=True)))
@@ -144,6 +148,7 @@ def main():
                 if row[1] != identity.pw_uid or row[2] != identity.pw_dir:
                     raise RuntimeError('Fixture DB identity changed; refusing cleanup')
                 connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
+                connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
                 connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
             connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
         connection.commit()

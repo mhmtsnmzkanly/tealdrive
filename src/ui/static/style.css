@@ -762,3 +762,10 @@ body {
   .account-table td { border: 0; padding: .35rem; }
   .account-table td[data-label]::before { content: attr(data-label) ": "; color: var(--text-muted); }
 }
+
+.policy-editor { color: var(--text-main); background: var(--slate-900); border: 1px solid var(--slate-700); border-radius: 12px; max-width: 850px; width: min(90vw, 850px); max-height: 85vh; overflow: auto; padding: 24px; }
+.policy-editor::backdrop { background: rgba(0,0,0,.6); }
+.policy-editor fieldset { display:flex; flex-wrap:wrap; gap:12px; margin:12px 0; border:1px solid var(--slate-700); padding:12px; }
+.policy-editor label { display:flex; align-items:center; gap:6px; }
+.policy-editor input[type=checkbox] { width:auto; }
+.policy-editor button { margin:4px; }

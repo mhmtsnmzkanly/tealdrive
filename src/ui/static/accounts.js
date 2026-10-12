@@ -134,6 +134,24 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
             enable ? "Web access enabled." : "Web access suspended.",
           );
         actions.append(button);
+        const policy = document.createElement("button");
+        policy.type = "button";
+        policy.className = "btn btn-secondary btn-sm";
+        policy.textContent = "File policy";
+        policy.onclick = async () => {
+          try {
+            const client = await getClient();
+            const { openPolicyEditor } = await import("/static/policy.js");
+            await openPolicyEditor({
+              client,
+              target: { kind, accountId: account.id },
+              onSaved: refresh,
+            });
+          } catch (error) {
+            $("accountsError").textContent = message(error);
+          }
+        };
+        actions.append(policy);
       }
       row.append(actions);
       body.append(row);

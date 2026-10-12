@@ -833,6 +833,7 @@
     }
     const info = await authClient.handshake();
     webPasswords = Boolean(info?.authentication?.webPassword);
+    document.getElementById('personalPolicyBtn').classList[info?.authentication?.policyManagement?'remove':'add']('hidden');
     document.getElementById('manageAccountsBtn').classList[info?.authentication?.accountManagement && state.session?.role==='admin'?'remove':'add']('hidden');
     document.getElementById('accountSecurityBtn').classList[info?.authentication?.passwordChange?'remove':'add']('hidden');
     document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
@@ -848,6 +849,10 @@
       accountManagement ??= createAccountManagement({getClient:getAuthClient,toast:showToast,formatBytes});
       await accountManagement.open();
     } catch(error) { showToast('Unable to open account management. Refresh and try again.','error'); }
+  };
+  document.getElementById('personalPolicyBtn').onclick=async()=>{
+    try{const client=await getAuthClient();const {openPolicyEditor}=await import('/static/policy.js');await openPolicyEditor({client,onSaved:()=>location.reload()});}
+    catch(error){showToast(error.message,'error');}
   };
   function closeAccountSecurity() {
     for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';

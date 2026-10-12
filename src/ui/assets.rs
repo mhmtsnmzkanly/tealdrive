@@ -6,3 +6,4 @@ pub const FAVICON_SVG: &str = include_str!("static/favicon.svg");
 pub const APP_JS: &str = include_str!("static/app.js");
 
 pub const ACCOUNTS_JS: &str = include_str!("static/accounts.js");
+pub const POLICY_JS: &str = include_str!("static/policy.js");

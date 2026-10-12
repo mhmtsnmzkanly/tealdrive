@@ -590,6 +590,272 @@ let checkpoint = "startup";
       await target.evaluate(() => testApi.auth.logout());
       await admin.evaluate(() => testApi.auth.logout());
     }
+    if (process.env.TEALDRIVE_POLICY_ACCEPTANCE === "1") {
+      checkpoint = "policy gateway";
+      const operator = await browser.newPage();
+      const subject = await browser.newPage();
+      for (const [page, user] of [
+        [operator, users[0]],
+        [subject, users[1]],
+      ]) {
+        await page.goto(url);
+        await page.evaluate(
+          async (user) => {
+            const { createClient } = await import("/sdk/v1/tealdrive.js");
+            globalThis.policyApi = createClient({
+              stateMode: "client",
+              storage: null,
+              quotaPollMs: 0,
+            });
+            await policyApi.handshake();
+            await policyApi.auth.login(user);
+          },
+          { username: user.username, password: user.password },
+        );
+      }
+      const id = await subject.evaluate(
+        async () => (await policyApi.auth.getSession()).accountId,
+      );
+      await subject.evaluate(async () => {
+        const view = await policyApi.files.policy.get();
+        const missing = await fetch("/api/account/policy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expectedGeneration: view.account.generation,
+            rules: [],
+          }),
+        });
+        if (missing.status !== 403) throw Error("Policy CSRF bypass");
+        await policyApi.files.policy.addRule({
+          path: "fixture.txt",
+          recursive: false,
+          deny: ["discover"],
+        });
+        if (policyApi._session !== null)
+          throw Error("Own policy did not clear session");
+      });
+      await subject.evaluate(
+        async (user) => {
+          await policyApi.handshake();
+          await policyApi.auth.login(user);
+        },
+        { username: users[1].username, password: users[1].password },
+      );
+      await subject.evaluate(async () => {
+        try {
+          await policyApi.files.readText({
+            rootId: "home",
+            path: "/fixture.txt",
+          });
+          throw Error("Personal discovery denial bypassed");
+        } catch (error) {
+          if (error.code !== "NOT_FOUND") throw error;
+        }
+        const view = await policyApi.files.policy.get();
+        try {
+          await policyApi.files.policy.removeRule({
+            ruleId: view.rules.personalRules[0].ruleId,
+            expectedRevision: "0",
+          });
+          throw Error("Stale revision accepted");
+        } catch (error) {
+          if (error.code !== "CONFLICT") throw error;
+        }
+        await policyApi.files.policy.removeRule({
+          ruleId: view.rules.personalRules[0].ruleId,
+          expectedRevision: view.revision,
+        });
+      });
+      await subject.evaluate(
+        async (user) => {
+          await policyApi.handshake();
+          await policyApi.auth.login(user);
+        },
+        { username: users[1].username, password: users[1].password },
+      );
+      await operator.evaluate(async (id) => {
+        const view = await policyApi.admin.systemUsers.getPolicy({
+          accountId: id,
+        });
+        try {
+          await policyApi.admin.virtualUsers.getPolicy({ accountId: id });
+          throw Error("Policy kind confusion");
+        } catch (error) {
+          if (error.status !== 403) throw error;
+        }
+        await policyApi.admin.policy.addRule({
+          accountId: id,
+          path: "fixture.txt",
+          recursive: false,
+          deny: ["chmod"],
+        });
+        try {
+          await policyApi.admin.systemUsers.setPolicy({
+            accountId: id,
+            expectedGeneration: view.account.generation,
+            rules: [],
+          });
+          throw Error("Stale generation accepted");
+        } catch (error) {
+          if (error.status !== 409) throw error;
+        }
+      }, id);
+      await subject.waitForFunction(
+        () => policyApi.getState().connection === "disconnected",
+        {},
+        { timeout: 5000 },
+      );
+      await subject.evaluate(
+        async (user) => {
+          await policyApi.handshake();
+          await policyApi.auth.login(user);
+        },
+        { username: users[1].username, password: users[1].password },
+      );
+      await subject.evaluate(async () => {
+        const view = await policyApi.files.policy.get();
+        if (view.rules.adminRules.length !== 1)
+          throw Error("Admin layer missing");
+        const content = await policyApi.files.readText({
+          rootId: "home",
+          path: "/fixture.txt",
+        });
+        if (content.content !== "fixture bytes")
+          throw Error("Read wrongly restricted");
+        await policyApi.files.policy.set({
+          expectedGeneration: view.account.generation,
+          rules: [],
+        });
+      });
+      await subject.evaluate(
+        async (user) => {
+          await policyApi.handshake();
+          await policyApi.auth.login(user);
+        },
+        { username: users[1].username, password: users[1].password },
+      );
+      await subject.evaluate(async () => {
+        try {
+          await policyApi.files.chmod({
+            rootId: "home",
+            path: "/fixture.txt",
+            mode: 384,
+          });
+          throw Error("Admin chmod denial bypassed");
+        } catch (error) {
+          if (error.code !== "POLICY_DENIED") throw error;
+        }
+        const view = await policyApi.files.policy.get();
+        if (view.rules.adminRules.length !== 1)
+          throw Error("Personal clear removed admin restriction");
+      });
+      await subject.reload();
+      await subject.waitForSelector("#personalPolicyBtn:not(.hidden)");
+      await subject.click("#personalPolicyBtn");
+      await subject.waitForSelector("dialog.policy-editor[open]");
+      if (
+        (await subject
+          .locator("dialog.policy-editor")
+          .getByText("admin: fixture.txt", { exact: false })
+          .count()) !== 1
+      )
+        throw Error("UI immutable layer missing");
+      await subject.keyboard.press("Escape");
+      if (await subject.locator("dialog.policy-editor").count())
+        throw Error("Policy dialog did not close");
+      await subject.click("#personalPolicyBtn");
+      await subject
+        .locator("dialog.policy-editor")
+        .getByRole("button", { name: "Add restriction" })
+        .click();
+      await subject
+        .locator("dialog.policy-editor input[type=text]")
+        .fill("fixture.txt");
+      subject.once("dialog", (dialog) => dialog.accept());
+      await subject
+        .locator("dialog.policy-editor")
+        .getByRole("button", { name: "Save policy", exact: true })
+        .click();
+      await subject.waitForSelector("#loginModal:not(.hidden)");
+      await subject.fill("#usernameInput", users[1].username);
+      await subject.fill("#passwordInput", users[1].password);
+      await subject.click("#loginForm button[type=submit]");
+      await subject.waitForFunction(() =>
+        document.getElementById("loginModal").classList.contains("hidden"),
+      );
+      await subject.evaluate(async () => {
+        const { createClient } = await import("/sdk/v1/tealdrive.js");
+        globalThis.policyApi = createClient({
+          stateMode: "client",
+          storage: null,
+          quotaPollMs: 0,
+        });
+        await policyApi.handshake();
+        const view = await policyApi.files.policy.get();
+        if (view.rules.personalRules[0].path !== "fixture.txt")
+          throw Error("UI policy did not persist");
+        try {
+          await policyApi.files.readText({
+            rootId: "home",
+            path: "/fixture.txt",
+          });
+          throw Error("UI restriction not enforced");
+        } catch (error) {
+          if (error.code !== "NOT_FOUND") throw error;
+        }
+        await policyApi.files.policy.set({
+          expectedGeneration: view.account.generation,
+          rules: [],
+        });
+      });
+      await operator.reload();
+      await operator.waitForSelector("#manageAccountsBtn:not(.hidden)");
+      await operator.click("#manageAccountsBtn");
+      const policyRow = operator.locator(
+        `#accountsTableBody tr[data-account-id="${id}"]`,
+      );
+      await policyRow
+        .getByRole("button", { name: "File policy", exact: true })
+        .click();
+      await operator
+        .locator("dialog.policy-editor")
+        .getByRole("button", { name: "Remove rule", exact: true })
+        .click();
+      operator.once("dialog", (dialog) => dialog.accept());
+      await operator
+        .locator("dialog.policy-editor")
+        .getByRole("button", { name: "Save policy", exact: true })
+        .click();
+      await operator.waitForSelector("dialog.policy-editor", {
+        state: "detached",
+      });
+      await operator.evaluate(async (id) => {
+        const { createClient } = await import("/sdk/v1/tealdrive.js");
+        const client = createClient({
+          stateMode: "client",
+          storage: null,
+          quotaPollMs: 0,
+        });
+        await client.handshake();
+        const view = await client.admin.systemUsers.getPolicy({
+          accountId: id,
+        });
+        if (view.rules.adminRules.length)
+          throw Error("Admin UI clear did not persist");
+        await client.auth.logout();
+      }, id);
+      console.log(
+        JSON.stringify({
+          personalPolicyIsolation: true,
+          adminPolicyIsolation: true,
+          policyCas: true,
+          policySessionRevocation: true,
+          helperIndependentDenial: true,
+          policyUi: true,
+        }),
+      );
+    }
     console.log(
       JSON.stringify({
         publicAdminSuspend: true,

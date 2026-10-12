@@ -99,6 +99,7 @@ where
             STYLE_CSS,
             APP_JS,
             crate::ui::assets::ACCOUNTS_JS,
+            crate::ui::assets::POLICY_JS,
             include_str!("protocol.js"),
             crate::protocol::JAVASCRIPT_CONTRACT,
         ] {
@@ -231,8 +232,13 @@ where
     match clean {
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
-        "accounts.js" => {
-            let mut response = crate::ui::assets::ACCOUNTS_JS.into_response();
+        "accounts.js" | "policy.js" => {
+            let mut response = (if clean == "accounts.js" {
+                crate::ui::assets::ACCOUNTS_JS
+            } else {
+                crate::ui::assets::POLICY_JS
+            })
+            .into_response();
             apply_security_headers(
                 response.headers_mut(),
                 "application/javascript; charset=utf-8",

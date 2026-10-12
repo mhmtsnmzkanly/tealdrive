@@ -67,3 +67,7 @@ Projedeki Rust1.85 alt sınırı gerçek toolchain ile test edildi. Yeni crypto 
 ## D016 — Merkezi yollar ve güvenli legacy seçimi
 
 /home/tealdrive standart konumu; root helper config/key primary çifti sabit derleme yollarıdır, environment seçemez. Yalnızca primary config'in yokluğu /etc legacy çiftine izin verir; mevcut hatalı/izin sorunu/symlink primary reddedilir. Server lookup ve default helper binary merkezi dizini tanır. Bu değişiklik canlı veriyi/passwd home'u taşımıyor; Wizard migration ayrı aşamadır.
+
+## D017 — Helper bilet MAC'i ve anahtar belleği
+
+Elle yazılmış HMAC SHA256 ve karşılaştırma yerine RustCrypto hmac0.12.1 kullanıldı; mevcut sha2/digest0.10 ile uyumlu, wire MAC değişmez. verify_slice sabit süreli kütüphane doğrulaması; raw key Vec Zeroizing ile tutulur. SHA/HMAC kütüphanesi iç kopyalarına dair mutlak memory erasure garantisi verilmez. RFC4231 ve kimlik/expiry tamper vektörleri korunur. Ek application crypto protokolü eklenmedi.

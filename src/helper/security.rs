@@ -2,8 +2,9 @@
 use crate::auth::account::{AuthError, AuthRequest, AuthSuccess};
 use crate::config::{AppConfig, UserContext};
 use crate::session::store::InMemorySessionStore;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::ffi::{CStr, CString};
 use std::io;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -34,24 +35,14 @@ fn payload(ticket: &IdentityTicket) -> Vec<u8> {
     .expect("serializable identity")
 }
 fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
-    let mut block = [0u8; 64];
-    if key.len() > 64 {
-        block[..32].copy_from_slice(&Sha256::digest(key));
-    } else {
-        block[..key.len()].copy_from_slice(key);
-    }
-    let inner_key = block.map(|b| b ^ 0x36);
-    let outer_key = block.map(|b| b ^ 0x5c);
-    let mut inner = Sha256::new();
-    inner.update(inner_key);
-    inner.update(message);
-    let mut outer = Sha256::new();
-    outer.update(outer_key);
-    outer.update(inner.finalize());
-    outer.finalize().into()
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(message);
+    mac.finalize().into_bytes().into()
 }
-fn equal(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    a.iter().zip(b).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
+fn verify_mac(key: &[u8], message: &[u8], expected: &[u8; 32]) -> bool {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(message);
+    mac.verify_slice(expected).is_ok()
 }
 pub fn trusted_read(path: &Path, secret: bool) -> io::Result<Vec<u8>> {
     let mut parent = path.parent();
@@ -88,9 +79,9 @@ pub fn trusted_config() -> io::Result<AppConfig> {
     config.validate().map_err(io::Error::other)?;
     Ok(config)
 }
-fn key() -> io::Result<Vec<u8>> {
+fn key() -> io::Result<zeroize::Zeroizing<Vec<u8>>> {
     let (_, path) = crate::layout::trusted_helper_paths();
-    let key = trusted_read(&path, true)?;
+    let key = zeroize::Zeroizing::new(trusted_read(&path, true)?);
     if key.len() != 32 {
         return Err(io::Error::other("helper key must contain 32 random bytes"));
     }
@@ -146,7 +137,7 @@ pub fn verify(ticket: &IdentityTicket, user: &UserContext) -> io::Result<()> {
         || ticket.identity != *user
         || ticket.caller_uid != unsafe { libc::getuid() }
         || ticket.expires_at <= InMemorySessionStore::now_epoch_seconds()
-        || !equal(&ticket.mac, &hmac(&key()?, &payload(ticket)))
+        || !verify_mac(&key()?, &payload(ticket), &ticket.mac)
     {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
@@ -235,9 +226,9 @@ mod tests {
         };
         let mac = hmac(b"test", &payload(&t));
         t.identity.uid = 1002;
-        assert!(!equal(&mac, &hmac(b"test", &payload(&t))));
+        assert!(!verify_mac(b"test", &payload(&t), &mac));
         t.identity.uid = 1000;
         t.expires_at = 100;
-        assert!(!equal(&mac, &hmac(b"test", &payload(&t))));
+        assert!(!verify_mac(b"test", &payload(&t), &mac));
     }
 }

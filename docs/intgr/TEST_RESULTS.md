@@ -132,3 +132,8 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - layout::tests passed: absent primary legacy seçer; corrupt ve dangling symlink primary legacy'ye düşmez.
 - cargo clippy --locked --all-targets -- -D warnings: passed.
 - Existing deployment taşınmadı; bu commit yol seçimini hazırlar, kurulum kabulü ayrıca yapılacak.
+
+## 2026-10-12 — Helper MAC standard library
+
+- helper::security::tests: 2 passed; RFC4231 HMAC output aynı, UID/expiry değişmiş ticket reddi.
+- Clippy all targets: passed; root helper key buffer artık Zeroizing.

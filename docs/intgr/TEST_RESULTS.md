@@ -144,3 +144,12 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - accounts:: tüm 11 test passed.
 - cargo test --test accounts_store -- --ignored: 2 root tests passed; existing privacy/concurrency/backup + explicit schema1 migration preserves roles/password/home/budget, old proof cancellation, pre-migration private backup, generation bump, idempotence.
 - Clippy all targets passed (grant primitives); normal auth uçları henüz yeni modele geçirilmedi.
+
+### PAM biletinin kernel süreç bağı — 2026-10-12
+
+- Değişiklik öncesi tam suite: 534 birim testi ve normal integration tests geçti; root gerektiren testler ayrıca çalıştırılır.
+- HMAC/RFC4231 ve bilet UID/expiry/UID-PID-start-time-boot-ID tamper vektörleri geçti.
+- `tests/helper_ticket.rs`: dedicated root-installed candidate setuid helper + gerçek PAM ile giriş; aynı driver süreçte gerçek quota operation başarılı; aynı UID altında ayrı süreçten aynı bilet replay reddedildi. Kimlik bilgileri yalnız pipe üzerinden taşındı. Opt-in test root ve test fixture environment ister.
+- Candidate 127.0.0.1:13101 üzerinde yeni server/helper birlikte kuruldu. `tests/live/sdk-access.cjs` gerçek Chromium/SDK/PAM/setuid zincirinde gizli path, hardlink, download, parent move ve izinli read kontrollerinin tamamı geçti.
+- Protected SQLite root testleri (ownership/isolation/concurrency/backup + v1→v2 migration): 2 geçti. Clippy all-targets `-D warnings` geçti (yeni acceptance test eklendikten sonra ayrıca tekrar kontrol edilir).
+- Caddy üzerinden yayınlanan mevcut servis ve kullanıcı dosyaları değiştirilmedi. Yeni DB ledger henüz canlı auth'a bağlanmadı.

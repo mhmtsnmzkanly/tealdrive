@@ -16,6 +16,9 @@ pub const TRUSTED_CONFIG: &str = crate::layout::HELPER_CONFIG;
 pub struct IdentityTicket {
     pub identity: UserContext,
     pub caller_uid: u32,
+    /// Kernel-derived server process identity; old unbound tickets are rejected.
+    #[serde(default)]
+    pub caller: Option<crate::accounts::grants::CallerBinding>,
     pub expires_at: u64,
     pub nonce: [u8; 16],
     pub mac: [u8; 32],
@@ -27,8 +30,10 @@ impl std::fmt::Debug for IdentityTicket {
 }
 fn payload(ticket: &IdentityTicket) -> Vec<u8> {
     rmp_serde::to_vec_named(&(
+        "tealdrive.identity-ticket.v2",
         &ticket.identity,
         ticket.caller_uid,
+        &ticket.caller,
         ticket.expires_at,
         ticket.nonce,
     ))
@@ -104,6 +109,7 @@ pub fn authenticate(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicke
             gid: success.primary_gid,
         },
         caller_uid: success.uid,
+        caller: None,
         expires_at: InMemorySessionStore::now_epoch_seconds()
             .saturating_add(config.session.absolute_timeout_seconds),
         nonce: *uuid::Uuid::new_v4().as_bytes(),
@@ -122,6 +128,10 @@ pub fn issue(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicket), Aut
             gid: success.primary_gid,
         },
         caller_uid: unsafe { libc::getuid() },
+        caller: Some(
+            crate::accounts::grants::CallerBinding::capture()
+                .map_err(|_| AuthError::AuthBackendUnavailable)?,
+        ),
         expires_at: InMemorySessionStore::now_epoch_seconds()
             .saturating_add(config.session.absolute_timeout_seconds),
         nonce: *uuid::Uuid::new_v4().as_bytes(),
@@ -131,10 +141,12 @@ pub fn issue(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicket), Aut
     Ok((success, ticket))
 }
 pub fn verify(ticket: &IdentityTicket, user: &UserContext) -> io::Result<()> {
+    let caller = crate::accounts::grants::CallerBinding::capture().map_err(io::Error::other)?;
     if !trusted_config()?
         .account_policy
         .allows_login(&user.username)
         || ticket.identity != *user
+        || ticket.caller.as_ref() != Some(&caller)
         || ticket.caller_uid != unsafe { libc::getuid() }
         || ticket.expires_at <= InMemorySessionStore::now_epoch_seconds()
         || !verify_mac(&key()?, &payload(ticket), &ticket.mac)
@@ -220,6 +232,12 @@ mod tests {
                 gid: 1000,
             },
             caller_uid: 1001,
+            caller: Some(crate::accounts::grants::CallerBinding {
+                uid: 1001,
+                pid: 42,
+                start_time: 100,
+                boot_id: "00000000-0000-4000-8000-000000000001".into(),
+            }),
             expires_at: 99,
             nonce: [1; 16],
             mac: [0; 32],
@@ -229,6 +247,20 @@ mod tests {
         assert!(!verify_mac(b"test", &payload(&t), &mac));
         t.identity.uid = 1000;
         t.expires_at = 100;
+        assert!(!verify_mac(b"test", &payload(&t), &mac));
+        t.expires_at = 99;
+        for field in 0..4 {
+            let mut changed = t.clone();
+            let caller = changed.caller.as_mut().unwrap();
+            match field {
+                0 => caller.uid += 1,
+                1 => caller.pid += 1,
+                2 => caller.start_time += 1,
+                _ => caller.boot_id = "00000000-0000-4000-8000-000000000002".into(),
+            }
+            assert!(!verify_mac(b"test", &payload(&changed), &mac));
+        }
+        t.caller = None;
         assert!(!verify_mac(b"test", &payload(&t), &mac));
     }
 }

@@ -1228,7 +1228,10 @@ export class TealDriveClient {
   async _download(options = {}) {
     object(options, ["rootId", "path", "signal"]);
     const ref = this._ref(options);
-    const query = new URLSearchParams(ref);
+    const query = new URLSearchParams({
+      root_id: ref.root_id,
+      path: ref.relative_path,
+    });
     const response = await this._fetch("/api/download?" + query, {
       credentials: "same-origin",
       signal: options.signal,

@@ -159,6 +159,13 @@ globalThis.crypto = webcrypto;
       session = null;
       return { ok: true, status: 200, json: async () => ({}) };
     }
+    if (url.startsWith("/api/download")) {
+      const query = new URLSearchParams(url.split("?")[1]);
+      assert.equal(query.get("root_id"), "home");
+      assert.equal(query.get("path"), "download.txt");
+      assert.equal(query.has("relative_path"), false);
+      return new Response("downloaded");
+    }
     if (url.startsWith("/api/quota"))
       return { ok: true, status: 200, json: async () => quota };
     return { ok: true, status: 200, json: async () => ({}) };
@@ -247,6 +254,8 @@ globalThis.crypto = webcrypto;
     (e) => e.code === "TIMEOUT",
   );
   assert.equal(api._pending.size, 0);
+  const downloaded = await api.files.download({ path: "download.txt" });
+  assert.equal(await downloaded.text(), "downloaded");
   const progress = [];
   const file = new Blob(["example"]);
   Object.defineProperty(file, "name", { value: "example.txt" });

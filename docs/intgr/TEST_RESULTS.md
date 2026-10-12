@@ -80,3 +80,12 @@ FilterMode optional extensions eklenmesi eski MessagePack alanlarını korur. Se
 - node module syntax: passed.
 - Clippy all targets: passed.
 - Çekirdek entegre edildi; virtual/enrollment/policy/audit-history/undo backendleri henüz bu aşamada bitmiş değildir. SDK doc destek tablosunda ayrılır.
+
+## 2026-10-12 — Gerçek Chromium/PAM/setuid SDK kabulü
+
+Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve root-owned aday binary kullanıldı. İlk test indirme query field uyuşmazlığını buldu; düzeltme sonrası aynı test tekrar başarılı.
+
+- Gerçek browser: WS handshake/login, HttpOnly cookie bridge, create folder/text, read revision, stale-write conflict, chmod0640, extension filter, chunk upload progress, HTTP streaming download ve helper quota ölçümü PASS.
+- WS işlem audit session_id_hash 64 karakter correlation PASS; password/bind token loglanmaz.
+- SDK download path/root_id mapping için deterministic regression PASS; ws_auth PASS.
+- Test sadece kendi sdk-test-UUID dizinlerini kullanır ve trash'e taşır; kullanıcı dosyaları üzerine yazılmaz. Test aracı /root/tdrv-ui-check/sdk-live.cjs repo dışında.

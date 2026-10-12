@@ -1,4 +1,5 @@
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use crate::config::{AllowedRoot, SensitivePolicyConfig};
 use crate::errors::{ErrorKind, TealDriveError};
@@ -105,15 +106,56 @@ pub fn chmod_file_with_roots(
         );
     }
 
-    let permissions = std::fs::Permissions::from_mode(mode.0 & 0o0777);
-    let file = match crate::helper::sandbox::open(root, &validated_path, libc::O_RDONLY, 0) {
-        Ok(f) => f,
-        Err(e) => return helper_error_from_io(request, e),
-    };
-    match file.set_permissions(permissions) {
-        Ok(()) => HelperResponse::operation_done(request, "Permissions changed."),
-        Err(err) => helper_error_from_io(request, err),
+    if let Err(error) =
+        crate::helper::access::check(&validated_path, crate::policy::access::Access::Chmod)
+    {
+        return helper_error_from_tealdrive(request, error);
     }
+    let pinned = match crate::helper::sandbox::open(root, &validated_path, libc::O_PATH, 0) {
+        Ok(file) => file,
+        Err(error) => return helper_error_from_io(request, error),
+    };
+    match chmod_pinned(root, &validated_path, &pinned, mode.0 & 0o0777) {
+        Ok(()) => HelperResponse::operation_done(request, "Permissions changed."),
+        Err(error) => helper_error_from_io(request, error),
+    }
+}
+
+fn chmod_pinned(
+    root: &AllowedRoot,
+    path: &crate::config::RelativePath,
+    pinned: &std::fs::File,
+    mode: u32,
+) -> std::io::Result<()> {
+    // Linux 6.6+: operate on the pinned inode even when its mode denies reading.
+    // Calling the syscall directly avoids glibc pathname/procfs emulation.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_fchmodat2,
+            pinned.as_raw_fd(),
+            c"".as_ptr(),
+            mode,
+            libc::AT_EMPTY_PATH,
+        )
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if !matches!(
+        error.raw_os_error(),
+        Some(libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP)
+    ) {
+        return Err(error);
+    }
+    // Older kernels retain readable-file support; never mutate an unpinned path.
+    let readable = crate::helper::sandbox::open(root, path, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
+    let original = pinned.metadata()?;
+    let reopened = readable.metadata()?;
+    if original.dev() != reopened.dev() || original.ino() != reopened.ino() {
+        return Err(std::io::Error::other("chmod target changed while opening"));
+    }
+    readable.set_permissions(std::fs::Permissions::from_mode(mode))
 }
 
 #[cfg(test)]

@@ -162,3 +162,9 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - Clippy all-targets `-D warnings` geçti. Tam suite ve Rust1.85 sonuçları aşağıda güncellenir.
 - Gateway sonrası tam suite: 540 birim testi geçti, gerçek PAM fixture testi varsayılan ignored (yukarıda explicit çalıştırılıp geçti); normal browser/SDK/WS/CLI entegrasyonları geçti.
 - `CARGO_TARGET_DIR=target/msrv cargo +1.85.0 check --locked --all-targets` geçti; MSRV korunuyor.
+
+### Chmod mode-000 kurtarma — 2026-10-12
+
+- `cargo test --locked helper::chmod --quiet`: mevcut chmod unit suite geçti.
+- `cargo test --locked --test chmod_owner -- --ignored --nocapture`: root fixture sonrası supplementary groups temizlenmiş UID/GID65534 süreç + gerçek Landlock/openat2 altında file000→0600 başarılı, içerik korundu. Root-owned başka file ve symlink chmod reddedildi, root-owned file mode000 değişmedi.
+- Çalışan kernel6.8; yeni unreadable inode yolu Linux6.6+ gerektirir. Eski kernel readable-FD fallback'i bu sunucuda kernel değiştirilerek test edilmedi.

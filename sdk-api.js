@@ -488,38 +488,54 @@ export const examples = {
    */
   settingsPatch: (API) => API.admin.settings.patch({ changes: { quota_notifications: { warning_percent: 80 } } }),
 
-  // API.admin.systemUsers.list({ limit: 50, cursor: null }); — Yöneticiye atanmış kapsamdaki kullanıcıları listeler; servis adayları otomatik açılmaz.
+  // API.admin.systemUsers.list(); — Servis/sistem kullanıcıları filtrelenmiş yerel adayları döndürür; erişim açmaz.
   /**
-   * Yöneticiye atanmış kapsamdaki kullanıcıları listeler; servis adayları otomatik açılmaz.
-   * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.systemUsers.list({ limit: 50, cursor: null });
-   * @description SDK yöntemi parametreleri: options: { limit?: number, cursor?: string|null }.
-   * @returns {Promise<{ items: AccountView[], nextCursor: string|null }>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED.
+   * @param {Object} API Handshake ve login tamamlanmış SDK istemcisi.
+   * @returns {Promise<UserCandidates>} {users:[{username,uid,gid}],truncated}; en çok1024 yerel aday.
+   * @throws {TealDriveError} AUTH_REQUIRED, PERMISSION_DENIED, SERVICE_UNAVAILABLE.
+   * @example API.admin.systemUsers.list();
    */
-  adminUsersList: (API) => API.admin.systemUsers.list({ limit: 50, cursor: null }),
+  adminUsersList: (API) => API.admin.systemUsers.list(),
 
-  // API.admin.systemUsers.allow({ accountId: "acct_alice" }); — Root tarafından devredilmiş kapsamda web erişim onayı verir; admin rolü vermez.
+  // API.admin.systemUsers.accounts(); — Kayıtlı Linux hesaplarını ve web erişim durumlarını döndürür.
   /**
-   * Root tarafından devredilmiş kapsamda web erişim onayı verir; admin rolü vermez.
-   * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.systemUsers.allow({ accountId: "acct_alice" });
-   * @description SDK yöntemi parametreleri: options: { accountId: string }.
-   * @returns {Promise<AccountView>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, PERMISSION_DENIED, AUDIT_UNAVAILABLE.
+   * @param {Object} API Yetkili global Linux admin SDK istemcisi.
+   * @returns {Promise<AccountMetadata[]>} Password hash/grant yok; passwordEnrolled kayıt tamamlanmasını gösterir.
+   * @throws {TealDriveError} FEATURE_DISABLED, AUTH_REQUIRED, PERMISSION_DENIED, SERVICE_UNAVAILABLE.
+   * @example API.admin.systemUsers.accounts();
    */
-  adminUsersAllow: (API) => API.admin.systemUsers.allow({ accountId: "acct_alice" }),
+  adminUsersAccounts: (API) => API.admin.systemUsers.accounts(),
 
-  // API.admin.systemUsers.deny({ accountId: "acct_alice" }); — Atanmış kapsamdaki erişimi kapatır; aktif oturum/biletleri iptal eder.
+  // API.admin.systemUsers.approve({username:"example-user"}); — İlk PAM kaydı için mevcut Linux kullanıcısını onaylar.
   /**
-   * Atanmış kapsamdaki erişimi kapatır; aktif oturum/biletleri iptal eder.
-   * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.systemUsers.deny({ accountId: "acct_alice" });
-   * @description SDK yöntemi parametreleri: options: { accountId: string }.
-   * @returns {Promise<void>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, PERMISSION_DENIED, AUDIT_UNAVAILABLE.
+   * Kullanıcı PAM ile Linux kimliğini doğrular ve web parolasını kendisi oluşturur.
+   * Root deny üstün; admin UID/home/role/parola seçmez. Var olan hesapta409: allow/deny kullanılır.
+   * @param {Object} API Root roster + DB Linux/Admin yetkisindeki SDK istemcisi.
+   * @returns {Promise<AccountMetadata>} role:"user", passwordEnrolled:false.
+   * @throws {TealDriveError} FEATURE_DISABLED, INVALID_ARGUMENT, AUTH_REQUIRED, PERMISSION_DENIED, CONFLICT, SERVICE_UNAVAILABLE.
+   * @example API.admin.systemUsers.approve({username:"example-user"});
    */
-  adminUsersDeny: (API) => API.admin.systemUsers.deny({ accountId: "acct_alice" }),
+  adminUsersApprove: (API) => API.admin.systemUsers.approve({username:"example-user"}),
+
+  // API.admin.systemUsers.allow({accountId:"account-uuid"}); — Mevcut hesabın girişini Root kuralları içinde yeniden açar.
+  /**
+   * Eski grant/cookie/PAM proof geri açılmaz; yeni giriş veya yeni PAM kanıtı gerekir.
+   * @param {Object} API Yetkili global Linux admin SDK istemcisi.
+   * @returns {Promise<AccountMetadata>} Yeni generation ve erişim durumu.
+   * @throws {TealDriveError} FEATURE_DISABLED, AUTH_REQUIRED, PERMISSION_DENIED, CONFLICT, SERVICE_UNAVAILABLE.
+   * @example API.admin.systemUsers.allow({accountId:"account-uuid"});
+   */
+  adminUsersAllow: (API) => API.admin.systemUsers.allow({accountId:"account-uuid"}),
+
+  // API.admin.systemUsers.deny({accountId:"account-uuid"}); — Web erişimini askıya alır; aktif grant/proof iptal olur.
+  /**
+   * Linux hesabı ve dosyalar tutulur; role/own-admin değişikliği bu API'den yapılmaz.
+   * @param {Object} API Yetkili global Linux admin SDK istemcisi.
+   * @returns {Promise<AccountMetadata>} status:"suspended", loginEnabled:false, yeni generation.
+   * @throws {TealDriveError} FEATURE_DISABLED, AUTH_REQUIRED, PERMISSION_DENIED, CONFLICT, SERVICE_UNAVAILABLE.
+   * @example API.admin.systemUsers.deny({accountId:"account-uuid"});
+   */
+  adminUsersDeny: (API) => API.admin.systemUsers.deny({accountId:"account-uuid"}),
 
   // API.admin.virtualUsers.list({ limit: 50, cursor: null }); — Yalnızca yönettiği sanal alt hesapları listeler.
   /**

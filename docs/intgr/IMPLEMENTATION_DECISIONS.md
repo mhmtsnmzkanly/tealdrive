@@ -153,3 +153,10 @@ Public admin pozitif kabul testi mevcut gerçek kullanıcıyı admin'e yükseltm
 Root/sys/service identity filtresi discovery ile helper'da aynı shared reserved-name kontrolünü kullanır. Yüksek UID/interactive shell tek başına bilinen servis adına izin vermez. `.env`/home policy veya Root UID tavanları onayla genişletilmez. Bu aşama automatic home template oluşturmaz; dosya erişimi hâlâ Root'un gerçek NSS home ile eşleşen profiline bağlıdır.
 
 Access transition aynı immediate transaction'da bekleyen enrollment proof'larını da siler. Suspend→enable sonrası önceki PAM proof canlanamaz; kullanıcı yeni PAM doğrulaması yapar. Native kabulde eski cookie/grant ve eski proof ayrı ayrı reddedildi. Onay/enable/suspend başarıları actor ve target account ID/username ile audit'e yazılır; secret yoktur. TLS/central root journal rollout'u ayrı PLAN maddesidir.
+
+
+## D032 — Yönetim UI yetki ve lifecycle sınırı
+
+Yönetim yeni embedded same-origin ES module'dür; SDK üzerinden server/helper kontrollerine gider. Server/Root kimliği UI'da yeniden icat edilmez. UI RoleAdmin + capability, Linux global scope için isAdmin+accountKindLinux gösterim uygular; helper gerçek nihai yetkiyi bağımsız doğrular. UI Root admin rol verme/OS UID/path/virtual provisioning/delete/quota işlemlerini açmaz. RoleAdmin satırları Root-managed; user yalnız kendi child virtual grubuna erişir.
+
+Mutation confirmation cancel before-request semantics: iptal backend'e göndermez. Loading/error stale controls temizlenir; modal close request epoch'ını geçersiz kılar, kabul edilmiş server işlemini geri alma vaat edilmez. Whole file-manager migration/i18n gelecekteki iştir. Accounts module ve INDEX_HTML asset-version digest'e eklendi; module no-cache ile sunulur. Bağlantı kurulmadan HTML'de connected sınıfı gösteriliyordu; bu yanlış başlangıç sınıfı kaldırıldı, Native test gerçek session/ProtocolReady sonrası bekler.

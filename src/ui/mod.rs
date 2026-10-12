@@ -95,8 +95,10 @@ where
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
         for content in [
+            INDEX_HTML,
             STYLE_CSS,
             APP_JS,
+            crate::ui::assets::ACCOUNTS_JS,
             include_str!("protocol.js"),
             crate::protocol::JAVASCRIPT_CONTRACT,
         ] {
@@ -229,6 +231,17 @@ where
     match clean {
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
+        "accounts.js" => {
+            let mut response = crate::ui::assets::ACCOUNTS_JS.into_response();
+            apply_security_headers(
+                response.headers_mut(),
+                "application/javascript; charset=utf-8",
+            );
+            response
+                .headers_mut()
+                .insert("cache-control", HeaderValue::from_static("no-cache"));
+            response
+        }
         "favicon.svg" | "favicon.ico" => serve_favicon::<H>(State(state)).await,
         "index.html" => serve_index::<H>(State(state)).await,
         _ => (StatusCode::NOT_FOUND, "Not found").into_response(),

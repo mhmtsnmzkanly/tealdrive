@@ -101,6 +101,17 @@ def main():
         env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
         env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+        audit_text = audit.read_text()
+        if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
+            raise RuntimeError('Fixture credentials appeared in audit')
+        events = [json.loads(line) for line in audit_text.splitlines()]
+        for action in ('AccountSuspended', 'AccountEnabled') + (() if phase == 'access' else ('AccountApproved',)):
+            if not any(event.get('action') == action and event.get('target_account_id') and event.get('target_username') in identities and event.get('username') == users[0]['username'] for event in events):
+                raise RuntimeError('Missing actor/target account audit event')
+        if (config_dir / 'helper.toml').read_bytes() != HELPER_CONFIG.read_bytes():
+            raise RuntimeError('Public API modified root helper policy')
+        print(json.dumps(dict(actorTargetAudit=True, noCredentialAudit=True, rootPolicyUnmodifiedByApi=True)))
+
     finally:
         if process and process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)

@@ -63,3 +63,11 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=approval too
 ```
 
 Approval phase Root deny'ı yalnız test operator'ı geçici uygulayıp geri alır; browser'ın Root dosyasına yazabildiği bir uç değildir. Fixture server runtime overlay kullanır (Root config byte-preservation); var olan hesap approve ile reset edilmez. Negatif auth senaryolarından sonra test yeni transport açar; server'ın5 deneme limiti gevşetilmez.
+
+
+```bash
+# Gerçek gömülü UI / PAM / rol / cancel / mobil / başarısız refresh kabulü:
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+```
+
+Her phase sonunda aktör/hedef audit kaydı ve parola loglanmaması kontrol edilir. Driver kendi fixture log/config/runtime çıktılarını siler; üstteki sabit root-private lock dosyası reusable test koordinasyonu için kalır. Virtual gruba geçiş testi virtual OS hesap provisioning/tenant UID izolasyonu testi değildir. İlk admin ataması production Wizard ile henüz tamamlanmadı; test root-only bootstrap örneğini kullanır.

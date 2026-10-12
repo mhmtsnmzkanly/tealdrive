@@ -1,6 +1,6 @@
 # Web kimliği ve hesap erişim yönetimi aşama raporu
 
-Bu rapor önceki AUTH_INTEGRATION_REPORT.md üzerine eklenen işleri kapsar. **Bütün geliştirme planının bitiş raporu değildir.** Güncel kalan işler PLAN.md'de tutulur; Caddy üzerinden çalışan mevcut üretim sürümü korunmuştur.
+Bu rapor önceki AUTH_INTEGRATION_REPORT.md üzerine eklenen işleri kapsar. **Bütün geliştirme planının bitiş raporu değildir.** Bu rapor önceki aşamanın durumudur; yeni [Admin erişim raporunda](ADMIN_ACCESS_REPORT.md) public admin/PAM/UI kabulünün tamamlandığı kaydedildi. Güncel kalan işler PLAN.md'de tutulur; Caddy üzerinden çalışan mevcut üretim sürümü korunmuştur.
 
 ## Tamamlanan değişiklikler
 
@@ -20,7 +20,7 @@ Bu rapor önceki AUTH_INTEGRATION_REPORT.md üzerine eklenen işleri kapsar. **B
 - Clippy all-targets -D warnings, fmt, diff ve MSRV Rust1.85 kontrolleri geçti. TypeScript strict tip kontrolü geçti.
 - Yönetim yetki türetme unit testi: root roster gereksinimi, virtual admin global Root yükseltme reddi, user role reddi.
 
-**Kabul sınırı:** Başarılı public admin suspend/enable → gerçek diğer OS hesabı testi henüz yapılmadı. Önceki native root suspend testi public admin endpoint testi değildir. Virtual provisioning, OS quota ve iki gerçek virtual UID izolasyonu henüz tamamlanmadı.
+**Bu eski aşamanın kabul sınırı:** O aşamada başarılı public admin suspend/enable → gerçek diğer OS hesabı testi henüz yapılmamıştı; a4bee61 ve ADMIN_ACCESS_REPORT.md ile bu kabul tamamlandı. Önceki native root suspend testi public admin endpoint testi değildir. Virtual provisioning, OS quota ve iki gerçek virtual UID izolasyonu henüz tamamlanmadı.
 
 ## Commitler
 

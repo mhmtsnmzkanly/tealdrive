@@ -746,3 +746,19 @@ body {
 
 .activity-note { margin: 0 0 1rem; font-size: .85rem; }
 .permission-warning { color: var(--amber-400, #fbbf24); min-height: 1.3em; }
+
+/* Account-management table remains separate from file-manager row layouts. */
+.account-tabs, .account-approval { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: .8rem 0; }
+.account-tabs [aria-pressed="true"] { outline: 2px solid var(--blue-500, #3b82f6); }
+.account-approval select { flex: 1 1 15rem; min-width: 0; }
+.account-table-wrap { overflow-x: auto; }
+.account-table { width: 100%; border-collapse: collapse; }
+.account-table th, .account-table td { padding: .7rem; text-align: left; border-bottom: 1px solid var(--slate-700, #334155); }
+.account-details { display: block; overflow-wrap: anywhere; color: var(--text-muted); margin-top: .3rem; }
+@media (max-width: 600px) {
+  .account-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .account-table, .account-table tbody, .account-table tr, .account-table td { display: block; }
+  .account-table tr { padding: .4rem 0; border-bottom: 1px solid var(--slate-700, #334155); }
+  .account-table td { border: 0; padding: .35rem; }
+  .account-table td[data-label]::before { content: attr(data-label) ": "; color: var(--text-muted); }
+}

@@ -30,6 +30,7 @@
 
         <div id="userInfo" class="user-info hidden">
           <span class="user-badge" id="userBadge">user</span>
+          <button id="manageAccountsBtn" class="btn btn-secondary btn-sm hidden">Accounts</button>
           <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings">Settings</button>
           <button id="accountSecurityBtn" class="btn btn-secondary btn-sm hidden">Account security</button>
           <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</button>
@@ -115,8 +116,8 @@
     <!-- Status Footer -->
     <footer class="app-footer">
       <div class="footer-status">
-        <span class="status-dot connected" id="wsStatusDot"></span>
-        <span id="wsStatusText">Connecting...</span>
+        <span class="status-dot disconnected" id="wsStatusDot"></span>
+        <span id="wsStatusText">Not connected</span>
       </div>
       <div class="footer-meta">
         <span>TealDrive Safe Sandboxed Environment &copy; 2026</span>
@@ -130,6 +131,25 @@
   <!-- MODALS -->
 
   <!-- 1. Login Modal -->
+  <div id="accountsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="accountsTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header"><h3 id="accountsTitle">Account access</h3><button type="button" id="accountsCloseBtn" class="modal-close" aria-label="Close account management">&times;</button></div>
+      <div class="modal-body">
+        <p>Approve first registration and manage web access. Suspension closes active web sessions; existing files are kept.</p>
+        <div class="account-tabs" aria-label="Account groups"><button type="button" id="accountsSystemTab" class="btn btn-secondary" aria-pressed="true">System users</button><button type="button" id="accountsVirtualTab" class="btn btn-secondary" aria-pressed="false">Virtual users</button><button type="button" id="accountsRefreshBtn" class="btn btn-secondary">Refresh</button></div>
+        <section id="accountsApproveArea" class="settings-section">
+          <h4>Approve a system user</h4><p id="accountsPolicyNote"></p>
+          <label for="accountsCandidate">Eligible local user</label>
+          <div class="account-approval"><select id="accountsCandidate" class="form-input"><option value="">Select an eligible system user</option></select><button type="button" id="accountsApproveBtn" class="btn btn-primary" disabled>Approve registration</button></div>
+          <p id="accountsCandidatesNote"></p>
+        </section>
+        <p id="accountsError" class="permission-warning" role="alert"></p>
+        <h4 id="accountsScope">Registered system users</h4><p id="accountsStatus" aria-live="polite"></p>
+        <div class="account-table-wrap"><table class="account-table"><thead><tr><th>Account</th><th>Role</th><th>State</th><th>Allocation</th><th>Actions</th></tr></thead><tbody id="accountsTableBody"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
   <div id="accountSecurityModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="accountSecurityTitle">
     <div class="modal-card">
       <div class="modal-header"><h3 id="accountSecurityTitle">Account security</h3></div>

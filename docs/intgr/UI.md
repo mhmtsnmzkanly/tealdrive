@@ -88,3 +88,14 @@ HTML/CSS/JS/SVG src/ui/static altında ayrı dosyalardır; assets.rs include_str
 ## Uygulanan auth UI (2026-10-12)
 
 Login artık SDK handshake/WS login kullanır; HTTP'ye parola body göndermez. ServerHello.authentication enrollment/mode'a göre ilk kayıt seçeneği görünür ve password label değişir. Linux verification sonrası username kilitlenir, yeni web password + confirmation istenir. Input'lar ağdan önce ve finally'de temizlenir; mismatch/weak password/proof-expiry/backend hata mesajları gösterilir. Disconnect olursa pending kayıt tekrar başlamalıdır; token storage'a konmaz. Global settings düğmesi Root-verified Linux admin role + root roster ister. Logout503'ü başarı saymaz, yeniden deneme mesajı verir. File-manager UI mevcut transport'tadır; tam SDK dönüşümü/TR-EN işi devam eder.
+
+
+## Uygulandı — hesap erişim yönetimi
+
+Admin rolünde ve accountManagement capability açıkken **Accounts** düğmesi görünür. UI ayrı embedded ES module `src/ui/static/accounts.js`; bütün hesap işlemleri gerçek SDK kullanır. Linux/global admin system ve virtual gruplarını; tenant admin yalnız kendi virtual grubunu görür. Root gerektiren admin rol atama veya OS UID/home seçimi sunulmaz. Admin hesap satırları Root managed, deleted hesaplar değiştirilemez.
+
+System grubunda uygun yerel NSS adayları kayıtlı hesaplardan ayrılır; dropdown'dan **Approve registration** mevcut Linux hesabı için password'süz User kaydı açar. Bekleyen kullanıcı **Awaiting registration**; PAM + web password tamamlanınca **Active** görünür. Öz kayıt varsayılan açıkken onay zorunlu değildir; kapalıyken Root whitelist/admin onayı geçerlidir. Root deny son karardır. Profile/home otomatik oluşturma bu ekranın tamamlanmış özelliği değildir.
+
+**Suspend/Enable** confirmation içerir; cancel hiçbir mutation çağırmaz. Suspend aktif web bağlantılarını keser; dosyalar/OS hesabı korunur. Yeniden açma eski cookie/grant/proof'u canlandırmaz. Loading/error sırasında stale işlem kontrolleri temizlenir; aynı modal içindeki talepler epoch ile izlenir, close sonrası eski cevap render edilmez. Busy sırasında double-submit ve tab değiştirme kapalıdır. Escape/focus return, Tab focus containment ve mobil ayrı tablo düzeni uygulanmıştır. Failed refresh503 gerçek Chromium'da verify edilmiştir (browser intercept; backend outage kabulü sayılmaz).
+
+Başlangıç file-connection göstergesi **Not connected**: gerçek ProtocolReady alınmadan connected işareti gösterilmez. Native UI testleri login modal kapanışını ve gerçek file socket'i bekler; initial HTML sınıfına dayalı false-positive kaldırılmıştır. SDK/full file-manager dönüşümü ve TR/EN henüz ayrı PLAN işidir.

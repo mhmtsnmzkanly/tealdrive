@@ -833,11 +833,22 @@
     }
     const info = await authClient.handshake();
     webPasswords = Boolean(info?.authentication?.webPassword);
+    document.getElementById('manageAccountsBtn').classList[info?.authentication?.accountManagement && state.session?.role==='admin'?'remove':'add']('hidden');
     document.getElementById('accountSecurityBtn').classList[info?.authentication?.passwordChange?'remove':'add']('hidden');
     document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
     if (!enrolling) document.getElementById('passwordLabel').textContent = webPasswords?'Web password':'Password';
     return authClient;
   }
+  let accountManagement = null;
+  let accountManagementImport = null;
+  document.getElementById('manageAccountsBtn').onclick=async()=>{
+    try {
+      accountManagementImport ??= import('/static/accounts.js');
+      const {createAccountManagement}=await accountManagementImport;
+      accountManagement ??= createAccountManagement({getClient:getAuthClient,toast:showToast,formatBytes});
+      await accountManagement.open();
+    } catch(error) { showToast('Unable to open account management. Refresh and try again.','error'); }
+  };
   function closeAccountSecurity() {
     for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
     document.getElementById('accountSecurityModal').classList.add('hidden');
@@ -1275,6 +1286,8 @@
         return;
       }
       if (e.key === 'Escape') {
+        accountManagement?.close();
+        closeAccountSecurity();
         if (!el.lightboxModal.classList.contains('hidden')) {
           closeLightbox();
         }

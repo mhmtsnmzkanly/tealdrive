@@ -2,6 +2,7 @@
 // Run through tools/dev/admin-acceptance.py; never changes roles/policy from the browser.
 const { chromium } = require("playwright");
 const fs = require("node:fs");
+let checkpoint = "startup";
 (async () => {
   if (process.env.TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE !== "1")
     throw Error("Explicit fixture opt-in required");
@@ -145,7 +146,7 @@ const fs = require("node:fs");
       },
       { user: users[1], generation: targetSession.accountGeneration },
     );
-    if (phase !== "access") {
+    if (phase === "approval") {
       const pending = await browser.newPage();
       await pending.goto(url);
       await pending.evaluate(async (user) => {
@@ -319,8 +320,212 @@ const fs = require("node:fs");
         }),
       );
     }
-    await target.evaluate(() => testApi.auth.logout());
-    await admin.evaluate(() => testApi.auth.logout());
+    if (phase === "ui") {
+      checkpoint = "ui_reload";
+      const errors = [];
+      admin.on("pageerror", (error) => errors.push(error.name));
+      target.on("pageerror", (error) => errors.push(error.name));
+      await admin.reload();
+      await target.reload();
+      await admin.waitForSelector("#manageAccountsBtn:not(.hidden)");
+      await target.waitForSelector("#wsStatusDot.connected");
+      if (
+        !(await target
+          .locator("#manageAccountsBtn")
+          .evaluate((element) => element.classList.contains("hidden")))
+      )
+        throw Error("Normal user saw management button");
+      checkpoint = "ui_open";
+      await admin.click("#manageAccountsBtn");
+      const row = admin
+        .locator("#accountsTableBody tr")
+        .filter({ hasText: users[1].username });
+      await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
+      const generation = await target.evaluate(
+        async () =>
+          (await (await fetch("/api/session")).json()).account_generation,
+      );
+      admin.once("dialog", (dialog) => dialog.dismiss());
+      await row.getByRole("button", { name: "Suspend", exact: true }).click();
+      const afterCancel = await target.evaluate(
+        async () =>
+          (await (await fetch("/api/session")).json()).account_generation,
+      );
+      if (afterCancel !== generation)
+        throw Error("Cancelled confirmation mutated account");
+      admin.once("dialog", (dialog) => dialog.accept());
+      await row.getByRole("button", { name: "Suspend", exact: true }).click();
+      await row.getByRole("button", { name: "Enable", exact: true }).waitFor();
+      if (
+        (await row.locator('[data-label="State"]').innerText()) !== "Suspended"
+      )
+        throw Error("UI did not show suspension");
+      await target.waitForSelector("#wsStatusDot.disconnected", {
+        timeout: 5000,
+      });
+      if (
+        (await target.evaluate(
+          async () => (await fetch("/api/session")).status,
+        )) !== 401
+      )
+        throw Error("UI suspension left session usable");
+      admin.once("dialog", (dialog) => dialog.accept());
+      await row.getByRole("button", { name: "Enable", exact: true }).click();
+      await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
+      await target.reload();
+      await target.waitForSelector("#loginModal:not(.hidden)");
+      await target.fill("#usernameInput", users[1].username);
+      await target.fill("#passwordInput", users[1].password);
+      await target.click("#loginForm button[type=submit]");
+      await target.waitForSelector("#wsStatusDot.connected");
+      const values = await admin
+        .locator("#accountsCandidate option")
+        .evaluateAll((elements) => elements.map((element) => element.value));
+      if (
+        !values.includes(users[2].username) ||
+        values.some((name) =>
+          ["root", "caddy", "www-data", "tealdrive"].includes(name),
+        )
+      )
+        throw Error("Approval choices not filtered");
+      await admin.selectOption("#accountsCandidate", users[2].username);
+      admin.once("dialog", (dialog) => dialog.dismiss());
+      await admin.click("#accountsApproveBtn");
+      if (
+        await admin
+          .locator("#accountsTableBody tr")
+          .filter({ hasText: users[2].username })
+          .count()
+      )
+        throw Error("Cancelled approval created account");
+      admin.once("dialog", (dialog) => dialog.accept());
+      await admin.click("#accountsApproveBtn");
+      const approvedRow = admin
+        .locator("#accountsTableBody tr")
+        .filter({ hasText: users[2].username });
+      await approvedRow.waitFor();
+      if (
+        (await approvedRow.locator('[data-label="State"]').innerText()) !==
+        "Awaiting registration"
+      )
+        throw Error("UI approval skipped enrollment state");
+      const pending = await browser.newPage();
+      pending.on("pageerror", (error) => errors.push(error.name));
+      await pending.goto(url);
+      await pending.waitForSelector("#registerWebOption:not(.hidden)");
+      await pending.check("#registerWeb");
+      await pending.fill("#usernameInput", users[2].username);
+      await pending.fill("#passwordInput", users[2].linuxPassword);
+      await pending.click("#loginForm button[type=submit]");
+      await pending.waitForSelector("#webPasswordGroup:not(.hidden)");
+      if ((await pending.locator("#passwordInput").inputValue()) !== "")
+        throw Error("UI retained Linux password");
+      await pending.fill("#passwordInput", users[2].password);
+      await pending.fill("#webPasswordConfirm", users[2].password);
+      await pending.click("#loginForm button[type=submit]");
+      await pending.waitForSelector("#loginModal.hidden", {
+        state: "attached",
+      });
+      await pending.waitForSelector("#wsStatusDot.connected");
+      if ((await pending.locator("#passwordInput").inputValue()) !== "")
+        throw Error("UI retained web password");
+      checkpoint = "ui_refresh_registered";
+      const refreshed = admin.waitForResponse(
+        (response) => response.url().endsWith("/api/admin/accounts/system"),
+        { timeout: 5000 },
+      );
+      await admin.click("#accountsRefreshBtn");
+      const response = await refreshed;
+      const entry = (await response.json()).find(
+        (account) => account.username === users[2].username,
+      );
+      if (entry?.status !== "active" || !entry.password_enrolled)
+        throw Error("Registered account metadata not active");
+      await admin.waitForFunction(
+        (username) =>
+          [...document.querySelectorAll("#accountsTableBody tr")].some(
+            (row) =>
+              row.textContent.includes(username) &&
+              row.querySelector('[data-label="State"]')?.textContent ===
+                "Active",
+          ),
+        users[2].username,
+      );
+      checkpoint = "ui_virtual_tab";
+      await admin.click("#accountsVirtualTab");
+      await admin.waitForSelector("#accountsApproveArea.hidden", {
+        state: "attached",
+      });
+      await admin.waitForFunction(
+        () =>
+          document.getElementById("accountsModal").getAttribute("aria-busy") ===
+          "false",
+      );
+      checkpoint = "ui_system_tab";
+      await admin.click("#accountsSystemTab");
+      await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
+      checkpoint = "ui_failed_refresh";
+      await admin.route("**/api/admin/accounts/system", (route) =>
+        route.fulfill({ status: 503, body: "" }),
+      );
+      await admin.click("#accountsRefreshBtn");
+      await admin.waitForFunction(() =>
+        document
+          .getElementById("accountsError")
+          .textContent.includes("temporarily unavailable"),
+      );
+      if (await admin.locator("#accountsTableBody button").count())
+        throw Error("Failed load kept stale mutation controls");
+      await admin.unroute("**/api/admin/accounts/system");
+      await admin.click("#accountsRefreshBtn");
+      await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
+      checkpoint = "ui_mobile_keyboard";
+      await admin.setViewportSize({ width: 390, height: 844 });
+      if (
+        await admin.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth + 1,
+        )
+      )
+        throw Error("Mobile management overflow");
+      await admin.locator("#accountsCloseBtn").focus();
+      await admin.keyboard.press("Shift+Tab");
+      if (
+        !(await admin.evaluate(() =>
+          Boolean(document.activeElement.closest("#accountsModal")),
+        ))
+      )
+        throw Error("Tab focus escaped account modal");
+      await admin.keyboard.press("Escape");
+      await admin.waitForSelector("#accountsModal.hidden", {
+        state: "attached",
+      });
+      if (
+        (await admin.evaluate(() => document.activeElement.id)) !==
+        "manageAccountsBtn"
+      )
+        throw Error("Dialog focus not restored");
+      await pending.click("#logoutBtn");
+      await target.click("#logoutBtn");
+      await admin.click("#logoutBtn");
+      if (errors.length)
+        throw Error("Browser module errors: " + errors.join(","));
+      console.log(
+        JSON.stringify({
+          uiRoleBoundary: true,
+          uiSuspendAndEnable: true,
+          uiCancelNoMutation: true,
+          uiFilteredApproval: true,
+          uiPendingAndActiveStates: true,
+          uiPamEnrollment: true,
+          uiVirtualGroup: true,
+          uiMobileAndEscape: true,
+          uiFailedRefreshClearsControls: true,
+        }),
+      );
+    } else {
+      await target.evaluate(() => testApi.auth.logout());
+      await admin.evaluate(() => testApi.auth.logout());
+    }
     console.log(
       JSON.stringify({
         publicAdminSuspend: true,
@@ -336,6 +541,6 @@ const fs = require("node:fs");
     await browser.close();
   }
 })().catch((error) => {
-  console.error(error.name, error.code ?? error.message);
+  console.error(checkpoint, error.name, error.code ?? error.message);
   process.exitCode = 1;
 });

@@ -212,3 +212,6 @@ Uninstall varsayılan veri/logları korur; silme ayrı açık onay ve kapsam ist
 ## Suspended ve delete ayrımı
 
 Disable/suspend giriş engelidir; veri silmez, aktif oturum/biletleri iptal eder. Admin sanal hesap delete çağrısı yalnızca root ayarı izinliyse kabul edilir. Deleted veri varsayılan 36 saat korunur; purge ayrı kontrol edilmiş lifecycle işidir. Süre dolunca root dışındaki gerçek Linux kullanıcı hesapları/home'ları temizleme hedefi olmaz. Root silme tavanı Wizard ile değişir; CLI bu kapıyı bypass etmez.
+
+
+Root UI komutları eklendi: `ui check <root-owned-directory>`, `ui install --bundle <directory>`, `ui disable`. UI install source snapshot'ını `/home/tealdrive/ui/packages/` altında Root755 dirs/Root644 files ile kurar; SHA map ve declared files yeniden doğrulanır; yalnız server critical config'teki seçili path atomik değişir. Helper policy/key/account DB'ye dokunmaz. Root config reload transport aynıysa UI seçimini uygular; default `/ui/default` her zaman mevcuttur.

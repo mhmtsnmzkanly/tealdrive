@@ -1,6 +1,6 @@
 # TealDrive UI geliştirme sözleşmesi
 
-> **Durum:** Auth/accounts/policy/virtual UI ve temel file manager ortak SDK ile uygulanmıştır. TR/EN ve kullanıcı bazlı dil tercihi uygulanmıştır; custom paket ayrı aşamadadır. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Auth/accounts/policy/virtual UI ve temel file manager ortak SDK ile uygulanmıştır. TR/EN ve kullanıcı bazlı dil tercihi uygulanmıştır; Root-approved custom paket ve gömülü kurtarma yolu uygulanmıştır. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
@@ -114,3 +114,21 @@ Başlangıç file-connection göstergesi **Not connected**: gerçek ProtocolRead
 Gömülü UI English/Türkçe seçicisi sunar. `src/ui/locales/en.json` ve `tr.json` aynı key/interpolation isimlerini kullanır; `static/i18n.js` yalnız işaretli UI metinlerini çevirir. Dosya adı, dosya içeriği ve input value çevrilmez. Form label caption ayrı span'dır; dil değişikliği input/checkbox child'larını kaldırmaz. Native download veya API kodları çevrilmiş UI metninden üretilmez.
 
 Tercih browser storage'da origin+accountId (legacy UID fallback) namespace'indedir; yalnız en/tr yazılır. Şifre, token veya içerik bu storage'a konmaz. Hesap değiştiğinde yeni namespace okunur; varsayılan browser language tr iseTR, diğer durumlardaEN. Storage erişimi yoksa tercih mevcut sayfada çalışır. Root/admin çalışma ayarını değiştirmez. SDK hata code/params çeviri anahtarıdır; UI sunumu SDK'nın içinde değildir.
+
+
+## Uygulanan Root-approved paket
+
+`server.static_dir` Root'un etkin paket dizinidir; webden static_dir patch kapalıdır. ManifestVersion1/sdkMajor1, güvenli name/version/entry, entry dahil declared assets ve optional exact SHA-256 map doğrulanır. Tüm parents/files Root-owned/non-writable/non-symlink; hardlink yok. Manifest64KiB, asset8MiB, toplam16MiB, en fazla1024 asset. İzinli HTML/CSS/JS/JSON/image/font türleri; dotfile/traversal/SDK path yasak. Entry.html UTF-8 web sayfasıdır. Entry assets listesinde de bulunabilir. Varsayılan schema örneği yukarıdadır; checksum varsa entry dahil tüm listed files için olmalıdır.
+
+Paket bütün dosyaları doğrulanmış immutable memory snapshot olarak yükler; manifest fingerprint değişince yeniden değerlendirir. Root activation versiyonlu dizin/config değişimiyle atomiktir. Invalid/missing/incompatible/unsafe paket tamamen embedded fallback; valid pakette undeclared asset404 (embedded/custom parçalar karışmaz). SDK route sabittir. `/ui/default` ve `/ui/default/...` custom paketten bağımsız gömülü HTML/JS/CSS/locale sunar; mevcut session kullanılabilir. JS runtime error otomatik güvenilir tespit sayılmaz; kullanıcı bu adresten kurtarma UI'sini açabilir.
+
+```sh
+sudo tealdrive-wizard ui check /root/reviewed-theme
+sudo tealdrive-wizard ui install --bundle /root/reviewed-theme
+# /home/tealdrive/ui/packages/NAME-VERSION-UUID root-owned immutable source snapshot
+sudo tealdrive-ctl reload
+sudo tealdrive-wizard ui disable
+sudo tealdrive-ctl reload
+```
+
+Kaynak dizin Root tarafından incelenmiş Root-owned olmalıdır. CLI source'u kullanıcı upload'ından otomatik onaylamaz. Asset'ler `/static/RELATIVE_NAME` üzerinden sunulur; örneğin `/static/assets/main.js`. Custom JS `/sdk/v1/tealdrive.js` import eder. CSP scriptself/evalinline kapalı, connectself, workernone. ServiceWorker/dedicatedWorker kapalıdır; paket fixedSDK namespace'i kalıcı worker üzerinden de değiştiremez. Root onayı scriptin iyi niyetini kanıtlamaz; aynı-origin customcode imzalı kullanıcının yetkileriyle çalışabilen trusted application code'dur.

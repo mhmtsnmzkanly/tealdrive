@@ -231,3 +231,8 @@ EN/TR sözlük anahtarları ve parametreleri aynı tutulur. Sadece data-i18n iş
 ## D042 — Standart TLS ve explicit offload sınırı
 
 rustls/ring + axum-server0.7.3; kendi crypto/anahtar protokolü yok. Root TLS paths aynı anda cert/key, Groupread640/private root-safe parent, symlink/hardlink/world access rejected. Explicit requireTLStrue proxy mode loopback+trusted proxy+singleHTTPS header; directTLS actual TLS socket. Broken TLS startup noHTTPfallback. Bind/transport/cert paths hotreload veya DynamicConfig.store ile değiştirilemez, legacy configte de restart gerekir. Certificate content refresh restart sınırında; webadmin cert/key management yapmaz. Provider PEM input zeroize, certificates/public keys publicinfo; TLS private key service memory threat modeliyle uyumludur.
+
+
+## D043 — Root-approved immutable UI snapshot ve sabit kurtarma namespace'i
+
+UI package sadece Root; all-declared-assets validation, optional SHAmap, bounded16MiB snapshot. Missing/incompatible/unsafe package whole embedded fallback; valid-package undeclaredasset404. Critical static_dir webpatch bütün modlarda kapalı. Versioned Rootdirectory copy +Rootserverconfig activation; helper key/DB unchanged. `/ui/default` route custom package'den bağımsız builtin assets/locale imports ile çalışır. SDK namespace override yasak, fallback `/sdk/*` unknownpath404. CSP connectself/workernone; ServiceWorker ile fixedSDK interception yapılmaz. Custom JS trusted same-origin applicationcode olduğu için manifest integrity iyi niyet garantisi değildir.

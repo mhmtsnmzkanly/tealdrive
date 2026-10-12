@@ -108,3 +108,6 @@ Root-created virtual admin + native lifecycle/crash-resume kabulünü eklemek i�
 
 
 Direct TLS ve production'dan ayrı Caddy proxy kabulü: admin/home fixture'a `TEALDRIVE_TLS_ACCEPTANCE=1` ekleyin.13103/13104/13105 loopback portları gerekir. Kendi selfsigned cert/key, Caddy adminoff/XDGprivate dirs; mevcut Caddyfile okunmaz/değişmez. Bu test production certificate güven zinciri testi değildir; HTTPS/WSS/cookie/helper/shutdown/invalidkey/header sınırları testidir.
+
+
+Custom UI acceptance: admin/home fixture'a `TEALDRIVE_UI_PACKAGE_ACCEPTANCE=1` ekleyin. Root-owned uniquepackage ve server13106; global theme activation yapılmaz. CLIcheck, sameSDKauthfiles, assetallowlist, incompatible/override fallback ve `/ui/default` browser testi.

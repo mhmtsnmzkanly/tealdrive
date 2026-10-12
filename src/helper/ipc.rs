@@ -582,6 +582,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 uid: request.uid,
                 gid: request.gid,
             };
+            let mut authenticated_account = None;
             let config = if elevated {
                 let mut config = crate::helper::security::trusted_config()
                     .map_err(|_| TealDriveError::PermissionDenied)?;
@@ -633,6 +634,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                                 Some(root.quota_bytes.map_or(quota, |ceiling| ceiling.min(quota)));
                         }
                     }
+                    authenticated_account = Some(account);
                 } else {
                     if grant.is_some() {
                         return Err(TealDriveError::PermissionDenied);
@@ -655,6 +657,10 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     snapshot.config.clone()
                 }
                 None if elevated => return Err(TealDriveError::PermissionDenied),
+                None => config,
+            };
+            let config = match authenticated_account.as_ref() {
+                Some(account) => crate::policy::home::resolve(&config, account, None)?,
                 None => config,
             };
             request.limits.max_chunk_size = request

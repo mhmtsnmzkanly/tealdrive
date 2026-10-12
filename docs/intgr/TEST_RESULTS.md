@@ -246,3 +246,8 @@ Root operator driver audit'i ayrıca okudu: AccountApproved/AccountEnabled/Accou
 UI test önce başlangıç markup'ındaki connected sınıfını oturum tamamlandı gibi kabul edip registration sonrası erken refresh aldı (backend passwordEnrolledfalse). Başlangıç göstergesi Not connected olarak düzeltildi; test loginModal.hidden + gerçek file ProtocolReady bekler. Root/PAM/DB durumu değiştirilerek test yeşillendirilmedi.
 
 Final normal Cargo package **544 unit passed,1 explicit PAM ignored**, normal integration tests passed; Clippy all-targets -D warnings/fmt passed. Rust **1.85.0** all-target check ve strict TypeScript d.ts passed. Source diff/format checks kaydedildi. Diğer opt-in root/kernel testleri bu normal paket sayısına dahil değildir.
+
+
+## 2026-10-12 — Home çözümleyicisinin ilk güvenlik katmanı
+
+Dört yeni test: doğrulanmış home kullanımı ve template kısıtlarının korunması; legacy profili sessiz genişletme ve başka kullanıcı kökü reddi; ayrılmış sistem home'ları/inaktif hesap reddi; sanal kota tavanı ve eksik allocation=0. `cargo test --locked --quiet`: **548 unit passed, 1 explicit PAM ignored**, normal integration tests passed. Bu aşamada root/PAM/browser opt-in kabulü çalıştırılmadı; yeni otomatik home akışı henüz uçtan uca bağlı değildir. Canlı ve aday binary değiştirilmedi.

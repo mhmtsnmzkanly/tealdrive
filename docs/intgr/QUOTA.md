@@ -1,6 +1,6 @@
 # TealDrive QUOTA geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Helper logical quota + root-private DB budget/reservation ve native VFS user quota/provisioning gateway uygulandı. Native ext4/UID/SDK/UI kabulü geçti; Wizard storage/native-sync ve lifecycle purge bağlantısı sonraki aşamadır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
@@ -91,3 +91,18 @@ Kota aşmayı önleme UI kontrolünden bağımsızdır: Helper yazma sırasında
 Geliştiriciye bırakılan tercihle sanal hesabın kendi-görüntülenebilir merkezi işlem logları kota kullanımına eklenir. Helper home/trash/staging + o hesap ID'sinin güvenilir log boyutunu ölçer; DB ölçülmüş kullanımı temsil etmez. Log/transfer için ayrılmış rezervasyonlar iki kez sayılmaz. Admin bütçe ve ortak havuz bu log byte'larını kapsar; server/security/auth verileri ayrı sistem bütçesidir.
 
 Gerçek Linux kullanıcılarının root-owned merkezi logları OS UID kotasına dahil edilemez varsayılır; ayrı sistem bütçesinde tutulur. UID izolasyonu veya root log koruması bu muhasebe için kaldırılmaz. Log reserve/rotation üst sınırları gelişimde belirlenir; kota dolunca kritik audit gereksinimi korunur.
+
+
+## Çalışan Root ayarı
+
+```toml
+[virtual_accounts]
+enabled = true
+enforcement = "application" # user_quota: already-enabled supported quota filesystem required
+allow_admin_delete = false
+deleted_retention_hours = 36
+max_accounts = 4096
+max_inodes = 100000
+```
+
+`web_accounts.enabled` + Root explicit home template gerekir. Root pool/admin budget CLI kontrolündedir; panel kendi çocuk tahsisini yönetir. DB quota/reservations; helper kullanım (application logical, native allocated) ölçer. Native FS provision/init Wizard'a bağlanacaktır. UI/caller UID/GID/home/shell/role belirleyemez. Native missing limit fail-closed. Meta/temporary filesystem space used; native mode counts inode/block allocation.

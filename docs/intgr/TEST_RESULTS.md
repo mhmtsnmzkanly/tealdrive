@@ -271,3 +271,19 @@ Son normal paket: **550 unit passed,1 explicit PAM ignored**; normal integration
 Ek store unit: personal/cross-account/Root layer authority, atomic generation/CAS, malformed JSON fail-closed/invalid path no commit, virtual tenant admin only-own-child + cannot replace personal layer. SDK deterministic capability default false, camelCase DTO, revision-bound rule ID, invalid path, Root rule removal rejection, CSRF payload and virtual default routing passed. Normal package553 unit passed,1 PAM opt-in ignored; normal integrations passed. Clippy/fmt/MSRV1.85.0/strict d.ts ve final diff checks kaydedildi.
 
 UI native test ilk yeni denemede yanlış `#loginBtn` test selector'ında timeout verdi; gerçek `#loginForm button[type=submit]` selector'ı kullanılarak düzeltildi. Uygulama güvenlik kontrolü değişmedi.
+
+
+## 2026-10-12 — Sanal UID/GID/native quota/SDK/UI kabulü
+
+Application acceptance ve native acceptance passed:
+
+```sh
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_VIRTUAL_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_VIRTUAL_ACCEPTANCE=1 TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+```
+
+Public SDK creates two distinct locked/nologin OS UID/GID identities, native helper owner reads/writes, idempotent replay same account/no password reset, parent budget/no overbooking, normal-user provisioning403, virtual self-revoke403, cross UID Unix cat denied. Quota limit/usage comes from helper; too large file DISK_FULL. Native probe writes directly as UID outside helper and kernel rejects. Quota shrink below actual usage409, stale generation409, increase invalidates target live socket and new session sees new limit. Delete invalidates sessions and keeps files for retention. UI creates a third virtual account, changes quota and deletes via SDK; cancel does not create.
+
+Root actor/target audit and no credentials confirmed. Driver removes fresh virtual groups/users/home/policy/intents/sync/grants first, then its Linux fixtures; own admin budget/pool/cursor restored, temporary ext4 image unmounted/deleted. Original Caddy/data untouched. Native test first hit duplicate State/Actions Deleted locator; exact State cell fixed. Text save quota error exposed missing DiskFull translation; backend mapper fixed and regression unit added.
+
+Normal package557 unit passed,1 explicit PAM ignored, normal integrations passed. Store tests pending reservation/finalization without double charge, expected generation/owner before callback, callback failure transaction rollback, delete CAS passed. Trash quota refusal preserves source/no published metadata. MSRV1.85.0/Clippy all-targets -D warnings/fmt/strict SDK d.ts checks passed.

@@ -172,3 +172,17 @@ await api.admin.virtualUsers.setPolicy({ accountId: target.account.id, expectedG
 ```
 
 Add/remove convenience method'ları tek CAS write kullanır, conflict'te retry yapmaz. Get revision-bound `ruleId` ve `revision` döndürür; remove yalnız editable layer ID'sini alır. `admin.policy` kind verilmezse virtual admin için virtual, Linux admin için Linux seçer; açık system/virtual method'ları tercih edilir. Tam result/options/error tipleri client.d.ts'de.
+
+
+## Sanal provisioning ve kota — çalışan API
+
+`authentication.virtualAccounts` true gerekir; delete ayrıca `virtualDelete` Root opt-in ister.
+
+```js
+const child = await api.admin.virtualUsers.create({name:"customer-a",password:"an-initial-web-password",quotaBytes:1048576,idempotencyKey:crypto.randomUUID()});
+await api.admin.virtualUsers.setQuota({accountId:child.id,quotaBytes:2097152,expectedGeneration:child.generation});
+const budget = await api.admin.quota.getBudget();
+// delete: fresh metadata generation required; files retained36h by default.
+```
+
+UID/GID/home/role/shell never input; password consumed once, replay never resets it. SDK error.params.idempotencyKey supports network retry; SDK does not persist credentials. ExpectedGeneration or numeric-string expectedRevision (one only) accepts quota/delete. Quota errors QUOTA_EXCEEDED409; stale metadata CONFLICT409. Native physical measurements labeled allocated_bytes; application logical_bytes. Accounts changed event lets custom UI refresh; target sessions invalidate on quota/delete.

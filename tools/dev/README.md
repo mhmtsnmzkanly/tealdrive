@@ -88,3 +88,5 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_POLICY_
 ```
 
 Temporary policy rows also cleaned; never changes a permanent user's policy/role/password.
+
+Virtual/real kernel quota acceptance adds `TEALDRIVE_VIRTUAL_ACCEPTANCE=1` and optionally `TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE=1` to home/admin UI acceptance. Native mounts a private temporary128MiB ext4+usrquota image on empty /home/tealdrive/virtual-homes; never remounts host root FS. Requires Root mount/quota support and current compiled fixture. UID/GID/sysdata/pool/cursor rollback refuses externally changed identities/data.

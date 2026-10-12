@@ -94,7 +94,7 @@ Chmod O_RDONLY açılışına bağlı kalmaz; openat2/O_PATH ile inode pinlenir,
 
 ## D022 — Web oturumu ile helper izni birlikte taşınır
 
-Web mode giriş, server Authenticator üzerinden root AccountCommand::Login çalıştırır; Authenticated grant server session'a bağlanır. WS, download chunks ve quota worker Cancellation/lease context içinde yalnız bu session grant'ını taşır. Grant varsa legacy username-cache PAM ticket gönderilmez. Helper web mode'da persistent nonce/generation/caller + fresh NSS doğrular ve seçilen config-root'un account.home altında olmasını zorunlu tutar. Virtual logical adı için initgroups gerçek NSS adı üzerinden; kalıcı UID/GID drop ve Landlock devam eder. Private DB connection helper file engine'e taşınmaz. Public session response yalnız account ID/generation/kind/role; grant serialize edilmez.
+Web mode giriş, server Authenticator üzerinden root AccountCommand::Login çalıştırır; Authenticated grant server session'a bağlanır. WS, download chunks ve quota worker Cancellation/lease context içinde yalnız bu session grant'ını taşır. Grant varsa legacy username-cache PAM ticket gönderilmez. Helper web mode'da persistent nonce/generation/caller + fresh NSS doğrular ve seçilen config-root'un doğrudan account.home ile eşleşmesini zorunlu tutar; kullanıcı içindeki subdirectory ayrı root yapılmaz, home-root altında relative path olur. Virtual logical adı için initgroups gerçek NSS adı üzerinden; kalıcı UID/GID drop ve Landlock devam eder. Private DB connection helper file engine'e taşınmaz. Public session response yalnız account ID/generation/kind/role; grant serialize edilmez.
 
 Bu aşama config-root'u kendiliğinden bütün hesapların home'una dönüştürmez. Yeni home profile/root template işi PLAN 4'tedir. Eski /srv test root'u gerçek /home/tealdrive-test ile eşleşmediği için reddedildi; candidate root açıkça gerçek home'a ayarlandı, canlı /srv dosyaları taşınmadı. DB admin rolü + root admin roster global panel ayarlarına birlikte gerekir; virtual tenant admin global server yönetimi alamaz.
 
@@ -107,3 +107,8 @@ Root grant doğrulama ayrı, process-wide bounded8 semaphore kullanır; file-ope
 AuthLogin additive action alanı login/enrollmentBegin/enrollmentComplete. Eski action'sız login korunur. Begin PAM, tek kullanımlık root proof server WS closure'da tutulur; cevap yalnız enrollment_required/expires_at. Completion password aynı WS'den, HttpOnly cookie bridge mevcut akıştan. Preauth5attempt ve64KiB sınırı korunur; PAM proof sonrası deadline300s. Reload/disconnect pending kayıt taşımaz; tekrar PAM gerekir. İlk active web account PAM ile sessiz reset edilemez. Parola12Unicode/1024UTF8/noNUL SDK+root'ta doğrulanır. Root denied_users ve NSS tamamlanırken tekrar okunur.
 
 ServerHello.authentication gerçek mode/enrollment/self-registration bilgisini yayımlar; SDK getInfo aynı bilgiyi camelCase sunar, eski hello için false fallback. UI giriş/kayıtta SDK kullanır; dosya UI'sı mevcut transport'ta (tam files SDK dönüşümü/i18n sonraki aşama). Önceden kapalı stub olan enrollmentId kaldırıldı; proof/token API/browser storage'a çıkmaz. Account ID/generation public metadata ile kullanıcı storage namespace'i credential generation'a bağlanır.
+
+
+## D025 — Bodyless cookie bridge audit sonucu
+
+204/205/304 HTTP body üretmez; Hyper body wrapper'ı poll etmeyebilir. HttpAudit bu status'ları expected0 kabul eder, başarılı cookie bridge'i yanlış ConnectionClosed olarak işaretlemez. HEAD semantiği korunur; gerçek yarım download hâlâ Failed.

@@ -180,3 +180,7 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - `tests/live/ui-auth.cjs`: gerçek embedded UI/SDK, doğru password-mode label, login, legacy file socket grant, input temizliği, user/admin ayrımı, logout geçti.
 - Aktif lease doğrulama normal1s aralığında; queued/helper latency eklenir. Native file tests yeni admission/nonce/logout; suspend watcher unit + root DAO suspend/generation testleri ayrı. Canlı TLS/Caddy migration, iki gerçek UID home profile ve virtual provisioning kabulü değildir.
 - Son UI/SDK contract güncellemesinde handshake authentication capability, account ID/generation/kind/role metadata ve parola türü etiketi eklendi. TS strict declarations ve normal browser contract/permissions/shutdown tekrar geçti. İlk kez başarılı PAM/enroll yapan çalışma ile mevcut account rerun ayrımı native fixture output'ta açıktır.
+
+### Bodyless audit düzeltmesi
+
+Native testte204 cookie bridge başarıyla cookie bağladığı halde audit ConnectionClosed kaydediyordu. Status204/205/304 bodyless testinde guard end() çağrılmadan drop edildiğinde Success/0byte/no reason geçti; interrupted download ayrımı korundu. Web-mode root guard'ı exact NSS home olarak daraltıldı; child path home root'a relative olur, ayrı user-controlled parent-symlink sub-root sunulmaz.

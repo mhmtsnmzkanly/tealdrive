@@ -616,7 +616,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                             .roots
                             .iter()
                             .filter(|root| root.root_id == request.root_id)
-                            .any(|root| root.base_path.starts_with(&account.home))
+                            .any(|root| root.base_path == account.home)
                     {
                         return write_helper_response(
                             writer,

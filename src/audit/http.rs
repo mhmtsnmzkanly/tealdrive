@@ -79,7 +79,12 @@ impl HttpAudit {
             .get(axum::http::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse().ok());
-        if self.event.http_method.as_deref() == Some("HEAD") {
+        if self.event.http_method.as_deref() == Some("HEAD")
+            || matches!(
+                status,
+                StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::NOT_MODIFIED
+            )
+        {
             self.expected = Some(0);
         }
         if status.is_success()
@@ -207,5 +212,35 @@ mod tests {
         assert_eq!(last.status, AuditStatus::Failed);
         assert_eq!(last.reason, Some(AuditReason::ConnectionClosed));
         assert_eq!(last.bytes_out, 3);
+    }
+    #[test]
+    fn bodyless_protocol_responses_are_not_reported_as_interrupted() {
+        for status in [
+            StatusCode::NO_CONTENT,
+            StatusCode::RESET_CONTENT,
+            StatusCode::NOT_MODIFIED,
+        ] {
+            let path = std::env::temp_dir().join(format!(
+                "tdrv-bodyless-audit-{}.jsonl",
+                uuid::Uuid::new_v4()
+            ));
+            let sink = Arc::new(JsonlAuditSink::open(&path).unwrap());
+            {
+                let mut audit = HttpAudit::new(
+                    &Method::POST,
+                    &"/api/session/bind".parse().unwrap(),
+                    AuditContext::default(),
+                    sink,
+                );
+                audit.response(status, &HeaderMap::new());
+                // Hyper can finish a bodyless response without ever polling its body wrapper.
+            }
+            let lines = std::fs::read_to_string(&path).unwrap();
+            let last: AuditEvent = serde_json::from_str(lines.lines().last().unwrap()).unwrap();
+            assert_eq!(last.status, AuditStatus::Success);
+            assert_eq!(last.bytes_out, 0);
+            assert_eq!(last.reason, None);
+            std::fs::remove_file(path).unwrap();
+        }
     }
 }

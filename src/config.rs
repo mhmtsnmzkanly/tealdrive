@@ -167,7 +167,11 @@ impl AppConfig {
         {
             return Err(TealDriveError::Validation);
         }
-        if self.audit.max_file_bytes < 1024
+        if self
+            .audit
+            .retention_hours
+            .is_some_and(|hours| hours == 0 || hours > 876000)
+            || self.audit.max_file_bytes < 1024
             || self.audit.max_file_bytes > 1024 * 1024 * 1024
             || self.audit.max_archives > 1000
             || self
@@ -252,6 +256,11 @@ impl AppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuditConfig {
+    #[serde(
+        serialize_with = "audit_hours_serialize",
+        deserialize_with = "audit_hours_deserialize"
+    )]
+    pub retention_hours: Option<u64>,
     pub path: Option<PathBuf>,
     pub max_file_bytes: u64,
     pub max_archives: usize,
@@ -260,6 +269,24 @@ pub struct AuditConfig {
         deserialize_with = "audit_retention_deserialize"
     )]
     pub retention_days: Option<u32>,
+}
+impl AuditConfig {
+    pub fn effective_retention_hours(&self) -> Option<u64> {
+        self.retention_days
+            .map(|days| days as u64 * 24)
+            .or(self.retention_hours)
+    }
+}
+fn audit_hours_serialize<S: serde::Serializer>(
+    value: &Option<u64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(value.unwrap_or(0))
+}
+fn audit_hours_deserialize<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    Option::<u64>::deserialize(deserializer).map(|v| v.filter(|hours| *hours != 0))
 }
 fn audit_retention_serialize<S: serde::Serializer>(
     value: &Option<u32>,
@@ -278,7 +305,8 @@ impl Default for AuditConfig {
             path: None,
             max_file_bytes: 10 * 1024 * 1024,
             max_archives: 5,
-            retention_days: Some(30),
+            retention_days: None,
+            retention_hours: Some(504),
         }
     }
 }

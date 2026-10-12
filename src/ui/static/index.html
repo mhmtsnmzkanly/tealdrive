@@ -328,7 +328,7 @@
           <div class="settings-row"><label for="cfgAuditPath">Log file path:</label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
           <div class="settings-row"><label for="cfgAuditMaxMB">Maximum file size (MiB):</label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
           <div class="settings-row"><label for="cfgAuditArchives">Archives to keep:</label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
-          <div class="settings-row"><label for="cfgAuditDays">Delete archives older than (days):</label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="36500" step="1" placeholder="No age limit"></div>
+          <div class="settings-row"><label for="cfgAuditDays">Delete archives older than (hours):</label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="876000" step="1" placeholder="No age limit"></div>
           <p class="muted">Archives use .1, .2, …; .1 is newest. Leave days empty for no age limit. Cleanup runs when logs are written. A new path must be writable by the service; existing logs stay at their old path.</p>
         </div>
 

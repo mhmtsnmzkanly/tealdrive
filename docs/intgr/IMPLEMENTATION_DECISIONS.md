@@ -37,3 +37,7 @@ Yeni ayrı path-based scanner yerine mevcut FD tabanlı quota taraması yeniden 
 ## D009 — SDK v1 çekirdeği
 
 ES module gömülü /sdk/v1/tealdrive.js, TS declarations ayrı .d.ts; framework/DOM bağımsız. auth/files/admin ve stateless/managed katman aynı transport kullanır. Field isimleri public camelCase, wire snake_case. RPC progress ile terminal ack ayrı; UploadBegin/Chunk'ın özel ack'ları tamamlanma sayılır. Caller Abort genel mutasyonun yapılmadığı kanıtı değildir. Unimplemented backend capability'leri FEATURE_DISABLED; sahte başarı yok. User navigation storage restore helper'da doğrulanır; out-of-order cevap state'i ezemez. Observer mevcut condition'ı hemen verir, polling yalnızca kota observer varken, disconnect/unsubscribe temizler. Rust legacy error adları SDK'da normalize edilir.
+
+## D010 — Saat cinsinden audit saklama ve uyumluluk
+
+Yeni audit varsayılanı retention_hours=504. Eski retention_days okunur ve açıkça tanımlandığında önceliklidir; yeni unit PATCH eski unit'i temizler. Null/0 yaş sınırını kapatır, archive count sınırı devam eder. Aktif dosya yaş nedeniyle silinmez; cleanup event yazılırken yapılır. Trash/undo/account retention ayrı yaşam döngüsüdür; audit ayarı bunları etkilemez.

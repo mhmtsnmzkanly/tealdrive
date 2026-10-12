@@ -26,6 +26,8 @@ pub fn nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuditPatch {
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "nullable")]
+    pub retention_hours: Option<Option<u64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<std::path::PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,6 +50,11 @@ impl AuditPatch {
         }
         if let Some(value) = self.retention_days {
             target.retention_days = value.filter(|days| *days != 0);
+            target.retention_hours = None;
+        }
+        if let Some(value) = self.retention_hours {
+            target.retention_hours = value.filter(|hours| *hours != 0);
+            target.retention_days = None;
         }
     }
 }

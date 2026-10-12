@@ -88,13 +88,16 @@ impl Writer {
             if !metadata.is_file() {
                 return Err(io::Error::other("unsafe audit archive"));
             }
-            let expired = self.config.retention_days.is_some_and(|days| {
-                metadata
-                    .modified()
-                    .ok()
-                    .and_then(|t| SystemTime::now().duration_since(t).ok())
-                    .is_some_and(|age| age > Duration::from_secs(days as u64 * 86400))
-            });
+            let expired = self
+                .config
+                .effective_retention_hours()
+                .is_some_and(|hours| {
+                    metadata
+                        .modified()
+                        .ok()
+                        .and_then(|t| SystemTime::now().duration_since(t).ok())
+                        .is_some_and(|age| age > Duration::from_secs(hours * 3600))
+                });
             if index > self.config.max_archives || expired {
                 fs::remove_file(entry.path())?;
             }
@@ -278,6 +281,7 @@ mod tests {
         let path = dir.join("audit.jsonl");
         let sink = std::sync::Arc::new(
             JsonlAuditSink::open_config(&AuditConfig {
+                retention_hours: None,
                 path: Some(path),
                 max_file_bytes: 1024,
                 max_archives: 100,
@@ -315,6 +319,7 @@ mod tests {
         let dir = fixture();
         let path = dir.join("audit.jsonl");
         let mut config = AuditConfig {
+            retention_hours: None,
             path: Some(path.clone()),
             max_file_bytes: 1024,
             max_archives: 2,
@@ -352,6 +357,7 @@ mod tests {
         let dir = fixture();
         let path = dir.join("audit.jsonl");
         let mut config = AuditConfig {
+            retention_hours: None,
             path: Some(path.clone()),
             max_file_bytes: 1024,
             max_archives: 2,
@@ -408,6 +414,60 @@ mod tests {
         assert!(encoded.contains("retention_days = 0"));
         let decoded: crate::config::AppConfig = toml::from_str(&encoded).unwrap();
         assert_eq!(decoded.audit.retention_days, None);
+    }
+    #[test]
+    fn hour_retention_prunes_only_expired_archives() {
+        let dir = fixture();
+        let path = dir.join("audit.jsonl");
+        fs::write(archive(&path, 1), b"old").unwrap();
+        fs::write(archive(&path, 2), b"recent").unwrap();
+        File::open(archive(&path, 1))
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(2 * 3600)),
+            )
+            .unwrap();
+        File::open(archive(&path, 2))
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(SystemTime::now() - Duration::from_secs(30 * 60)),
+            )
+            .unwrap();
+        let config = AuditConfig {
+            path: Some(path.clone()),
+            retention_hours: Some(1),
+            ..Default::default()
+        };
+        let sink = JsonlAuditSink::open_config(&config).unwrap();
+        sink.emit(&event("prune-hour-archives")).unwrap();
+        assert!(!archive(&path, 1).exists());
+        assert_eq!(fs::read(archive(&path, 2)).unwrap(), b"recent");
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn hours_default_legacy_precedence_and_nullable_patch_roundtrip() {
+        let mut config = crate::config::AppConfig::default();
+        assert_eq!(config.audit.effective_retention_hours(), Some(504));
+        let legacy: AuditConfig = toml::from_str("retention_days = 7").unwrap();
+        assert_eq!(legacy.effective_retention_hours(), Some(168));
+        config.audit = legacy;
+        let patch: crate::config::ConfigPatch =
+            serde_json::from_str(r#"{"audit":{"retention_hours":36}}"#).unwrap();
+        patch.apply_to(&mut config);
+        assert_eq!(config.audit.retention_days, None);
+        assert_eq!(config.audit.effective_retention_hours(), Some(36));
+        let persisted: crate::config::AppConfig =
+            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(persisted.audit.effective_retention_hours(), Some(36));
+        let patch: crate::config::ConfigPatch =
+            serde_json::from_str(r#"{"audit":{"retention_hours":null}}"#).unwrap();
+        patch.apply_to(&mut config);
+        let persisted: crate::config::AppConfig =
+            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(persisted.audit.effective_retention_hours(), None);
+        config.audit.retention_hours = Some(876001);
+        assert!(config.validate().is_err());
     }
     #[test]
     fn audit_target_symlinks_are_rejected() {

@@ -89,3 +89,8 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - WS işlem audit session_id_hash 64 karakter correlation PASS; password/bind token loglanmaz.
 - SDK download path/root_id mapping için deterministic regression PASS; ws_auth PASS.
 - Test sadece kendi sdk-test-UUID dizinlerini kullanır ve trash'e taşır; kullanıcı dosyaları üzerine yazılmaz. Test aracı /root/tdrv-ui-check/sdk-live.cjs repo dışında.
+
+## 2026-10-12 — Audit retention saat birimi
+
+- audit::sink::tests: 9 passed. 1 saat sınırında 2 saatlik archive silinir, 30 dakikalık archive korunur; gün uyumluluğu, 504 saat default, nullable PATCH/TOML restart roundtrip, üst sınır ve concurrent rotation doğrulandı.
+- SDK/browser permission regression sonuçları bu değişikliğin commit'i öncesinde doğrulandı.

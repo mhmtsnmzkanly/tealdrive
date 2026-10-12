@@ -948,7 +948,7 @@
       el.cfgAuditPath.value=cfg.audit?.path||'';
       el.cfgAuditMaxMB.value=(cfg.audit?.max_file_bytes??10485760)/1048576;
       el.cfgAuditArchives.value=cfg.audit?.max_archives??5;
-      el.cfgAuditDays.value=cfg.audit?.retention_days||'';
+      el.cfgAuditDays.value=(cfg.audit?.retention_days?cfg.audit.retention_days*24:cfg.audit?.retention_hours)||'';
       el.cfgAuditHealth.textContent='Audit write failures since server start: '+(resp.headers.get('x-tealdrive-audit-write-failures')||'0');
       el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
       if (cfg.limits) {
@@ -981,11 +981,11 @@
     const auditMB=Number(el.cfgAuditMaxMB.value);
     const archives=Number(el.cfgAuditArchives.value);
     const dayText=el.cfgAuditDays.value.trim();const days=dayText===''?null:Number(dayText);
-    if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>36500))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
+    if(!el.cfgAuditPath.value.trim().startsWith('/')||!Number.isFinite(auditMB)||auditMB<1/1024||auditMB>1024||!Number.isInteger(archives)||archives<0||archives>1000||el.cfgAuditArchives.value.trim()===''|| (days!==null&&(!Number.isInteger(days)||days<1||days>876000))){showToast('Enter a valid absolute log path, file size and archive retention.','error');return;}
     const patch = {
       allowed_users:[...selectedLoginUsers].sort(),
       proxy:{trusted_proxies:el.cfgTrustedProxies.value.split(/[\n,]+/).map(v=>v.trim()).filter(Boolean),client_ip_header:el.cfgClientIpHeader.value},
-      audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_days:days},
+      audit:{path:el.cfgAuditPath.value.trim(),max_file_bytes:Math.round(auditMB*1048576),max_archives:archives,retention_hours:days},
       features: {
         ...(currentAdminConfig?.features||{}),
         save_text_file: el.cfgFeatEdit.checked,

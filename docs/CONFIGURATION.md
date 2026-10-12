@@ -109,10 +109,10 @@ count and archive age. The server config accepts:
 path = "/var/lib/tealdrive/audit.jsonl"
 max_file_bytes = 10485760
 max_archives = 5
-retention_days = 30
+retention_hours = 504
 ```
 
-Defaults are 10 MiB, five archives and 30 days. If `path` is omitted at startup,
+Defaults are 10 MiB, five archives and 504 hours (21 days). If `path` is omitted at startup,
 `TEALDRIVE_AUDIT_PATH` is used, then `/tmp/tealdrive-audit.jsonl`. An explicit config
 path overrides the environment. A selected path must be absolute, use an existing
 writable parent and refer to a regular file; final-component symlinks are rejected.
@@ -124,9 +124,10 @@ is newest, then `.2`, etc. The active file is reopened internally; copytruncate 
 service restart is not required. Records are never split; a single oversized event
 can exceed the bound. Sizes can range from 1 KiB to 1 GiB; UI labels use MiB.
 `max_archives` allows 0..1000 (zero discards rotated logs). Age is based on archive
-mtime; optional retention accepts 1..36500 days. A JSON patch with
-`{"audit":{"retention_days":null}}` disables the age limit while preserving count
-retention. Use `retention_days = 0` in TOML to disable the age limit. Disabled age retention
+mtime; optional retention accepts 1..876000 hours. Legacy `retention_days` remains readable
+and takes precedence when explicitly configured. Patching one unit clears the other.
+A JSON patch with `{"audit":{"retention_hours":null}}` disables the age limit while
+preserving count retention. Use `retention_hours = 0` in TOML to disable the age limit. Disabled age retention
 serializes as 0 in both formats, preserving the setting across restarts.
 
 Cleanup runs when events are written (at most once a minute, and immediately after

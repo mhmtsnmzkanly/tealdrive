@@ -44,3 +44,51 @@ Reload matrisi [CONFIGURATION.md](CONFIGURATION.md), komut [WIZARD.md](WIZARD.md
 ## State/aktör kapsam düzeltmesi — 2026-10-12
 
 Son açıklamada kalıcı gezinme state'i server sorumluluğundan çıkarıldı; isteğe bağlı SDK katmanına geçti. Server session, authenticated sonuç/event, quota sorgu yönlendirmesi ve helper orchestration tutar. Root/admin config ayrımı aktör yetkisidir; “server” sözcüğü kullanıcı açıklamasında panel adminini ifade ediyordu, OS servis sürecinin root yetkisi değildir. Önceki server-owned view-state ifadeleri bu son kararla geçersizdir.
+
+
+## Uygulanan TLS taşıma sözleşmesi
+
+Caddy zorunlu değildir. Aynı server direct rustls HTTPS veya yerel TLS-terminating proxy arkasında çalışır. TLS1.2/1.3 standart rustls/ring provider; özel JS/PGP protokolü yoktur. `require_tls` eski configte absent olduğunda legacy declaration korunur; yeni Wizard explicitfalse yalnız loopback bootstrap üretir. Public config explicittrue olmalıdır.
+
+```toml
+# Doğrudan HTTPS
+[server]
+bind_addr = "0.0.0.0:13100"
+behind_tls_proxy = false
+require_tls = true
+tls_cert_path = "/home/tealdrive/tls/certificate.pem"
+tls_key_path = "/home/tealdrive/tls/private-key.pem"
+
+[session]
+secure_cookies = true
+
+[security]
+allowed_origins = ["https://drive.example.com"]
+```
+
+```toml
+# Caddy / nginx / Apache yerel TLS terminasyonu
+[server]
+bind_addr = "127.0.0.1:13100"
+behind_tls_proxy = true
+require_tls = true
+# cert/key burada verilmez.
+
+[proxy]
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+client_ip_header = "XForwardedFor"
+
+[session]
+secure_cookies = true
+
+[security]
+allowed_origins = ["https://drive.example.com"]
+```
+
+Proxy modunda require_tls=true loopback bind, explicit trusted peer ve yalnız tek `X-Forwarded-Proto: https` ister. Eksik/bad/duplicate/untrusted header426/TLS_REQUIRED ve TlsRequired audit reason üretir. HTTPS başlığı TLS'nin yerine geçmez; burada origin→proxy güven sınırı Root'un koruduğu yerel bağlantıdır. Cloudflare gibi uzak edge için origin üzerinde direct TLS veya yerel proxy TLS gerekir; backend public plain HTTP'ye açılmaz. Proxy TLS terminating config başlığı client değerinden bağımsız kendisi yazmalıdır.
+
+Direct cert+key beraber gerekir; TLS/proxy iki mod birden seçilemez. Cert/key absolute Root-managed path, bütün parent Root-owned/non-writable/non-symlink; fileRoot-owned/nlink1, key en fazla0640 (world permissions yok), cert0644 olabilir. Service'in okuyabilmesi için TLSdirRoot:tealdrive0750 ve keyRoot:tealdrive0640 kullanın; helper.key buna dahil değildir, Root600 kalır. Let's Encrypt live symlink yerine deploy hook ile gerçek PEM dosyalarını bu Root dizine atomik kopyalayın. Parse/mode/key mismatch hatası startup'ı reddeder, HTTPfallback yoktur. Private PEM kaynak tamponu zeroize edilir; TLS server key'i çalışırken TLS context'te bulunur.
+
+Bind/mode/requireTLS/cert-path/key-path değişimi tüm config modlarında restart-required; reload eski active config'i koruyarak reddeder. Sertifika içeriği değiştiğinde de restart yapılır; panelden cert management/reload yoktur. DirectTLS ve HTTP aynı bounded drain/shutdown event/audit yolunu kullanır.
+
+Uygulama standardı: [rustls TLS server](https://docs.rs/rustls/latest/rustls/server/struct.ServerConfig.html), [axum-server](https://docs.rs/axum-server/0.7.3/axum_server/). Bağımlılıklar Cargo.lock'ta; axum-server0.7.3 MSRV1.82, proje1.85 ile test edildi.0.7.2 güncel hyper-util Buf sınırıyla derlenmediği için0.7.3 seçildi.

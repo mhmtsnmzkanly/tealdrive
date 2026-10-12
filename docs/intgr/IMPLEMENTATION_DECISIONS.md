@@ -226,3 +226,8 @@ UI'ye özel ikinci WebSocket/MessagePack pipeline kaldırıldı. Auth/files/admi
 ## D041 — UI dili yetki/state değildir
 
 EN/TR sözlük anahtarları ve parametreleri aynı tutulur. Sadece data-i18n işaretli caption/attribute çevrilir; user filename/content untouched. Form label translation ayrı span üzerinde yapılır; child input'lar korunur. Dil tercihi origin+accountId tarayıcı namespace'inde en/tr değeridir; başka hesaba taşınmaz. Root config/DB'ye dil kaydı gerekmez. SDK kararlı hata kodunu sunar, UI onu çevirir. Unknown label English fallback; canonical protocol/options değerleri çevrilmez.
+
+
+## D042 — Standart TLS ve explicit offload sınırı
+
+rustls/ring + axum-server0.7.3; kendi crypto/anahtar protokolü yok. Root TLS paths aynı anda cert/key, Groupread640/private root-safe parent, symlink/hardlink/world access rejected. Explicit requireTLStrue proxy mode loopback+trusted proxy+singleHTTPS header; directTLS actual TLS socket. Broken TLS startup noHTTPfallback. Bind/transport/cert paths hotreload veya DynamicConfig.store ile değiştirilemez, legacy configte de restart gerekir. Certificate content refresh restart sınırında; webadmin cert/key management yapmaz. Provider PEM input zeroize, certificates/public keys publicinfo; TLS private key service memory threat modeliyle uyumludur.

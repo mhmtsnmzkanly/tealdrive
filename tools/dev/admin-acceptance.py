@@ -139,6 +139,8 @@ def main():
         env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
         env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+        if os.environ.get('TEALDRIVE_TLS_ACCEPTANCE') == '1':
+            run([sys.executable, str(ROOT / 'tools/dev/tls-acceptance.py'), str(manifest)], env=env, cwd=ROOT)
         if os.environ.get('TEALDRIVE_UI_FILES_ACCEPTANCE') == '1':
             run(['node', str(ROOT / 'tests/live/ui-files.cjs')], env=env, cwd=ROOT)
         if os.environ.get('TEALDRIVE_ROOT_VIRTUAL_ACCEPTANCE') == '1':

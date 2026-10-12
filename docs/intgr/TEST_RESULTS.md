@@ -318,3 +318,10 @@ Rootvirtual testinde ilk deneme yanlış HTTP route'u `/api/admin/system/account
 ## TR/EN UI kabulü — 12 Ekim 2026
 
 Shared SDK UI fixture `TEALDRIVE_UI_FILES_ACCEPTANCE=1` koşusuna TR/EN testi eklendi ve geçti: language selector, Turkish labels, policy dialog input sayısı dil değişikliğinde sabit, “Cancel” filename untranslated, reload language restore, aynı context'te logout→diğer admin login ile yeni dil namespace'i, storage'da PAM/web password yok. Normal test564 unit passed/1 ignored ve integrations geçti; catalog same-key/interpolation-name testi var. Root/PAM opt-in koşular ayrı kanıtlanır. Script/locale JSON embedded route/digest'e eklenmiştir. CLippy-Dwarnings/MSRV1.85 kontrolü geçti.
+
+
+## Direct TLS / bağımsız proxy kabulü — 12 Ekim 2026
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_TLS_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti. Self-signed TEST sertifikasıyla directHTTPS13103 ve ayrı CaddyHTTPS13104→loopback backend13105: realChromium login/WSS, Secure+HttpOnly cookie, SDK helper UID file listing, signal shutdown popup ve unsaved editor text preserved. Selfsigned ignoreHTTPSErrors yalnız test context'te kullanılır. PlainHTTP directTLS portunda accepted200 yok; invalidPEM key, worldread key, symlink key startupfail/noHTTPfallback. Backend missingHTTPSheader426, spoofedHTTPSheader untrusted127.0.0.2peer426. Production Caddy file/token/process untouched; isolated Caddy adminoff, ownXDG dirs. Credential bytes audit/loga çıkmadı; private fixture/helperpolicy cleanup tamamlandı.
+
+İlk port-unbind kontrolü TCP TIME_WAIT nedeniyle bind hatası verdi; testSO_REUSEADDR ile live-listener kontrolü düzeltildi (SO_REUSEPORT kullanılmaz). Axum-server0.7.2 currenthyperutil trait boundary error;0.7.3 fixedversion ile Clippy-Dwarnings/MSRV1.85 passed. Normal tests566 unit passed/1 ignored +integration grupları geçti; transport unsafe/ambiguous modes, critical restart equality tests var. Legacy implicit mode backward compatible; newproduction require_tls explicittrue.

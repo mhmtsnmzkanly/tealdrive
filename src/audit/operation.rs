@@ -78,6 +78,7 @@ pub fn action(message: MessageType) -> AuditAction {
 }
 pub fn error_kind(error: &TealDriveError) -> ErrorKind {
     match error {
+        TealDriveError::RevisionConflict => ErrorKind::RevisionConflict,
         TealDriveError::PermissionDenied => ErrorKind::PermissionDenied,
         TealDriveError::PolicyDenied
         | TealDriveError::TraversalRejected

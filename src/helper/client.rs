@@ -215,6 +215,12 @@ pub fn default_helper_binary_path() -> PathBuf {
         return PathBuf::from(path);
     }
 
+    let central = PathBuf::from(crate::layout::HOME)
+        .join("bin")
+        .join(helper_binary_name());
+    if central.exists() {
+        return central;
+    }
     let mut path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("tealdrive-server"));
     path.set_file_name(helper_binary_name());
     path

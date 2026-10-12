@@ -6,7 +6,7 @@ are accepted. Omitted fields use defaults; unknown fields are rejected. Roots re
 all fields shown in the examples except optional `quota_bytes`.
 
 Lookup order: explicit `--config`, `TEALDRIVE_CONFIG`, `./tealdrive.toml`,
-`./config.toml`, `/etc/tealdrive/config.toml`, `/etc/tealdrive/tealdrive.toml`, then
+`./config.toml`, `/home/tealdrive/policy/server.toml`, `/etc/tealdrive/config.toml`, `/etc/tealdrive/tealdrive.toml`, then
 compiled defaults. An explicit missing/invalid file is an error. The selected path
 is retained for reload, file watching and UI persistence.
 
@@ -82,7 +82,9 @@ sensitive matches; the names of the lists do not imply an interactive warning UI
 `webroot_policy.block_executable_uploads=true` and `blocked_extensions` default to
 PHP/CGI/script extensions. Web-root extraction is refused.
 
-Elevated helpers always read `/etc/tealdrive/helper.toml`; server configuration is
+Elevated helpers read `/home/tealdrive/policy/helper.toml` and its paired helper.key;
+only absence selects legacy `/etc/tealdrive/helper.toml` and legacy key. A present
+invalid/unreadable/symlink primary never falls back. Server configuration is
 only a requested policy beneath that ceiling. Both files must name the same root
 ids and paths. To enable a feature, allow it in both files. To change roots or relax
 a ceiling, an OS administrator must edit the root-owned helper file. A server PATCH

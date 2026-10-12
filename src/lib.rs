@@ -9,6 +9,7 @@ pub mod download;
 pub mod errors;
 pub mod fs;
 pub mod helper;
+pub mod layout;
 pub mod limits;
 pub mod policy;
 pub mod protocol;

@@ -63,3 +63,7 @@ Admin budget bir allocation tavanıdır; gerçek kullanım helper ölçümü. Sa
 ## D015 — MSRV korunumu
 
 Projedeki Rust1.85 alt sınırı gerçek toolchain ile test edildi. Yeni crypto bağımlılığının ctutils0.4.3 sürümü Rust1.87 istiyordu; uyumlu son0.4.2 Cargo.lock'a sabitlendi. Diğer yeni ana bağımlılıklar güncel kararlı; cargo +1.85 check --locked --all-targets geçti. Dependency güncellemesinde MSRV kontrolü tekrarlanır.
+
+## D016 — Merkezi yollar ve güvenli legacy seçimi
+
+/home/tealdrive standart konumu; root helper config/key primary çifti sabit derleme yollarıdır, environment seçemez. Yalnızca primary config'in yokluğu /etc legacy çiftine izin verir; mevcut hatalı/izin sorunu/symlink primary reddedilir. Server lookup ve default helper binary merkezi dizini tanır. Bu değişiklik canlı veriyi/passwd home'u taşımıyor; Wizard migration ayrı aşamadır.

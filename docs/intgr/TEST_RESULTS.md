@@ -126,3 +126,9 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - Clippy all targets: passed.
 - Gerçek Rust1.85 toolchain check --locked --all-targets: passed; ilk MSRV denemesi ctutils gereksinimini yakaladı, compatible lock seçimi sonrası tekrar geçti.
 - Bu sonuç DB temelini doğrular; enrollment/virtual management uçları henüz canlı auth testine dahil değildir.
+
+## 2026-10-12 — Merkezi yol seçimi
+
+- layout::tests passed: absent primary legacy seçer; corrupt ve dangling symlink primary legacy'ye düşmez.
+- cargo clippy --locked --all-targets -- -D warnings: passed.
+- Existing deployment taşınmadı; bu commit yol seçimini hazırlar, kurulum kabulü ayrıca yapılacak.

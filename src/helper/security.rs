@@ -9,8 +9,7 @@ use std::io;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
-pub const TRUSTED_CONFIG: &str = "/etc/tealdrive/helper.toml";
-const KEY_PATH: &str = "/etc/tealdrive/helper.key";
+pub const TRUSTED_CONFIG: &str = crate::layout::HELPER_CONFIG;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IdentityTicket {
@@ -82,14 +81,16 @@ pub fn trusted_read(path: &Path, secret: bool) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 pub fn trusted_config() -> io::Result<AppConfig> {
-    let bytes = trusted_read(Path::new(TRUSTED_CONFIG), false)?;
+    let (path, _) = crate::layout::trusted_helper_paths();
+    let bytes = trusted_read(&path, false)?;
     let config: AppConfig = toml::from_str(std::str::from_utf8(&bytes).map_err(io::Error::other)?)
         .map_err(io::Error::other)?;
     config.validate().map_err(io::Error::other)?;
     Ok(config)
 }
 fn key() -> io::Result<Vec<u8>> {
-    let key = trusted_read(Path::new(KEY_PATH), true)?;
+    let (_, path) = crate::layout::trusted_helper_paths();
+    let key = trusted_read(&path, true)?;
     if key.len() != 32 {
         return Err(io::Error::other("helper key must contain 32 random bytes"));
     }

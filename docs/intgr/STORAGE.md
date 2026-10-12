@@ -101,3 +101,7 @@ Root havuzdan admin bütçesi verir; admin yalnızca kendi sanal alt hesapların
 Parola PHC Argon2id v19, random16-byte salt, 19MiB/t2/p1 başlangıç maliyeti. En az12 Unicode karakter, en fazla1024byte. Verification PHC maliyetleri ve output/salt boyutları bounded; bilinmeyen hesap için dummy hash çalışır. Parola/root hash public JSON'a çıkmaz. Parola değişimi/suspend/revoke/delete generation artırır; yeni helper ticket denetimi bu generation'a bağlanacak. Sanal kullanıcı self-revoke yapamaz; logout ayrı oturum işlemidir.
 
 Bu depo tek başına yeni auth modelinin tamamlandığı anlamına gelmez. Protected IPC, PAM enrollment ve bilet/aktif oturum iptali tamamlanmadan SDK enrollment/virtual backend capability açılmaz.
+
+## Merkezi yol seçimi uygulandı
+
+Standart yollar src/layout.rs içindedir. Helper root config/key çifti /home/tealdrive/policy altında; yalnızca primary config yoksa eski /etc çiftine geçilir. Corrupt/symlink/unreadable primary fallback değildir. Server default lookup merkezi server.toml'ı da içerir; helper binary default merkezi bin'i tercih eder. Bu yol seçimi mevcut servisi/dosyaları otomatik taşımaz. Wizard izinli migration/install ayrıca yapılacak.

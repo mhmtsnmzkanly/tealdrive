@@ -136,6 +136,7 @@ impl AppConfig {
         [
             "tealdrive.toml",
             "config.toml",
+            crate::layout::SERVER_CONFIG,
             "/etc/tealdrive/config.toml",
             "/etc/tealdrive/tealdrive.toml",
         ]

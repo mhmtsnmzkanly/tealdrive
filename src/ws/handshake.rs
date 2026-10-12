@@ -21,6 +21,8 @@ pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDr
     let payload = ServerHelloPayload {
         authentication: crate::protocol::payload::AuthenticationCapabilities {
             web_password: config.web_accounts.enabled,
+            password_change: config.web_accounts.enabled,
+            self_revoke: config.web_accounts.enabled,
             enrollment: config.web_accounts.enabled,
             self_registration: config.web_accounts.enabled && config.web_accounts.self_registration,
         },

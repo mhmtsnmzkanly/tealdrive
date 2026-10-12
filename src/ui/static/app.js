@@ -795,6 +795,7 @@
   }
 
   function onSessionActive() {
+    getAuthClient().catch(()=>{});
     el.loginModal.classList.add('hidden');
     el.userInfo.classList.remove('hidden');
     el.settingsBtn.disabled=!state.session.is_admin;
@@ -832,10 +833,44 @@
     }
     const info = await authClient.handshake();
     webPasswords = Boolean(info?.authentication?.webPassword);
+    document.getElementById('accountSecurityBtn').classList[info?.authentication?.passwordChange?'remove':'add']('hidden');
     document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
     if (!enrolling) document.getElementById('passwordLabel').textContent = webPasswords?'Web password':'Password';
     return authClient;
   }
+  function closeAccountSecurity() {
+    for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
+    document.getElementById('accountSecurityModal').classList.add('hidden');
+  }
+  document.getElementById('accountSecurityBtn').onclick=async()=>{
+    try {
+      const client=await getAuthClient(); const session=await client.auth.getSession();
+      document.getElementById('accountRevokeBtn').classList[session?.accountKind==='linux'?'remove':'add']('hidden');
+      document.getElementById('accountSecurityError').textContent='';
+      document.getElementById('accountSecurityModal').classList.remove('hidden');
+      document.getElementById('accountCurrentPassword').focus();
+    } catch(error) { showToast(error.message,'error'); }
+  };
+  document.getElementById('accountSecurityCloseBtn').onclick=closeAccountSecurity;
+  document.getElementById('accountPasswordForm').onsubmit=async(event)=>{
+    event.preventDefault();
+    const currentPassword=document.getElementById('accountCurrentPassword').value;
+    const newPassword=document.getElementById('accountNewPassword').value;
+    const confirmed=document.getElementById('accountConfirmPassword').value;
+    for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
+    if(newPassword!==confirmed){document.getElementById('accountSecurityError').textContent='Passwords do not match.';return;}
+    const button=event.submitter; if(button)button.disabled=true;
+    try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.changePassword({currentPassword,newPassword}); closeAccountSecurity(); location.reload(); }
+    catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
+    finally{if(button)button.disabled=false;}
+  };
+  document.getElementById('accountRevokeBtn').onclick=async(event)=>{
+    if(!confirm('Disable your web access and sign out all web sessions? Your Linux account and files are retained. Re-registration requires your Linux password and remains subject to administrator rules.'))return;
+    event.target.disabled=true;
+    try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.revokeSelf(); closeAccountSecurity(); location.reload(); }
+    catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
+    finally{event.target.disabled=false;}
+  };
   async function performLogin(username, password) {
     el.loginError.classList.add('hidden');
     el.passwordInput.value='';

@@ -195,3 +195,12 @@ Native testte204 cookie bridge başarıyla cookie bağladığı halde audit Conn
 - Caddy https health200; `/srv/tealdrive-test/Web test.md`60byte korunuyor. Candidate localhost13101; canlı server PID449282 ve eski konfigürasyon değişmedi.
 - `tests/live/sdk-suspend.cjs` gerçek Chromium/WS/setuid/SQLite zincirinde passed: root test operator dedicated candidate Linux app account'ını suspended+generation artırarak durdurdu; aktif SDK WS5s timeout içinde kapandı ve file API erişimi reddedildi. Test finally'de hesabı active + yeni generation'a geri aldı; Linux shadow/home/data değişmez. Explicit root test-account mutation flag gerekir; private online test backup bırakır. Root/admin suspend endpoint'i testi değildir (bu yönetim uçları bekliyor).
 - Son kurulu binary'de native SDK enrollment/login/CRUD ve UI auth tekrar; web grant üzerinden actual-home path policy/hardlink/direct download/parent move kabulü passed. Caddy eski binary'de kalır. Aşama raporu AUTH_INTEGRATION_REPORT.md.
+
+
+## 2026-10-12 — Parola değiştirme ve öz erişim iptali
+
+- Mevcut tam test paketi: 543 unit passed, 1 opt-in ignored; normal integration testleri passed.
+- Opt-in gerçek PAM gateway testi genişletildi: yanlış mevcut parola reddi, parola generation değişimi, eski grant reddi, öz revoke sonrası grant reddi ve yeniden PAM kaydı kabulü passed. Dedicated account / root-private secret file kullanıldı; production DB değişmedi.
+- SDK contract: eksik capability reddi, kısa parola reddi, başarılı password/revoke sonrası state/connection temizliği passed.
+- Gerçek Chromium `tests/live/ui-credentials.cjs`: CSRF'siz POST403, yanlış mevcut parola401, UI submit sonrası logout, yeniden girişte generation artışı passed. Test parola değerini koruyup sadece yeni hash/generation oluşturur; açık mutation opt-in gerektirir.
+- Aday localhost13101 kullanıldı. Caddy production13000 değişmedi. Sanal hesap provisioning ve public admin API kabulü bu testin kapsamı değildir.

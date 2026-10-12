@@ -118,3 +118,12 @@ ServerHello.authentication gerçek mode/enrollment/self-registration bilgisini y
 Authenticated/Validated account view sanal hesapta effectiveQuota verir: virtual admin bütçe-child allocations; tahsis yoksa0. File helper root quota'yı bu DB tavanıyla minimum alır, service snapshot genişletemez. Linux OS quota ölçümü ayrı PLAN işidir. Web session/login response sadece NSS home ile eşleşen configured root'ları sunar; başkasının alias'ı görünmez. Henüz root template atanmayan hesap authenticated olabilir, roots boş gelir; SDK başarılı auth'u directory refresh hatasına çevirmez. Automatic home templates/provisioning + gerçek iki UID quota kabulü bekler.
 
 Web parola ayrı bir credential/hash'tir; kullanıcının Linux parolasıyla aynı değeri seçmesi server tarafından ayrıca karşılaştırılmıyor. Farklı değer seçilmesi önerilir. Linux parola/fingerprint'ı kalıcı tutmadan ve yanlış PAM denemeleriyle OS lockout üretmeden ilk kayıt yapılır.
+
+
+## D027 — Web parola değiştirme ve öz erişim iptali
+
+`POST /api/auth/password` mevcut web parolasını root helper'da doğrular; yeni parola mevcut Argon2id kurallarına tabidir. Helper grant/caller/NSS/root policy kontrolünden sonra DB generation artırır; bütün eski grant'ler geçersiz olur. Başarılı çağrı HttpOnly cookie'yi temizler, SDK state'i temizleyip bağlantıyı kapatır; yeniden giriş gerekir. Linux parolası değişmez. Yanlış mevcut parola mevcut login limiter'ına dahildir.
+
+`POST /api/auth/revoke` yalnız Linux hesabının kendi erişimini kapatır. Sanal hesap helper'da reddedilir; logout kullanabilir. Kullanıcı dosyaları ve OS hesabı tutulur. Öz iptal administrative deny değildir: root/self-registration politikası uygunsa yeniden PAM kaydı yapılabilir. Suspend/administrative deny üstün kalır. Her iki işlem CSRF ve canlı process-bound grant gerektirir; grant/kimlik client JSON'undan alınmaz. `authentication.password_change` ve `authentication.self_revoke` bağımsız capability'lerdir; eski web-password sürümü bu uçlara sahip sayılmaz.
+
+UI Account security formunda parola alanları gönderim/iptalde temizlenir. JS/HTTP parolalarının bellekte mutlak silinmesi vaat edilmez. Başarılı değişiklikler PasswordChanged/SessionRevoked audit kaydı üretir; parola içerikleri kayda yazılmaz.

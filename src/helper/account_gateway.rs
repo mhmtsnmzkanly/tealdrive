@@ -56,6 +56,12 @@ pub enum AccountCommand {
     },
     Validate(SessionGrant),
     Logout(SessionGrant),
+    RevokeSelf(SessionGrant),
+    ChangePassword {
+        grant: SessionGrant,
+        current_password: zeroize::Zeroizing<String>,
+        new_password: zeroize::Zeroizing<String>,
+    },
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
@@ -66,6 +72,8 @@ pub enum AccountReply {
     Enrollment(EnrollmentProof),
     Validated(Account),
     LoggedOut,
+    AccessRevoked,
+    PasswordChanged,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GatewayFailure {
@@ -296,6 +304,54 @@ fn dispatch(
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
             Ok(AccountReply::Validated(account_view(store, account)?))
+        }
+        AccountCommand::RevokeSelf(grant) => {
+            let account = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &account)?;
+            if account.kind != AccountKind::Linux {
+                return Err(GatewayFailure::Forbidden);
+            }
+            store
+                .transition(
+                    &crate::accounts::store::Authority::Account {
+                        id: account.id.clone(),
+                        generation: account.generation,
+                    },
+                    &account.id,
+                    crate::accounts::store::AccountStatus::Revoked,
+                    false,
+                )
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::AccessRevoked)
+        }
+        AccountCommand::ChangePassword {
+            grant,
+            current_password,
+            new_password,
+        } => {
+            let account = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &account)?;
+            let verified = store
+                .verify_password(&account.username, &current_password)
+                .map_err(GatewayFailure::from)?;
+            if verified.id != account.id || verified.generation != account.generation {
+                return Err(GatewayFailure::Forbidden);
+            }
+            store
+                .set_password(
+                    &crate::accounts::store::Authority::Account {
+                        id: account.id.clone(),
+                        generation: account.generation,
+                    },
+                    &account.id,
+                    &new_password,
+                )
+                .map_err(GatewayFailure::from)?;
+            Ok(AccountReply::PasswordChanged)
         }
         AccountCommand::Logout(grant) => {
             store
@@ -545,6 +601,73 @@ mod tests {
             AccountCommand::Validate(second.clone()),
         )
         .unwrap();
+        assert!(matches!(
+            dispatch(
+                &mut store,
+                &config,
+                binding.clone(),
+                AccountCommand::ChangePassword {
+                    grant: second.clone(),
+                    current_password: zeroize::Zeroizing::new("wrong-password".into()),
+                    new_password: zeroize::Zeroizing::new("replacement-web-password".into())
+                }
+            ),
+            Err(GatewayFailure::InvalidCredentials)
+        ));
+        dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::ChangePassword {
+                grant: second.clone(),
+                current_password: zeroize::Zeroizing::new("private-web-password-for-test".into()),
+                new_password: zeroize::Zeroizing::new("replacement-web-password".into()),
+            },
+        )
+        .unwrap();
+        assert!(dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::Validate(second.clone())
+        )
+        .is_err());
+        assert!(store
+            .verify_password(&username, "private-web-password-for-test")
+            .is_err());
+        let fresh = match dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::Login(AuthRequest::new(&username, "replacement-web-password")),
+        )
+        .unwrap()
+        {
+            AccountReply::Authenticated { grant, .. } => grant,
+            _ => panic!("expected login"),
+        };
+        dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::RevokeSelf(fresh.clone()),
+        )
+        .unwrap();
+        assert!(dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::Validate(fresh)
+        )
+        .is_err());
+        assert!(!store.get(&account.id).unwrap().deny_enrollment);
+        assert!(dispatch(
+            &mut store,
+            &config,
+            binding.clone(),
+            AccountCommand::BeginEnrollment(AuthRequest::new(&username, linux_password.trim()))
+        )
+        .is_ok());
         store
             .transition(
                 &crate::accounts::store::Authority::Root,

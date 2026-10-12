@@ -226,18 +226,21 @@ export class TealDriveClient {
       login: async (o) => this._login(o),
       getSession: () => this._getSession(),
       logout: () => this._logout(),
-      revokeSelf: async () =>
-        this._featureHttp("self_revoke", "/api/auth/revoke", "POST", {}, true),
+      revokeSelf: async () => this._mutateCredentials("/api/auth/revoke", {}),
       beginEnrollment: async (o) => this._beginEnrollment(o),
       completeEnrollment: async (o) => this._completeEnrollment(o),
-      changePassword: async (o) =>
-        this._featureHttp(
-          "web_password",
-          "/api/auth/password",
-          "POST",
-          o,
-          true,
-        ),
+      changePassword: async (o) => {
+        object(o, ["currentPassword", "newPassword"]);
+        if (
+          typeof o.currentPassword !== "string" ||
+          typeof o.newPassword !== "string" ||
+          [...o.newPassword].length < 12 ||
+          new TextEncoder().encode(o.newPassword).length > 1024 ||
+          o.newPassword.includes("\0")
+        )
+          fail("INVALID_ARGUMENT");
+        return this._mutateCredentials("/api/auth/password", o);
+      },
     });
     this.files = Object.freeze({
       list: async (o) => this._list(o),
@@ -843,8 +846,18 @@ export class TealDriveClient {
       await this._refreshState();
     return freeze(clone(this._session));
   }
-  async _logout() {
-    await this._http("/api/logout", "POST", {}, false);
+  async _mutateCredentials(url, body) {
+    this._require(true);
+    if (
+      !this._hello?.authentication?.[
+        url.endsWith("/password") ? "password_change" : "self_revoke"
+      ]
+    )
+      fail("FEATURE_DISABLED");
+    await this._http(url, "POST", body, true);
+    this._clearSession();
+  }
+  _clearSession() {
     this._session = null;
     this._generation++;
     this._update({
@@ -854,6 +867,10 @@ export class TealDriveClient {
     });
     this.disconnect();
     this._emit("session.revoked", {});
+  }
+  async _logout() {
+    await this._http("/api/logout", "POST", {}, false);
+    this._clearSession();
   }
   _ref(options = {}) {
     this._require();

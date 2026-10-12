@@ -180,6 +180,16 @@ globalThis.crypto = webcrypto;
       assert.equal(JSON.parse(options.body).token, "bridge");
       return { ok: true, status: 204 };
     }
+    if (url === "/api/auth/password" || url === "/api/auth/revoke") {
+      assert.ok(options.headers["x-csrf-token"]);
+      if (url.endsWith("/password"))
+        assert.equal(
+          JSON.parse(options.body).newPassword,
+          "replacement-web-password",
+        );
+      session = null;
+      return { ok: true, status: 204 };
+    }
     if (url === "/api/logout") {
       session = null;
       return { ok: true, status: 200, json: async () => ({}) };
@@ -371,7 +381,33 @@ globalThis.crypto = webcrypto;
     webPassword: "separate-web-password",
   });
   assert.equal(enrolled.username, "new-user");
+  await assert.rejects(
+    enrolling.auth.changePassword({
+      currentPassword: "old",
+      newPassword: "short",
+    }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
+  await assert.rejects(
+    enrolling.auth.revokeSelf(),
+    (e) => e.code === "FEATURE_DISABLED",
+  );
+  hello.authentication = {
+    web_password: true,
+    password_change: true,
+    self_revoke: true,
+  };
   enrolling.disconnect();
+  await enrolling.handshake();
+  await enrolling.auth.changePassword({
+    currentPassword: "right",
+    newPassword: "replacement-web-password",
+  });
+  assert.equal(enrolling._session, null);
+  await enrolling.handshake();
+  await enrolling.auth.login({ username: "new-user", password: "right" });
+  await enrolling.auth.revokeSelf();
+  assert.equal(enrolling._session, null);
   assert.ok(TealDriveError);
 })().catch((e) => {
   if (e.stack)

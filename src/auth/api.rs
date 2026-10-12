@@ -871,3 +871,161 @@ mod tests {
         assert!(!data.authenticated);
     }
 }
+
+#[derive(Deserialize, zeroize::ZeroizeOnDrop)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChangePasswordPayload {
+    current_password: String,
+    new_password: String,
+}
+
+pub async fn revoke_self_handler<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    mutate_credentials(state, headers, None).await
+}
+
+pub async fn change_password_handler<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Json(payload): Json<ChangePasswordPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    mutate_credentials(state, headers, Some(payload)).await
+}
+
+async fn mutate_credentials<H>(
+    state: WsServerState<H>,
+    headers: HeaderMap,
+    payload: Option<ChangePasswordPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    use crate::helper::account_gateway::{AccountCommand, AccountReply, GatewayFailure};
+    let cfg = state.config.load();
+    if !cfg.web_accounts.enabled {
+        return StatusCode::NOT_IMPLEMENTED.into_response();
+    }
+    let Ok(id) = extract_session_id(&headers, &cfg.session.cookie_name) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let session = {
+        let store = state.session_store.lock().await;
+        match store.get_session(&id, InMemorySessionStore::now_epoch_seconds()) {
+            SessionLookupResult::Found(session) => session,
+            _ => return StatusCode::UNAUTHORIZED.into_response(),
+        }
+    };
+    if !crate::session::csrf::validate_header(&session, &headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !session.allowed_by(&cfg) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(grant) = session.grant.as_deref().cloned() else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let password_change = payload.is_some();
+    let now = InMemorySessionStore::now_epoch_seconds();
+    let rate_key = LoginRateLimitKey {
+        username: session.username.clone(),
+        ip: extract_client_ip(&headers),
+    };
+    if password_change
+        && state.rate_limiter.lock().await.check_at(
+            &rate_key,
+            cfg.rate_limit.max_login_failures,
+            cfg.rate_limit.lockout_duration_seconds,
+            now,
+        ) == LoginRateLimitDecision::Limited
+    {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
+    let command = match payload {
+        Some(payload) => {
+            if payload.current_password.len() > 1024
+                || payload.new_password.len() > 1024
+                || payload.new_password.chars().count() < 12
+                || payload.new_password.contains('\0')
+            {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            AccountCommand::ChangePassword {
+                grant,
+                current_password: zeroize::Zeroizing::new(payload.current_password.clone()),
+                new_password: zeroize::Zeroizing::new(payload.new_password.clone()),
+            }
+        }
+        None => AccountCommand::RevokeSelf(grant),
+    };
+    let Ok(permit) = crate::session::lease::validation_slots()
+        .acquire_owned()
+        .await
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let Some(activity) = state.shutdown.enter() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let authenticator = state.authenticator.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let _activity = activity;
+        authenticator.account_command(command)
+    })
+    .await;
+    match result {
+        Ok(Ok(AccountReply::AccessRevoked | AccountReply::PasswordChanged)) => {
+            state.session_store.lock().await.revoke_session(&id);
+            let mut event = AuditEvent::new(
+                RequestId::new(),
+                &session.username,
+                session.uid,
+                session.gid,
+                if password_change {
+                    crate::audit::event::AuditAction::PasswordChanged
+                } else {
+                    crate::audit::event::AuditAction::SessionRevoked
+                },
+                crate::audit::event::AuditStatus::Success,
+            );
+            event.session_id_hash = crate::audit::context::session_hash(session.session_id);
+            event.operation = Some(
+                if password_change {
+                    "change_web_password"
+                } else {
+                    "revoke_self"
+                }
+                .into(),
+            );
+            let _ = state.audit_sink.emit(&event);
+            let mut response = StatusCode::NO_CONTENT.into_response();
+            let cookie =
+                SessionCookieConfig::from_session_config(&cfg.session).build_clear_cookie_value();
+            if let Ok(value) = HeaderValue::from_str(&cookie) {
+                response.headers_mut().insert(SET_COOKIE, value);
+            }
+            response
+        }
+        Ok(Err(GatewayFailure::InvalidCredentials)) => {
+            if password_change {
+                state.rate_limiter.lock().await.record_failure_at(
+                    rate_key,
+                    cfg.rate_limit.lockout_duration_seconds,
+                    now,
+                );
+            }
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+        Ok(Err(GatewayFailure::Forbidden)) => StatusCode::FORBIDDEN.into_response(),
+        Ok(Err(GatewayFailure::Conflict)) => StatusCode::CONFLICT.into_response(),
+        _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}

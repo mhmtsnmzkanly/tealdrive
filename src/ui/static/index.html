@@ -31,6 +31,7 @@
         <div id="userInfo" class="user-info hidden">
           <span class="user-badge" id="userBadge">user</span>
           <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings">Settings</button>
+          <button id="accountSecurityBtn" class="btn btn-secondary btn-sm hidden">Account security</button>
           <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</button>
         </div>
       </div>
@@ -129,6 +130,29 @@
   <!-- MODALS -->
 
   <!-- 1. Login Modal -->
+  <div id="accountSecurityModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="accountSecurityTitle">
+    <div class="modal-card">
+      <div class="modal-header"><h3 id="accountSecurityTitle">Account security</h3></div>
+      <form id="accountPasswordForm">
+        <div class="modal-body">
+          <p>Changing your web password signs out all current web sessions. Your Linux password stays the same.</p>
+          <label for="accountCurrentPassword">Current web password</label>
+          <input id="accountCurrentPassword" type="password" autocomplete="current-password" required maxlength="1024">
+          <label for="accountNewPassword">New web password (at least 12 characters)</label>
+          <input id="accountNewPassword" type="password" autocomplete="new-password" required maxlength="1024">
+          <label for="accountConfirmPassword">Confirm new web password</label>
+          <input id="accountConfirmPassword" type="password" autocomplete="new-password" required maxlength="1024">
+          <p id="accountSecurityError" role="alert"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Change password</button>
+          <button type="button" id="accountRevokeBtn" class="btn btn-danger hidden">Disable my web access</button>
+          <button type="button" id="accountSecurityCloseBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="loginModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">

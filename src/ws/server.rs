@@ -254,6 +254,14 @@ where
         .route("/api/health", get(health_check::<H>))
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))
+        .route(
+            "/api/auth/revoke",
+            post(crate::auth::api::revoke_self_handler::<H>),
+        )
+        .route(
+            "/api/auth/password",
+            post(crate::auth::api::change_password_handler::<H>),
+        )
         .route("/api/session", get(session_handler::<H>))
         .route(
             "/api/download",

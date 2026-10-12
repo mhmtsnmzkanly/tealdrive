@@ -729,6 +729,7 @@ pub enum AuditAction {
     ConfigPatch,
     ServerShutdown,
     SessionRevoked,
+    PasswordChanged,
     HttpRequest,
     SearchFiles,
     ListTrash,

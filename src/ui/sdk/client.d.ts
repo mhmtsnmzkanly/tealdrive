@@ -129,6 +129,8 @@ export interface ServerInfo {
   features: Readonly<Record<string, boolean>>;
   authentication: Readonly<{
     webPassword: boolean;
+    passwordChange: boolean;
+    selfRevoke: boolean;
     enrollment: boolean;
     selfRegistration: boolean;
   }>;
@@ -156,6 +158,10 @@ export interface AuthAPI {
   completeEnrollment(options: {
     webPassword: string;
   }): Promise<Readonly<Session>>;
+  /** Change the web password, revoke every current web session and disconnect this client.
+   * Does not change the Linux password. Requires passwordChange capability.
+   * @throws INVALID_ARGUMENT, INVALID_CREDENTIALS, RATE_LIMITED, FEATURE_DISABLED
+   */
   changePassword(options: {
     currentPassword: string;
     newPassword: string;

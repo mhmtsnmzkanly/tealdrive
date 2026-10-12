@@ -71,6 +71,27 @@ pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
             )
         }
     };
+    let expected = request
+        .write_options
+        .as_ref()
+        .and_then(|w| w.expected_revision.as_deref());
+    if request.command == WriteFile
+        && expected.is_some_and(|token| {
+            !crate::helper::revision::matches(
+                root,
+                &clean,
+                token,
+                request.limits.max_text_edit_size,
+            )
+        })
+    {
+        return crate::helper::listing::helper_error(
+            request,
+            crate::errors::ErrorKind::RevisionConflict,
+            "File revision changed.",
+            "revision_conflict",
+        );
+    }
     let parent = clean.0.rsplit_once('/').map_or("", |(p, _)| p);
     let extension = if request.command == CompressZip {
         ".zip"
@@ -129,6 +150,29 @@ pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
             "Operation cancelled before publication.",
         );
     }
+    if response.success
+        && request.command == WriteFile
+        && expected.is_some_and(|token| {
+            !crate::helper::revision::matches(
+                root,
+                &clean,
+                token,
+                request.limits.max_text_edit_size,
+            )
+        })
+    {
+        return crate::helper::listing::helper_error(
+            request,
+            crate::errors::ErrorKind::RevisionConflict,
+            "File revision changed before publication.",
+            "revision_conflict",
+        );
+    }
+    if response.success && request.command == WriteFile {
+        if let Err(error) = preserve_permissions(root, &clean, &staging) {
+            return crate::helper::listing::helper_error_from_io(request, error);
+        }
+    }
     if response.success {
         if let Err(error) = rename(root, &staging, &clean, request.command == WriteFile) {
             response = crate::helper::listing::helper_error_from_io(request, error);
@@ -162,6 +206,7 @@ mod tests {
                     );
                     request.relative_path = RelativePath::new(format!("file-{index}"));
                     request.write_options = Some(crate::helper::types::HelperWriteOptions {
+                        expected_revision: None,
                         data: vec![1; 250],
                         offset: 0,
                         truncate: true,
@@ -291,4 +336,73 @@ mod archive_regressions {
         assert_eq!(std::fs::read_dir(&base).unwrap().count(), 1);
         std::fs::remove_dir_all(base).unwrap();
     }
+}
+
+fn preserve_permissions(
+    root: &crate::config::AllowedRoot,
+    original: &RelativePath,
+    staged: &RelativePath,
+) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let source = match crate::helper::sandbox::open(root, original, libc::O_RDONLY, 0) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let metadata = source.metadata()?;
+    let target = crate::helper::sandbox::open(root, staged, libc::O_WRONLY, 0)?;
+    if unsafe { libc::fchown(target.as_raw_fd(), metadata.uid(), metadata.gid()) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe { libc::fchmod(target.as_raw_fd(), metadata.mode() & 0o777) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let attribute = c"system.posix_acl_access";
+    let size = unsafe {
+        libc::fgetxattr(
+            source.as_raw_fd(),
+            attribute.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if size < 0 {
+        let error = io::Error::last_os_error();
+        return if matches!(
+            error.raw_os_error(),
+            Some(libc::ENODATA) | Some(libc::EOPNOTSUPP)
+        ) {
+            Ok(())
+        } else {
+            Err(error)
+        };
+    }
+    if size > 65536 {
+        return Err(io::Error::other("ACL too large"));
+    }
+    let mut value = vec![0u8; size as usize];
+    let read = unsafe {
+        libc::fgetxattr(
+            source.as_raw_fd(),
+            attribute.as_ptr(),
+            value.as_mut_ptr().cast(),
+            value.len(),
+        )
+    };
+    if read < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe {
+        libc::fsetxattr(
+            target.as_raw_fd(),
+            attribute.as_ptr(),
+            value.as_ptr().cast(),
+            read as usize,
+            0,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }

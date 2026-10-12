@@ -158,6 +158,8 @@ impl ReadTextFileRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextFileContentPayload {
+    #[serde(default)]
+    pub revision: String,
     pub root_id: RootId,
     pub relative_path: RelativePath,
     pub name: String,
@@ -179,6 +181,8 @@ pub struct TextFileContentPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveTextFileRequest {
+    #[serde(default)]
+    pub expected_revision: Option<String>,
     pub root_id: RootId,
     pub relative_path: RelativePath,
     pub content: String,
@@ -187,7 +191,10 @@ pub struct SaveTextFileRequest {
 
 impl SaveTextFileRequest {
     pub fn validate(&self, limits: &Limits) -> Result<(), TealDriveError> {
-        if self.content.len() > limits.max_text_edit_size {
+        if self.expected_revision.as_ref().is_some_and(|r| {
+            r != "missing" && (r.len() != 64 || !r.bytes().all(|c| c.is_ascii_hexdigit()))
+        }) || self.content.len() > limits.max_text_edit_size
+        {
             return Err(TealDriveError::Validation);
         }
         Ok(())
@@ -633,6 +640,7 @@ mod tests {
     #[test]
     fn msgpack_text_file_content_payload_roundtrip() {
         let value = TextFileContentPayload {
+            revision: String::new(),
             root_id: RootId::new("home"),
             relative_path: RelativePath::new("notes.txt"),
             name: "notes.txt".to_owned(),
@@ -840,6 +848,7 @@ mod tests {
     #[test]
     fn msgpack_save_text_file_request_roundtrip() {
         let value = SaveTextFileRequest {
+            expected_revision: None,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new("notes.txt"),
             content: "hello world".to_owned(),
@@ -854,6 +863,7 @@ mod tests {
     #[test]
     fn save_text_file_too_large_content_rejected() {
         let request = SaveTextFileRequest {
+            expected_revision: None,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new("notes.txt"),
             content: "a".repeat(Limits::default().max_text_edit_size + 1),

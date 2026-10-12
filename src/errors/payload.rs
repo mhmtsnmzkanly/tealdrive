@@ -5,6 +5,7 @@ use crate::protocol::frame::RequestId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorKind {
+    RevisionConflict,
     ValidationError,
     PermissionDenied,
     PolicyDenied,
@@ -93,6 +94,8 @@ impl ErrorPayload {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TealDriveError {
+    #[error("file revision conflict")]
+    RevisionConflict,
     #[error("validation error")]
     Validation,
     #[error("permission denied")]

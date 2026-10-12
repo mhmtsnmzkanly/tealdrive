@@ -57,3 +57,10 @@ FilterMode optional extensions eklenmesi eski MessagePack alanlarını korur. Se
 - extension_filter_precedes_pagination_and_handles_case: passed; gerçek dosyalarla case-insensitive PDF, folder exclusion, iki sayfa, total count, traversal-benzeri extension reddi.
 - listing:: kapsamı: 14 mevcut test passed.
 - SDK/WS/browser contract testleri: 3 passed.
+
+## 2026-10-12 — Editör revision ve metadata
+
+- helper::revision::tests: 1 passed; stale token original'i değiştirmiyor, fresh token yazıyor, 0640 mode korunuyor, missing sentinel mevcut dosyayı overwrite etmiyor, staging artığı yok.
+- helper::text::: 7 passed.
+- SDK/browser permission/shutdown/contract: 4 passed.
+- UI ek testi: conflict editor'ü kapatmıyor, unsaved text kalıyor, root seçimi değişse bile opened-file root'u kullanılıyor; başarılı ack sonrası kapanıyor.

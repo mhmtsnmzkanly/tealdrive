@@ -134,6 +134,7 @@ pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
     };
 
     Ok(TextFileContentPayload {
+        revision: content.revision,
         root_id: request.root_id,
         relative_path,
         name: content.name,
@@ -225,7 +226,11 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
             if metadata.entry.is_symlink || metadata.entry.is_sensitive {
                 return Err(TealDriveError::PolicyDenied);
             }
-            if let Some(ref expected) = request.expected_modified {
+            if let Some(expected) = request
+                .expected_modified
+                .as_ref()
+                .filter(|_| request.expected_revision.is_none())
+            {
                 if metadata.entry.modified.as_deref() != Some(expected.as_str()) {
                     return Err(TealDriveError::Validation);
                 }
@@ -260,6 +265,7 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            expected_revision: request.expected_revision.clone(),
             data: request.content.into_bytes(),
             offset: 0,
             truncate: true,
@@ -283,6 +289,7 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
 
 fn helper_response_to_error(response: &HelperResponse) -> TealDriveError {
     match response.error_kind {
+        Some(ErrorKind::RevisionConflict) => TealDriveError::RevisionConflict,
         Some(ErrorKind::PermissionDenied) => TealDriveError::PermissionDenied,
         Some(ErrorKind::PolicyDenied) => TealDriveError::PolicyDenied,
         Some(ErrorKind::NotFound) => TealDriveError::NotFound,
@@ -611,6 +618,7 @@ mod tests {
         expected_modified: Option<String>,
     ) -> SaveTextFileRequest {
         SaveTextFileRequest {
+            expected_revision: None,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(path),
             content: content.to_owned(),

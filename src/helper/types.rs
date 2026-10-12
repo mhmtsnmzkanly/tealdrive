@@ -43,6 +43,8 @@ pub struct HelperSearchOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperWriteOptions {
+    #[serde(default)]
+    pub expected_revision: Option<String>,
     pub data: Vec<u8>,
     pub offset: u64,
     pub truncate: bool,
@@ -138,6 +140,8 @@ pub struct HelperTrashEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperTextFileContent {
+    #[serde(default)]
+    pub revision: String,
     pub name: String,
     pub content: String,
     pub encoding: String,
@@ -600,6 +604,7 @@ mod tests {
     fn text_file_content_payload_response_shape() {
         let request = sample_request(HelperCommand::ReadTextFile);
         let content = HelperTextFileContent {
+            revision: String::new(),
             name: "notes.txt".to_owned(),
             content: "hello".to_owned(),
             encoding: "utf-8".to_owned(),

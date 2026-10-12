@@ -319,7 +319,11 @@ pub fn operation_failed_frame(
         request_id,
         operation: format!("{message_type:?}"),
         error: ErrorPayload {
-            code: format!("{error_kind:?}").to_uppercase(),
+            code: if error_kind == ErrorKind::RevisionConflict {
+                "REVISION_CONFLICT".into()
+            } else {
+                format!("{error_kind:?}").to_uppercase()
+            },
             error_kind,
             safe_message: safe_message.to_owned(),
             request_id,
@@ -1741,6 +1745,7 @@ mod tests {
 
     fn save_text_file_request_payload(path: &str, content: &str) -> SaveTextFileRequest {
         SaveTextFileRequest {
+            expected_revision: None,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(path),
             content: content.to_owned(),

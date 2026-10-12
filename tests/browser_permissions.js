@@ -15,7 +15,7 @@ globalThis.WebSocket = {OPEN:1};
 const init = '  // Initialize\n  setupEvents();\n  checkSession();';
 assert.ok(application.includes(init));
 vm.runInThisContext(application.replace(init,
-  'globalThis.ui={state,el,openChmodModal,syncChmodFromCode,performLogin,setupEvents,inject(fn){requestWs=fn;loadDirectory=()=>{};}};'));
+  'globalThis.ui={state,el,openEditor,openChmodModal,syncChmodFromCode,performLogin,setupEvents,inject(fn){requestWs=fn;loadDirectory=()=>{};}};'));
 const {state,el,openChmodModal,syncChmodFromCode,performLogin,setupEvents}=ui;
 setupEvents();
 (async()=>{
@@ -45,6 +45,21 @@ setupEvents();
   window.confirm=()=>{throw Error('unnecessary confirmation');};
   await el.chmodForm.onsubmit({preventDefault(){}});
   assert.equal(requests.length,2);
+  el.editorModal.classList.remove('hidden');
+  ui.openEditor({root_id:'opening-root',relative_path:'note.txt',content:'original',revision:'hash',modified:null});
+  el.editorTextarea.value='unsaved edits';
+  state.currentRoot='different-root';
+  ui.inject(async()=>{throw Error('File changed');});
+  await el.editorSaveBtn.onclick();
+  assert.equal(el.editorModal.classList.contains('hidden'),false);
+  assert.equal(el.editorTextarea.value,'unsaved edits');
+  assert.equal(el.editorSaveBtn.disabled,false);
+  let saved;
+  ui.inject(async(type,payload)=>{saved=payload;});
+  await el.editorSaveBtn.onclick();
+  assert.equal(saved.root_id,'opening-root');
+  assert.equal(saved.expected_revision,'hash');
+  assert.equal(el.editorModal.classList.contains('hidden'),true);
   for(const scenario of ['success','denied','network']){
     el.passwordInput.value='test-secret';
     globalThis.fetch=async(path,options)=>{

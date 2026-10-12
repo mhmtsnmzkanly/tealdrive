@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::Read;
 
 use crate::config::{AllowedRoot, SensitivePolicyConfig};
 use crate::errors::ErrorKind;
@@ -76,18 +75,22 @@ pub fn read_text_file_with_roots(
         .and_then(|name| name.to_str())
         .unwrap_or(".")
         .to_owned();
-    let entry = directory_entry_from_metadata(entry_name, &metadata, root, sensitive_config);
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    if let Err(error) =
-        crate::helper::sandbox::open(root, &request.relative_path, libc::O_RDONLY, 0).and_then(
-            |file| {
-                file.take(request.limits.max_text_edit_size as u64 + 1)
-                    .read_to_end(&mut bytes)
-            },
-        )
-    {
-        return helper_error_from_io(request, error);
-    }
+    let (bytes, revision, metadata) = match crate::helper::revision::read(
+        root,
+        &request.relative_path,
+        request.limits.max_text_edit_size,
+    ) {
+        Ok(result) => result,
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            return helper_error(
+                request,
+                ErrorKind::RevisionConflict,
+                "File changed while reading.",
+                "revision_conflict",
+            )
+        }
+        Err(error) => return helper_error_from_io(request, error),
+    };
     if bytes.len() > request.limits.max_text_edit_size {
         return helper_error(
             request,
@@ -112,11 +115,13 @@ pub fn read_text_file_with_roots(
             "invalid_text_encoding",
         );
     };
+    let entry = directory_entry_from_metadata(entry_name, &metadata, root, sensitive_config);
     let line_count = Some(content.lines().count());
 
     HelperResponse::text_file_content(
         request,
         HelperTextFileContent {
+            revision,
             name: entry.name.clone(),
             content,
             encoding: "utf-8".to_owned(),

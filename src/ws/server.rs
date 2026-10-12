@@ -1125,6 +1125,7 @@ fn is_protocol_error(error: &TealDriveError) -> bool {
 
 fn protocol_error_message(error: &TealDriveError) -> &'static str {
     match error {
+        TealDriveError::RevisionConflict => "File revision changed.",
         TealDriveError::Validation => "Validation failed.",
         TealDriveError::Protocol => "Protocol error.",
         TealDriveError::InvalidMagic => "Invalid TDRV magic.",
@@ -1148,6 +1149,10 @@ fn operation_failed_response(
     error: &TealDriveError,
 ) -> Result<TdrvFrame, TealDriveError> {
     let (error_kind, safe_message) = match error {
+        TealDriveError::RevisionConflict => (
+            ErrorKind::RevisionConflict,
+            "File changed. Reload or compare before saving.",
+        ),
         TealDriveError::PermissionDenied => (ErrorKind::PermissionDenied, "Permission denied."),
         TealDriveError::PolicyDenied => (ErrorKind::PolicyDenied, "Operation denied by policy."),
         TealDriveError::FeatureDisabled => (ErrorKind::FeatureDisabled, "Feature disabled."),

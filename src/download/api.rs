@@ -109,6 +109,7 @@ fn range_request(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            expected_revision: None,
             data: Vec::new(),
             offset,
             truncate: false,

@@ -183,6 +183,7 @@ mod tests {
         request.relative_path = RelativePath::new(path);
         request.target_relative_path = None;
         request.write_options = Some(HelperWriteOptions {
+            expected_revision: None,
             data,
             offset,
             truncate,

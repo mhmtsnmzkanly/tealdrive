@@ -266,6 +266,7 @@ pub fn upload_end_request<H: UploadHelper>(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            expected_revision: None,
             data: staged_bytes,
             offset: 0,
             truncate: true,

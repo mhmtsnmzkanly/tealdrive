@@ -12,6 +12,7 @@ pub mod policy;
 pub mod privilege;
 pub mod quota;
 pub mod rename;
+pub mod revision;
 pub mod sandbox;
 pub mod search;
 pub mod security;

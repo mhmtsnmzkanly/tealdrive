@@ -588,14 +588,22 @@
     el.editorTitle.textContent = state.currentEditorFile;
     el.editorTextarea.value = payload.content || '';
     el.editorMetaHint.textContent = `${payload.content ? payload.content.length : 0} bytes | Modified: ${formatDate(payload.modified)}`;
-    el.editorSaveBtn.onclick = () => {
-      sendWsRequest(MT.SaveTextFile, {
-        root_id: state.currentRoot,
-        relative_path: state.currentEditorFile,
-        content: el.editorTextarea.value,
-        expected_modified: payload.modified,
-      });
-      el.editorModal.classList.add('hidden');
+    el.editorSaveBtn.onclick = async () => {
+      el.editorSaveBtn.disabled=true;
+      try {
+        await requestWs(MT.SaveTextFile, {
+          root_id: payload.root_id,
+          relative_path: payload.relative_path,
+          content: el.editorTextarea.value,
+          expected_modified: payload.modified,
+          expected_revision: payload.revision || null,
+        });
+        el.editorModal.classList.add('hidden');
+        showToast('File saved','success');loadDirectory(state.currentPath);
+      } catch(error) {
+        el.editorMetaHint.textContent=error.message;
+        showToast(error.message,'error');
+      } finally {el.editorSaveBtn.disabled=false;}
     };
   }
 
@@ -1088,6 +1096,7 @@
           root_id: state.currentRoot,
           relative_path: targetPath,
           content: '',
+          expected_revision: 'missing',
         });
       });
     };

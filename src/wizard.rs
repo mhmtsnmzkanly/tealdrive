@@ -392,6 +392,21 @@ pub fn run(args: Vec<String>) -> Result<()> {
             }
             print(&store()?.set_password(&Authority::Root, id, &password)?)
         }
+        ["ui", "check", directory] => {
+            root()?;
+            let path = std::env::current_dir()?.join(directory);
+            print(&crate::ui::package::load(&path)?.manifest)
+        }
+        ["ui", "install", "--bundle", directory] => {
+            root()?;
+            install_ui(&std::env::current_dir()?.join(directory))
+        }
+        ["ui", "disable"] => {
+            root()?;
+            set_ui(None)?;
+            println!("Embedded UI selected; reload Root config or restart.");
+            Ok(())
+        }
         ["pending", "list"] => {
             root()?;
             print(&crate::accounts::virtuals::pending(&store()?)?)
@@ -682,6 +697,54 @@ fn stopped() -> Result<()> {
     if running()? {
         return Err("Stop the server before this offline operation. Use tealdrive-ctl stop; manually launched candidates must also exit.".into());
     }
+    Ok(())
+}
+fn set_ui(directory: Option<PathBuf>) -> Result<()> {
+    let mut cfg = AppConfig::from_file(layout::SERVER_CONFIG)?;
+    cfg.server.static_dir = directory;
+    cfg.validate()?;
+    atomic(
+        Path::new(layout::SERVER_CONFIG),
+        toml::to_string_pretty(&cfg)?.as_bytes(),
+        0o644,
+        0,
+        0,
+    )
+}
+fn install_ui(source: &Path) -> Result<()> {
+    let package = crate::ui::package::load(source)?;
+    let base = Path::new(layout::HOME).join("ui");
+    trusted_directory(Path::new(layout::HOME))?;
+    directory(&base, 0, 0, 0o755)?;
+    let packages = base.join("packages");
+    directory(&packages, 0, 0, 0o755)?;
+    let target = packages.join(format!(
+        "{}-{}-{}",
+        package.manifest.name,
+        package.manifest.version,
+        uuid::Uuid::new_v4()
+    ));
+    directory(&target, 0, 0, 0o755)?;
+    for (name, contents) in &package.files {
+        let file = target.join(name);
+        let relative = Path::new(name).parent().ok_or("Invalid UI asset")?;
+        let mut parent = target.clone();
+        for component in relative.components() {
+            parent.push(component);
+            directory(&parent, 0, 0, 0o755)?;
+        }
+        atomic(&file, contents, 0o644, 0, 0)?;
+    }
+    atomic(
+        &target.join("manifest.json"),
+        &serde_json::to_vec_pretty(&package.manifest)?,
+        0o644,
+        0,
+        0,
+    )?;
+    crate::ui::package::load(&target)?;
+    set_ui(Some(target))?;
+    println!("Root-approved UI package installed; reload Root config. /ui/default always opens the embedded UI. Package code is trusted application code and can act as the signed-in user.");
     Ok(())
 }
 fn binary_backup(directory: &Path) -> Result<()> {

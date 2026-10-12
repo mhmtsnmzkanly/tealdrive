@@ -913,6 +913,9 @@ impl DynamicConfig {
         save: bool,
     ) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
+        if patch.static_dir.is_some() {
+            return Err(TealDriveError::PermissionDenied);
+        }
         if self.runtime_settings.is_some() {
             crate::runtime_settings::RuntimeSettings::check_patch(&patch)?;
         }

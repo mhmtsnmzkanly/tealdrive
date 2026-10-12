@@ -241,6 +241,11 @@ where
     H: WsHelperBackend + Clone + 'static,
 {
     Router::new()
+        .route("/ui/default", get(crate::ui::serve_default_index::<H>))
+        .route(
+            "/ui/default/*path",
+            get(crate::ui::serve_default_asset::<H>),
+        )
         .route("/", get(crate::ui::serve_index::<H>))
         .route("/index.html", get(crate::ui::serve_index::<H>))
         .route("/style.css", get(crate::ui::serve_style::<H>))

@@ -1,5 +1,7 @@
 pub mod assets;
+pub mod package;
 
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +15,7 @@ use axum::response::{Html, IntoResponse, Response};
 use crate::ui::assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLE_CSS};
 use crate::ws::server::{WsHelperBackend, WsServerState};
 
-const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:;";
+const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'none';";
 
 fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -80,13 +82,18 @@ pub async fn serve_index<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref static_dir) = state.config.load().server.static_dir {
-        if let Some(target) = resolve_safe_static_path(static_dir, "index.html") {
-            if let Ok(content) = fs::read(&target) {
-                let mut response = content.into_response();
+    if let Some(ref directory) = state.config.load().server.static_dir {
+        if let Some(package) = package::current(directory) {
+            let name = package.manifest.entry.as_str();
+            if let Some(content) = package.files.get(name) {
+                let mut response = content.clone().into_response();
                 apply_security_headers(response.headers_mut(), "text/html; charset=utf-8");
+                response
+                    .headers_mut()
+                    .insert("cache-control", HeaderValue::from_static("no-cache"));
                 return response;
             }
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -124,13 +131,18 @@ pub async fn serve_style<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref static_dir) = state.config.load().server.static_dir {
-        if let Some(target) = resolve_safe_static_path(static_dir, "style.css") {
-            if let Ok(content) = fs::read(&target) {
-                let mut response = content.into_response();
+    if let Some(ref directory) = state.config.load().server.static_dir {
+        if let Some(package) = package::current(directory) {
+            let name = "style.css";
+            if let Some(content) = package.files.get(name) {
+                let mut response = content.clone().into_response();
                 apply_security_headers(response.headers_mut(), "text/css; charset=utf-8");
+                response
+                    .headers_mut()
+                    .insert("cache-control", HeaderValue::from_static("no-cache"));
                 return response;
             }
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -143,16 +155,21 @@ pub async fn serve_app<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref static_dir) = state.config.load().server.static_dir {
-        if let Some(target) = resolve_safe_static_path(static_dir, "app.js") {
-            if let Ok(content) = fs::read(&target) {
-                let mut response = content.into_response();
+    if let Some(ref directory) = state.config.load().server.static_dir {
+        if let Some(package) = package::current(directory) {
+            let name = "app.js";
+            if let Some(content) = package.files.get(name) {
+                let mut response = content.clone().into_response();
                 apply_security_headers(
                     response.headers_mut(),
                     "application/javascript; charset=utf-8",
                 );
+                response
+                    .headers_mut()
+                    .insert("cache-control", HeaderValue::from_static("no-cache"));
                 return response;
             }
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -199,13 +216,18 @@ pub async fn serve_favicon<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref static_dir) = state.config.load().server.static_dir {
-        if let Some(target) = resolve_safe_static_path(static_dir, "favicon.svg") {
-            if let Ok(content) = fs::read(&target) {
-                let mut response = content.into_response();
+    if let Some(ref directory) = state.config.load().server.static_dir {
+        if let Some(package) = package::current(directory) {
+            let name = "favicon.svg";
+            if let Some(content) = package.files.get(name) {
+                let mut response = content.clone().into_response();
                 apply_security_headers(response.headers_mut(), "image/svg+xml");
+                response
+                    .headers_mut()
+                    .insert("cache-control", HeaderValue::from_static("no-cache"));
                 return response;
             }
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -223,14 +245,17 @@ where
 {
     let clean = path.trim_start_matches('/');
 
-    if let Some(ref static_dir) = state.config.load().server.static_dir {
-        if let Some(safe_path) = resolve_safe_static_path(static_dir, clean) {
-            if let Ok(bytes) = fs::read(&safe_path) {
-                let mime = mime_for_path(&safe_path);
-                let mut response = bytes.into_response();
-                apply_security_headers(response.headers_mut(), mime);
+    if let Some(ref directory) = state.config.load().server.static_dir {
+        if let Some(package) = package::current(directory) {
+            if let Some(content) = package.files.get(clean) {
+                let mut response = content.clone().into_response();
+                apply_security_headers(response.headers_mut(), mime_for_path(Path::new(clean)));
+                response
+                    .headers_mut()
+                    .insert("cache-control", HeaderValue::from_static("no-cache"));
                 return response;
             }
+            return StatusCode::NOT_FOUND.into_response();
         }
     }
 
@@ -278,12 +303,72 @@ where
     }
 }
 
+fn default_state<H: WsHelperBackend + Clone + 'static>(
+    mut state: WsServerState<H>,
+) -> WsServerState<H> {
+    let mut config = (*state.config.load_full()).clone();
+    config.server.static_dir = None;
+    state.config = crate::config::DynamicConfig::new(config, None);
+    state
+}
+async fn default_urls(mut response: Response) -> Response {
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let Ok(content) = String::from_utf8(bytes.to_vec()) else {
+        return Response::from_parts(parts, axum::body::Body::from(bytes));
+    };
+    let content = content
+        .replace("/static/", "/ui/default/static/")
+        .replace("/app.js", "/ui/default/app.js")
+        .replace("/style.css", "/ui/default/style.css")
+        .replace("/favicon.svg", "/ui/default/favicon.svg");
+    response = Response::from_parts(parts, axum::body::Body::from(content));
+    response.headers_mut().remove("content-length");
+    response
+}
+pub async fn serve_default_index<H>(State(state): State<WsServerState<H>>) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    default_urls(serve_index(State(default_state(state))).await).await
+}
+pub async fn serve_default_asset<H>(
+    State(state): State<WsServerState<H>>,
+    AxumPath(path): AxumPath<String>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    let state = default_state(state);
+    let response = if path == "app.js" {
+        serve_app(State(state)).await
+    } else {
+        serve_static_asset(
+            State(state),
+            AxumPath(path.trim_start_matches("static/").to_owned()),
+        )
+        .await
+    };
+    let textual = response.headers().get(CONTENT_TYPE).is_some_and(|v| {
+        v.to_str()
+            .is_ok_and(|v| v.contains("javascript") || v.contains("html") || v.contains("css"))
+    });
+    if textual {
+        default_urls(response).await
+    } else {
+        response
+    }
+}
+
 pub async fn serve_fallback<H>(State(state): State<WsServerState<H>>, uri: Uri) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
     let path = uri.path();
-    if path.starts_with("/api/") {
+    if path.starts_with("/api/") || path.starts_with("/sdk/") {
         let mut response = (StatusCode::NOT_FOUND, r#"{"error":"not_found"}"#).into_response();
         apply_security_headers(response.headers_mut(), "application/json; charset=utf-8");
         response

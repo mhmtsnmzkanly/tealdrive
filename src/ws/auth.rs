@@ -71,7 +71,10 @@ pub async fn bind_cookie<H>(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let cfg = state.config();
-    if !cfg.account_policy.allows_login(&session.username) {
+    if crate::auth::api::validated_session_account(&state, &session)
+        .await
+        .is_err()
+    {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let cookie = crate::session::cookie::SessionCookieConfig::from_session_config(&cfg.session)
@@ -148,7 +151,8 @@ where
         .send(Message::Binary(hello.encode()?))
         .await
         .map_err(|_| TealDriveError::Internal)?;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let mut enrollment: Option<(String, crate::accounts::grants::EnrollmentProof)> = None;
+    let mut deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     let mut selected = None;
     let mut attempts = 0;
     loop {
@@ -203,13 +207,41 @@ where
                     decode_msgpack(&frame.payload)?;
                 use zeroize::Zeroize;
                 frame.payload.zeroize();
-                let response = crate::auth::api::login_handler(
+                use crate::helper::account_gateway::AccountCommand;
+                let command = match request.action.as_deref().unwrap_or("login") {
+                    "login" => None,
+                    "enrollmentBegin" => Some(AccountCommand::BeginEnrollment(
+                        crate::auth::AuthRequest::new(
+                            &request.username,
+                            std::mem::take(&mut request.password),
+                        ),
+                    )),
+                    "enrollmentComplete" => {
+                        let Some((username, proof)) = enrollment.as_ref() else {
+                            send(&mut socket, MessageType::AuthResult, id, &serde_json::json!({"authenticated":false,"code":"ENROLLMENT_REQUIRED","status":409})).await?;
+                            continue;
+                        };
+                        request.username = username.clone();
+                        Some(AccountCommand::CompleteEnrollment {
+                            proof: proof.clone(),
+                            password: zeroize::Zeroizing::new(std::mem::take(
+                                &mut request.password,
+                            )),
+                        })
+                    }
+                    _ => {
+                        send(&mut socket, MessageType::AuthResult, id, &serde_json::json!({"authenticated":false,"code":"INVALID_ARGUMENT","status":400})).await?;
+                        continue;
+                    }
+                };
+                let response = crate::auth::api::login_command_handler(
                     State(state.clone()),
                     headers.clone(),
                     Json(crate::auth::api::LoginPayload {
                         username: request.username.clone(),
                         password: std::mem::take(&mut request.password),
                     }),
+                    command,
                 )
                 .await;
                 let status = response.status();
@@ -219,6 +251,22 @@ where
                     .map_err(|_| TealDriveError::Internal)?;
                 let body: serde_json::Value =
                     serde_json::from_slice(&body).map_err(|_| TealDriveError::Internal)?;
+                if status == StatusCode::ACCEPTED {
+                    let proof: crate::accounts::grants::EnrollmentProof =
+                        serde_json::from_value(body["enrollment"].clone())
+                            .map_err(|_| TealDriveError::Internal)?;
+                    let expires_at = proof.expires_at;
+                    enrollment = Some((request.username.clone(), proof));
+                    deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+                    send(
+                        &mut socket,
+                        MessageType::AuthResult,
+                        id,
+                        &serde_json::json!({"enrollment_required":true,"expires_at":expires_at}),
+                    )
+                    .await?;
+                    continue;
+                }
                 if !status.is_success() {
                     send(&mut socket,MessageType::AuthResult,id,&serde_json::json!({"authenticated":false,"code":body["code"],"status":status.as_u16()})).await?;
                     continue;
@@ -297,7 +345,16 @@ async fn authenticated_context<H>(
         request,
     )
     .ok()?;
-    if !cfg.account_policy.allows_login(&context.username) {
+    let SessionLookupResult::Found(session) =
+        store.get_session(&session, InMemorySessionStore::now_epoch_seconds())
+    else {
+        return None;
+    };
+    drop(store);
+    if crate::auth::api::validated_session_account(state, &session)
+        .await
+        .is_err()
+    {
         return None;
     }
     context.protocol_ready = true;

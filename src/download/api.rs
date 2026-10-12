@@ -334,11 +334,13 @@ where
         }
     }
 
-    let lease = crate::session::lease::SessionLease::with_shutdown(
+    let lease = crate::session::lease::SessionLease::with_shutdown_for_session(
         state.session_store.clone(),
         session_id,
         state.shutdown.cancellation(),
-    );
+        state.authenticator.clone(),
+    )
+    .await;
     let probe = range_request(&user_context, &root_id, &relative_path, 0, 0);
     let helper = state.helper_client.clone();
     let policy = cfg.as_ref().clone();

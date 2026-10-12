@@ -9,6 +9,15 @@ use crate::config::AccountPolicyConfig;
 
 pub trait Authenticator: Send + Sync {
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError>;
+    fn account_command(
+        &self,
+        _command: crate::helper::account_gateway::AccountCommand,
+    ) -> Result<
+        crate::helper::account_gateway::AccountReply,
+        crate::helper::account_gateway::GatewayFailure,
+    > {
+        Err(crate::helper::account_gateway::GatewayFailure::Disabled)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, zeroize::ZeroizeOnDrop)]

@@ -17,14 +17,14 @@ Bu dosya güncel uygulama durumudur. Bileşen belgelerindeki “hedef şema” p
 | SDK auth/files/admin çekirdeği, tipler, state, storage, observers, progress/abort ve HTTP hata sözleşmesi | Tamamlandı; bazı gelecekteki backend capability'leri kapalı |
 | Root config + sınırlı service-writable settings overlay, atomik persist/reload | Tamamlandı; root dosyası byte-identical kabul testi |
 | Ortak access_policy, katman yasakları, gizli öğelerde NotFound, recursive/alias/trash kontrolleri | Tamamlandı; gerçek setuid/browser negatif test |
-| SQLite metadata/Argon2id/kota tahsis/nesil/backup temeli | Tamamlandı; root account gateway eklendi, canlı server/SDK bağlantısı bekliyor |
+| SQLite metadata/Argon2id/kota tahsis/nesil/backup temeli | Tamamlandı; root account gateway eklendi, server/WS/SDK/UI auth bağlantısı tamamlandı; yönetim uçları bekliyor |
 | Persistent nonce/enrollment ve process-bound PAM ticket | Tamamlandı; root migration ve gerçek setuid replay reddi test edildi |
 | /home/tealdrive yol seçimi, güvenli legacy fallback | Tamamlandı; fiziksel kurulum/migration bekliyor |
 | Audit retention_hours=504 ve eski retention_days uyumu | Tamamlandı; trash/undo/account GC bundan ayrıdır |
 
 ## Şimdiki geliştirme sırası
 
-1. **Protected kimlik ve yönetim gateway'i.** Auth komutları/helper NSS kontrolleri uygulandı; server/WS/SDK enrollment ve operation grant bağlantısı sürüyor. DB hesabı + NSS UID/GID/home doğrulaması; root rolü/deny/kayıt tavanları; PAM veya PAM sonrası web-password modeli. DB'yi server açmaz. SDK yeni capability'leri yalnızca gerçek backend tamamlanınca açar.
+1. **Protected kimlik ve yönetim gateway'i.** Auth komutları/helper NSS kontrolleri uygulandı; server/WS/SDK/UI enrollment ve operation grant bağlantısı tamamlandı. Self-revoke/password change ve yönetim uçları kaldı. DB hesabı + NSS UID/GID/home doğrulaması; root rolü/deny/kayıt tavanları; PAM veya PAM sonrası web-password modeli. DB'yi server açmaz. SDK yeni capability'leri yalnızca gerçek backend tamamlanınca açar.
 2. **Bilet ve oturum yaşam döngüsü.** Hesap ID/generation ve aktif session nonce; logout nonce iptali, self-revoke tüm web erişimini iptal eder. Sanal self-revoke yasak. Suspend/delete aktif oturum ve helper lease'lerine uygulanır. Root-owned rolü server claim'i genişletemez. Eski ticket/session uyumu explicit migration davranışıyla çözülür.
 3. **Enrollment ve öz kayıt.** İlk PAM kanıtı tek kullanımlık, kısa ömürlü ve caller/kimlik bağlamına bağlı. Linux parolası kalıcı tutulmaz. Mevcut web-parolalı hesap Linux parolasıyla sessiz reset edilemez. Wizard gerçek UID'nin kendi kaydını açar; deny/suspend üstün gelir.
 4. **Home kökleri ve hesap politikası yönetimi.** Gerçek home helper/NSS/DB'den; kullanıcı path/UID seçmez. Root/admin/kişisel kurallar protected gateway'den değiştirilir. Config-root'tan home moduna geçiş izinleri sessiz genişletmez.

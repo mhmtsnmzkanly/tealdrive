@@ -104,7 +104,7 @@ impl HelperProcessClient {
         rmp_serde::from_slice(&output).map_err(|_| GatewayFailure::Unavailable)?
     }
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
-        let ticket = self
+        let mut ticket = self
             .tickets
             .lock()
             .map_err(|_| TealDriveError::Internal)?
@@ -112,12 +112,23 @@ impl HelperProcessClient {
             .cloned();
         let policy = crate::helper::policy::current();
         let revision = policy.as_ref().map(|p| p.revision);
+        let grant =
+            crate::session::lease::current_cancellation().and_then(|context| context.grant());
+        // A grant operation must never downgrade to a cached PAM ticket.
+        if grant.is_some() {
+            ticket = None;
+        }
         let bytes = encode_invocation(&HelperInvocation::Operation {
+            grant,
             request: Box::new(request.clone()),
             ticket,
             policy: policy.map(Box::new),
         })?;
-        let output = self.communicate(bytes)?;
+        let output = self.communicate(bytes).map_err(|error| {
+            // Safe enum only: never include the request, ticket, grant or password.
+            eprintln!("Helper operation failed: {error:?}");
+            error
+        })?;
         let response: HelperResponse =
             rmp_serde::from_slice(&output).map_err(|_| TealDriveError::HelperMalformedResponse)?;
         crate::audit::operation::observe(&response);

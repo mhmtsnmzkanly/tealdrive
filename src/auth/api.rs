@@ -45,6 +45,14 @@ pub struct LoginResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_kind: Option<crate::accounts::store::AccountKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<crate::accounts::store::Role>,
     pub authenticated: bool,
     pub is_admin: bool,
     pub username: Option<String>,
@@ -65,10 +73,60 @@ pub struct AuthErrorResponse {
     pub code: String,
 }
 
+/// Root-backed sessions are revalidated before cookie binding, resume or management.
+pub async fn validated_session_account<H>(
+    state: &WsServerState<H>,
+    session: &crate::session::store::Session,
+) -> Result<Option<crate::accounts::store::Account>, crate::helper::account_gateway::GatewayFailure>
+{
+    use crate::helper::account_gateway::{AccountCommand, AccountReply, GatewayFailure};
+    if !session.allowed_by(&state.config()) {
+        return Err(GatewayFailure::Forbidden);
+    }
+    let Some(grant) = session.grant.as_deref().cloned() else {
+        return Ok(None);
+    };
+    let permit = crate::session::lease::validation_slots()
+        .acquire_owned()
+        .await
+        .map_err(|_| GatewayFailure::Unavailable)?;
+    let activity = state.shutdown.enter().ok_or(GatewayFailure::Unavailable)?;
+    let authenticator = state.authenticator.clone();
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let _activity = activity;
+        authenticator.account_command(AccountCommand::Validate(grant))
+    })
+    .await
+    .map_err(|_| GatewayFailure::Unavailable)??
+    {
+        AccountReply::Validated(account)
+            if account.username == session.username
+                && account.uid == session.uid
+                && account.gid == session.gid =>
+        {
+            Ok(Some(account))
+        }
+        _ => Err(GatewayFailure::Forbidden),
+    }
+}
+
 pub async fn login_handler<H>(
     State(state): State<WsServerState<H>>,
     headers: HeaderMap,
+    Json(payload): Json<LoginPayload>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    login_command_handler(State(state), headers, Json(payload), None).await
+}
+
+pub async fn login_command_handler<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
     Json(mut payload): Json<LoginPayload>,
+    command: Option<crate::helper::account_gateway::AccountCommand>,
 ) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
@@ -80,6 +138,16 @@ where
         .map(ToOwned::to_owned);
 
     let cfg = state.config.load();
+    if command.is_some() && !cfg.web_accounts.enabled {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(AuthErrorResponse {
+                error: "Web enrollment is disabled.".into(),
+                code: "FEATURE_DISABLED".into(),
+            }),
+        )
+            .into_response();
+    }
     let max_failures = cfg.rate_limit.max_login_failures;
     let lockout_secs = cfg.rate_limit.lockout_duration_seconds;
     let now = InMemorySessionStore::now_epoch_seconds();
@@ -111,7 +179,9 @@ where
         }
     }
 
-    if !cfg.account_policy.allows_login(&payload.username) {
+    if (!cfg.web_accounts.enabled && !cfg.account_policy.allows_login(&payload.username))
+        || cfg.web_accounts.denied_users.contains(&payload.username)
+    {
         state
             .rate_limiter
             .lock()
@@ -146,46 +216,94 @@ where
     };
     let cancellation = state.shutdown.cancellation();
     let authenticator = state.authenticator.clone();
+    let web_mode = cfg.web_accounts.enabled;
     let auth_result = tokio::task::spawn_blocking(move || {
         let _activity = activity;
         let _permit = permit;
         crate::session::lease::with_cancellation(cancellation, || {
-            authenticator.authenticate(&auth_req)
+            if web_mode {
+                use crate::helper::account_gateway::{
+                    AccountCommand, AccountReply, GatewayFailure,
+                };
+                match authenticator
+                    .account_command(command.unwrap_or(AccountCommand::Login(auth_req)))
+                {
+                    Ok(AccountReply::Authenticated { account, grant }) => Ok(Ok((
+                        crate::auth::AuthSuccess {
+                            username: account.username,
+                            uid: account.uid,
+                            primary_gid: account.gid,
+                            home_dir: Some(account.home),
+                            shell: None,
+                            groups: vec![],
+                        },
+                        Some(grant),
+                    ))),
+                    Ok(AccountReply::Enrollment(proof)) => Ok(Err(proof)),
+                    Err(GatewayFailure::Unavailable | GatewayFailure::Disabled) => {
+                        Err(AuthError::AuthBackendUnavailable)
+                    }
+                    _ => Err(AuthError::InvalidCredentials),
+                }
+            } else {
+                authenticator
+                    .authenticate(&auth_req)
+                    .map(|success| Ok((success, None)))
+            }
         })
     })
     .await;
-    let auth_success = match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {
-        Ok(success) => success,
-        Err(err) => {
-            let mut limiter = state.rate_limiter.lock().await;
-            let _ = limiter.record_failure_at(rate_key, lockout_secs, now);
+    let (auth_success, auth_grant) =
+        match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {
+            Ok(Ok(success)) => success,
+            Ok(Err(proof)) => {
+                state.rate_limiter.lock().await.record_success(&rate_key);
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(serde_json::json!({ "enrollment": proof })),
+                )
+                    .into_response();
+            }
+            Err(err) => {
+                if err == AuthError::AuthBackendUnavailable {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(AuthErrorResponse {
+                            error: "Authentication service unavailable.".into(),
+                            code: "SERVICE_UNAVAILABLE".into(),
+                        }),
+                    )
+                        .into_response();
+                }
+                let mut limiter = state.rate_limiter.lock().await;
+                let _ = limiter.record_failure_at(rate_key, lockout_secs, now);
 
-            let reason = match err {
-                AuthError::InvalidCredentials => AuditReason::InvalidCredentials,
-                AuthError::AccountLocked => AuditReason::AccountLocked,
-                AuthError::AccountExpired => AuditReason::AccountExpired,
-                AuthError::DisabledShell => AuditReason::DisabledShell,
-                AuthError::RootLoginDisabled => AuditReason::RootLoginDisabled,
-                AuthError::SystemAccountDisabled => AuditReason::SystemAccountDisabled,
-                AuthError::AccountNotAllowed => AuditReason::AccountNotAllowed,
-                _ => AuditReason::InvalidCredentials,
-            };
-            let request_id = RequestId::new();
-            let _ = state.audit_sink.emit(&AuditEvent::login_failure(
-                request_id,
-                &payload.username,
-                reason,
-            ));
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(AuthErrorResponse {
-                    error: "Invalid username or password.".to_owned(),
-                    code: "INVALID_CREDENTIALS".to_owned(),
-                }),
-            )
-                .into_response();
-        }
-    };
+                let reason = match err {
+                    AuthError::InvalidCredentials => AuditReason::InvalidCredentials,
+                    AuthError::AccountLocked => AuditReason::AccountLocked,
+                    AuthError::AccountExpired => AuditReason::AccountExpired,
+                    AuthError::DisabledShell => AuditReason::DisabledShell,
+                    AuthError::RootLoginDisabled => AuditReason::RootLoginDisabled,
+                    AuthError::SystemAccountDisabled => AuditReason::SystemAccountDisabled,
+                    AuthError::AccountNotAllowed => AuditReason::AccountNotAllowed,
+                    _ => AuditReason::InvalidCredentials,
+                };
+                let request_id = RequestId::new();
+                let _ = state.audit_sink.emit(&AuditEvent::login_failure(
+                    request_id,
+                    &payload.username,
+                    reason,
+                ));
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(AuthErrorResponse {
+                        error: "Invalid username or password.".to_owned(),
+                        code: "INVALID_CREDENTIALS".to_owned(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
 
     let candidate = crate::auth::account::MockUser {
         username: auth_success.username.clone(),
@@ -197,10 +315,18 @@ where
         groups: auth_success.groups.clone(),
         status: crate::auth::account::AccountStatus::Active,
     };
-    if !matches!(
-        crate::auth::account::evaluate_account_policy(&candidate, &state.config().account_policy),
-        crate::auth::account::AccountPolicyResult::Allowed
-    ) {
+    let current = state.config();
+    if current.web_accounts.enabled != web_mode
+        || current
+            .web_accounts
+            .denied_users
+            .contains(&candidate.username)
+        || (!web_mode
+            && !matches!(
+                crate::auth::account::evaluate_account_policy(&candidate, &current.account_policy),
+                crate::auth::account::AccountPolicyResult::Allowed
+            ))
+    {
         state
             .rate_limiter
             .lock()
@@ -239,6 +365,21 @@ where
         store.create_session(session_input, now)
     };
 
+    if let Some(grant) = auth_grant {
+        if !state
+            .session_store
+            .lock()
+            .await
+            .attach_grant(&session.session_id, grant)
+        {
+            state
+                .session_store
+                .lock()
+                .await
+                .revoke_session(&session.session_id);
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
     let request_id = RequestId::new();
     let mut event = AuditEvent::login_success(
         request_id,
@@ -297,6 +438,27 @@ where
             if !crate::session::csrf::validate_header(&session, &headers) {
                 return StatusCode::FORBIDDEN.into_response();
             }
+            if let Some(grant) = session.grant.as_deref().cloned() {
+                drop(store);
+                let authenticator = state.authenticator.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    authenticator.account_command(
+                        crate::helper::account_gateway::AccountCommand::Logout(grant),
+                    )
+                })
+                .await;
+                if matches!(
+                    result,
+                    Err(_)
+                        | Ok(Err(
+                            crate::helper::account_gateway::GatewayFailure::Unavailable
+                                | crate::helper::account_gateway::GatewayFailure::Disabled
+                        ))
+                ) {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                }
+                store = state.session_store.lock().await;
+            }
             store.revoke_session(&session_id);
             let request_id = RequestId::new();
             let _ = state.audit_sink.emit(&AuditEvent::logout(
@@ -339,6 +501,10 @@ where
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(SessionResponse {
+                    account_id: None,
+                    account_generation: None,
+                    account_kind: None,
+                    role: None,
                     authenticated: false,
                     is_admin: false,
                     username: None,
@@ -360,6 +526,21 @@ where
 
     match lookup {
         SessionLookupResult::Found(session) => {
+            let account = match validated_session_account(&state, &session).await {
+                Ok(account) => account,
+                Err(crate::helper::account_gateway::GatewayFailure::Unavailable) => {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response()
+                }
+                Err(_) => {
+                    state.session_store.lock().await.revoke_session(&session_id);
+                    return StatusCode::UNAUTHORIZED.into_response();
+                }
+            };
+            let is_admin = cfg.account_policy.is_admin(&session.username)
+                && account.as_ref().is_none_or(|account| {
+                    account.kind == crate::accounts::store::AccountKind::Linux
+                        && account.role == crate::accounts::store::Role::Admin
+                });
             let csrf_token = session.csrf_token.clone();
             let roots = cfg
                 .allowed_roots()
@@ -377,8 +558,12 @@ where
             (
                 StatusCode::OK,
                 Json(SessionResponse {
+                    account_id: account.as_ref().map(|account| account.id.clone()),
+                    account_generation: account.as_ref().map(|account| account.generation),
+                    account_kind: account.as_ref().map(|account| account.kind),
+                    role: account.as_ref().map(|account| account.role),
                     authenticated: true,
-                    is_admin: cfg.account_policy.is_admin(&session.username),
+                    is_admin,
                     username: Some(session.username),
                     uid: Some(session.uid),
                     gid: Some(session.gid),
@@ -395,6 +580,10 @@ where
             let mut response = (
                 StatusCode::UNAUTHORIZED,
                 Json(SessionResponse {
+                    account_id: None,
+                    account_generation: None,
+                    account_kind: None,
+                    role: None,
                     authenticated: false,
                     is_admin: false,
                     username: None,

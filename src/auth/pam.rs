@@ -22,6 +22,18 @@ impl Default for PamAuthenticator {
     }
 }
 impl Authenticator for PamAuthenticator {
+    fn account_command(
+        &self,
+        command: crate::helper::account_gateway::AccountCommand,
+    ) -> Result<
+        crate::helper::account_gateway::AccountReply,
+        crate::helper::account_gateway::GatewayFailure,
+    > {
+        self.helper
+            .as_ref()
+            .ok_or(crate::helper::account_gateway::GatewayFailure::Unavailable)?
+            .account_command(command)
+    }
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError> {
         match &self.helper {
             Some(helper) => helper.authenticate(request),

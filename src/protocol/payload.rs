@@ -12,8 +12,18 @@ use crate::protocol::schema::{
     SortMode, UnixMode,
 };
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthenticationCapabilities {
+    pub web_password: bool,
+    pub enrollment: bool,
+    pub self_registration: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerHelloPayload {
+    #[serde(default)]
+    pub authentication: AuthenticationCapabilities,
     pub protocol_version: u8,
     pub server_name: String,
     pub selected_encoding: Option<Encoding>,
@@ -474,6 +484,7 @@ mod tests {
     fn server_hello() -> ServerHelloPayload {
         let limits = Limits::default();
         ServerHelloPayload {
+            authentication: AuthenticationCapabilities::default(),
             protocol_version: 1,
             server_name: "tealdrive".to_owned(),
             selected_encoding: Some(Encoding::MessagePack),
@@ -943,6 +954,10 @@ mod tests {
 
 #[derive(Clone, Serialize, Deserialize, zeroize::ZeroizeOnDrop)]
 pub struct AuthLoginRequest {
+    #[serde(default)]
+    #[zeroize(skip)]
+    pub action: Option<String>,
+    #[serde(default)]
     #[zeroize(skip)]
     pub username: String,
     pub password: String,

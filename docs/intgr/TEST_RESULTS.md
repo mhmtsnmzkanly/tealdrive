@@ -168,3 +168,15 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - `cargo test --locked helper::chmod --quiet`: mevcut chmod unit suite geçti.
 - `cargo test --locked --test chmod_owner -- --ignored --nocapture`: root fixture sonrası supplementary groups temizlenmiş UID/GID65534 süreç + gerçek Landlock/openat2 altında file000→0600 başarılı, içerik korundu. Root-owned başka file ve symlink chmod reddedildi, root-owned file mode000 değişmedi.
 - Çalışan kernel6.8; yeni unreadable inode yolu Linux6.6+ gerektirir. Eski kernel readable-FD fallback'i bu sunucuda kernel değiştirilerek test edilmedi.
+
+### Server / WS / SDK / UI web-account bağlantısı — 2026-10-12
+
+- Tam suite: 541 unit geçti; gerçek PAM fixture unit varsayılan ignored ve önce explicit geçti. Normal browser/SDK/WS/CLI integration tests geçti. Clippy all-targets ve Rust1.85 all-targets geçti; TS strict declarations geçti.
+- Gerçek TCP `ws_auth` hem legacy PAM fixture hem web mode fixture ile file-before-auth denial, origin, pending enrollment, proof gizliliği, completion, cookie bridge one-use, audit secrets exclusion geçti. Gateway bu protocol testinde fixture; gerçek root gateway ayrı aşağıdaki Chromium/PAM testinde kullanıldı.
+- SDK Node real binary codec/fake transport testi enrollment actions, proof-ID olmaması, weak-password validation, completion session binding dahil geçti.
+- Root lease testi grant browser JSON'da yok, nested cancellation scope token karışmıyor, root revoke aktif lease/local session'ı iptal ediyor.
+- `/home/tealdrive` altında root policy/key/auth/bin ve service-writable config/log dizinleriyle gerçek candidate kuruldu. SQLite init overwrite etmez; schema2/WAL root0600. Caddy eski servis/root/data korunur.
+- `tests/live/sdk-enrollment.cjs`: ilk çalışmada gerçek PAM→DB first-enrollment→web login tamamlandı; sonraki CRUD kontrolü eski `/srv` root'u NSS `/home/tealdrive-test` dışında olduğu için reddedildi. Candidate root gerçek home'a açıkça düzeltildi. Sonra Chromium→WS→setuid helper→SQLite zincirinde ayrı web password login, Linux password login reddi, file create/read/revision, chmod000→0600/content, helper quota, streaming download, DB nonce logout ve resumed socket denial geçti. Rerun output enrollment=false mevcut kaydı yeniden açmadığını gösterir; PAM reset yapmaz.
+- `tests/live/ui-auth.cjs`: gerçek embedded UI/SDK, doğru password-mode label, login, legacy file socket grant, input temizliği, user/admin ayrımı, logout geçti.
+- Aktif lease doğrulama normal1s aralığında; queued/helper latency eklenir. Native file tests yeni admission/nonce/logout; suspend watcher unit + root DAO suspend/generation testleri ayrı. Canlı TLS/Caddy migration, iki gerçek UID home profile ve virtual provisioning kabulü değildir.
+- Son UI/SDK contract güncellemesinde handshake authentication capability, account ID/generation/kind/role metadata ve parola türü etiketi eklendi. TS strict declarations ve normal browser contract/permissions/shutdown tekrar geçti. İlk kez başarılı PAM/enroll yapan çalışma ile mevcut account rerun ayrımı native fixture output'ta açıktır.

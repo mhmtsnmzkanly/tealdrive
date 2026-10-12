@@ -19,6 +19,11 @@ pub enum HandshakeState {
 
 pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDriveError> {
     let payload = ServerHelloPayload {
+        authentication: crate::protocol::payload::AuthenticationCapabilities {
+            web_password: config.web_accounts.enabled,
+            enrollment: config.web_accounts.enabled,
+            self_registration: config.web_accounts.enabled && config.web_accounts.self_registration,
+        },
         protocol_version: TDRV_PROTOCOL_VERSION,
         server_name: "TealDrive".to_owned(),
         selected_encoding: Some(Encoding::MessagePack),

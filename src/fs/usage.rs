@@ -29,7 +29,7 @@ where
     else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    if !config.account_policy.allows_login(&session.username) {
+    if !session.allowed_by(&config) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let root_id = query.root_id.unwrap_or_else(|| {
@@ -48,11 +48,13 @@ where
     let Ok(permit) = state.operation_slots.clone().acquire_owned().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let lease = crate::session::lease::SessionLease::with_shutdown(
+    let lease = crate::session::lease::SessionLease::with_shutdown_for_session(
         state.session_store.clone(),
         id,
         state.shutdown.cancellation(),
-    );
+        state.authenticator.clone(),
+    )
+    .await;
     let cancellation = lease.cancellation.clone();
     let helper = state.helper_client.clone();
     let cfg = config.clone();

@@ -24,6 +24,9 @@ impl Default for SessionId {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub session_id: SessionId,
+    /// Helper authorization; never returned by the public session API.
+    #[serde(default, skip_serializing)]
+    pub grant: Option<Box<crate::accounts::grants::SessionGrant>>,
     pub csrf_token: crate::session::csrf::CsrfToken,
     pub username: String,
     pub uid: u32,
@@ -35,6 +38,19 @@ pub struct Session {
     pub user_agent: Option<String>,
     pub ip: Option<String>,
     pub revoked: bool,
+}
+
+impl Session {
+    pub fn allowed_by(&self, config: &crate::config::AppConfig) -> bool {
+        if config.web_accounts.enabled {
+            self.grant.is_some()
+                && self.uid != 0
+                && self.gid != 0
+                && !config.web_accounts.denied_users.contains(&self.username)
+        } else {
+            self.grant.is_none() && config.account_policy.allows_login(&self.username)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,13 +93,29 @@ impl InMemorySessionStore {
         }
     }
 
+    pub fn attach_grant(
+        &mut self,
+        id: &SessionId,
+        grant: crate::accounts::grants::SessionGrant,
+    ) -> bool {
+        if let Some(session) = self.sessions.get_mut(id) {
+            if session.revoked || grant.expires_at <= Self::now_epoch_seconds() {
+                return false;
+            }
+            session.expires_at = session.expires_at.min(grant.expires_at);
+            session.grant = Some(Box::new(grant));
+            true
+        } else {
+            false
+        }
+    }
     pub fn take_disallowed(&mut self, policy: &crate::config::AccountPolicyConfig) -> Vec<Session> {
         let removed: Vec<_> = self
             .sessions
             .values()
             .filter(|s| {
                 !s.revoked
-                    && (!policy.allows_login(&s.username)
+                    && ((s.grant.is_none() && !policy.allows_login(&s.username))
                         || (policy.reject_root && s.uid == 0)
                         || (policy.reject_system_accounts && s.uid < policy.minimum_regular_uid))
             })
@@ -138,6 +170,7 @@ impl SessionStore for InMemorySessionStore {
     fn create_session(&mut self, input: SessionCreateInput, now: u64) -> Session {
         let session = Session {
             session_id: SessionId::new(),
+            grant: None,
             csrf_token: crate::session::csrf::CsrfToken::generate(),
             username: input.username,
             uid: input.uid,

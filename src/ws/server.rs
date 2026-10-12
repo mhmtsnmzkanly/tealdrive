@@ -458,9 +458,7 @@ where
         context.clone(),
         state.audit_sink.clone(),
     );
-    if session
-        .as_ref()
-        .is_some_and(|s| !cfg.account_policy.allows_login(&s.username))
+    if session.as_ref().is_some_and(|s| !s.allowed_by(&cfg))
         && (request.uri().path().starts_with("/api/") || request.uri().path() == "/ws")
         && request.uri().path() != "/api/login"
     {
@@ -805,6 +803,7 @@ where
         config,
         session_store,
         helper_client,
+        authenticator,
         audit_sink,
         operation_slots,
         shutdown,
@@ -830,11 +829,13 @@ where
         context.gid,
     ));
 
-    let lease = crate::session::lease::SessionLease::with_shutdown(
+    let lease = crate::session::lease::SessionLease::with_shutdown_for_session(
         session_store.clone(),
         context.session_id,
         shutdown.cancellation(),
-    );
+        authenticator.clone(),
+    )
+    .await;
     let mut shutdown_notified = false;
 
     loop {
@@ -887,10 +888,16 @@ where
 
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
-                if !current_config
-                    .account_policy
-                    .allows_login(&context.username)
-                {
+                let authorized = match session_store.lock().await.get_session(
+                    &context.session_id,
+                    InMemorySessionStore::now_epoch_seconds(),
+                ) {
+                    crate::session::store::SessionLookupResult::Found(session) => {
+                        session.allowed_by(&current_config)
+                    }
+                    _ => false,
+                };
+                if !authorized {
                     let _ = audit_sink.emit(&AuditEvent::websocket_rejection(
                         request_id,
                         context.username.clone(),

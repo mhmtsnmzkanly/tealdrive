@@ -91,6 +91,7 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
         };
         let bytes = zeroize::Zeroizing::new(
             encode_invocation(&HelperInvocation::Operation {
+                grant: None,
                 request: Box::new(operation),
                 ticket: Some(ticket),
                 policy: Some(Box::new(tealdrive::helper::policy::PolicySnapshot::new(

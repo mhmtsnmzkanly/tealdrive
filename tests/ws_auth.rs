@@ -17,13 +17,21 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn ws_first_login_gates_files_and_binds_cookie_once() {
+    exercise(false).await;
+    exercise(true).await;
+}
+async fn exercise(web_mode: bool) {
     let dir = std::env::temp_dir().join(format!("tdrv-ws-auth-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&dir).unwrap();
     let mut config = AppConfig::default();
     config.server.behind_tls_proxy = false;
     config.session.secure_cookies = false;
     config.security.allowed_origins = vec!["http://test.local".into()];
-    config.account_policy.allowed_users = vec!["alice".into()];
+    if !web_mode {
+        config.account_policy.allowed_users = vec!["alice".into()];
+    }
+    config.web_accounts.enabled = web_mode;
+    config.web_accounts.server_uid = Some(995);
     let authenticator = MockAuthenticator::new(config.account_policy.clone())
         .with_user(MockUser::regular("alice", "secret-test"));
     let store = InMemorySessionStore::new(config.session.clone());
@@ -35,7 +43,7 @@ async fn ws_first_login_gates_files_and_binds_cookie_once() {
         store,
         helper,
         audit,
-        Arc::new(authenticator),
+        Arc::new(GatewayFixture(authenticator)),
         tealdrive::rate_limit::login::InMemoryLoginRateLimiter::new(5),
     );
     let app = build_router(state.clone());
@@ -93,10 +101,27 @@ async fn ws_first_login_gates_files_and_binds_cookie_once() {
     let denied: serde_json::Value =
         tealdrive::protocol::codec::decode_msgpack(&denied.payload).unwrap();
     assert_eq!(denied["authenticated"], false);
+    if web_mode {
+        send(
+            &mut ws,
+            MessageType::AuthLogin,
+            serde_json::json!({"action":"enrollmentComplete","password":"secret-test"}),
+        )
+        .await;
+        let missing: serde_json::Value =
+            tealdrive::protocol::codec::decode_msgpack(&receive(&mut ws).await.payload).unwrap();
+        assert_eq!(missing["code"], "ENROLLMENT_REQUIRED");
+        send(&mut ws, MessageType::AuthLogin, serde_json::json!({"action":"enrollmentBegin","username":"alice","password":"linux-fixture"})).await;
+        let pending: serde_json::Value =
+            tealdrive::protocol::codec::decode_msgpack(&receive(&mut ws).await.payload).unwrap();
+        assert_eq!(pending["enrollment_required"], true);
+        assert!(pending.get("enrollment").is_none());
+        assert!(pending.get("id").is_none());
+    }
     send(
         &mut ws,
         MessageType::AuthLogin,
-        serde_json::json!({"username":"alice","password":"secret-test"}),
+        serde_json::json!({"username":"alice","password":"secret-test","action":if web_mode {"enrollmentComplete"} else {"login"}}),
     )
     .await;
     let result = receive(&mut ws).await;
@@ -138,7 +163,85 @@ async fn ws_first_login_gates_files_and_binds_cookie_once() {
     let log = std::fs::read_to_string(dir.join("audit.jsonl")).unwrap();
     assert!(!log.contains("secret-test"));
     assert!(!log.contains(token));
+    assert!(!log.contains("fixture-proof-secret"));
+    assert!(!log.contains("fixture-grant-secret"));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+// Isolate actual TCP protocol/cookie tests from the separately tested root SQLite/PAM gateway.
+struct GatewayFixture(MockAuthenticator);
+impl tealdrive::auth::Authenticator for GatewayFixture {
+    fn authenticate(
+        &self,
+        request: &tealdrive::auth::AuthRequest,
+    ) -> Result<tealdrive::auth::AuthSuccess, tealdrive::auth::AuthError> {
+        tealdrive::auth::Authenticator::authenticate(&self.0, request)
+    }
+    fn account_command(
+        &self,
+        command: tealdrive::helper::account_gateway::AccountCommand,
+    ) -> Result<
+        tealdrive::helper::account_gateway::AccountReply,
+        tealdrive::helper::account_gateway::GatewayFailure,
+    > {
+        use tealdrive::accounts::{
+            grants::{CallerBinding, EnrollmentProof, SessionGrant},
+            store::{Account, AccountKind, AccountStatus, Role},
+        };
+        use tealdrive::helper::account_gateway::{AccountCommand, AccountReply, GatewayFailure};
+        let now = InMemorySessionStore::now_epoch_seconds();
+        let account = Account {
+            id: "account-alice".into(),
+            username: "alice".into(),
+            uid: 1000,
+            gid: 1000,
+            home: "/home/alice".into(),
+            kind: AccountKind::Linux,
+            role: Role::User,
+            owner_admin_id: None,
+            status: AccountStatus::Active,
+            login_enabled: true,
+            generation: 1,
+            password_enrolled: true,
+            quota_bytes: None,
+            undo_hours: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+            deny_enrollment: false,
+        };
+        let grant = SessionGrant {
+            nonce: "fixture-grant-secret".into(),
+            account_id: account.id.clone(),
+            generation: 1,
+            caller: CallerBinding {
+                uid: 995,
+                pid: 1,
+                start_time: 1,
+                boot_id: "00000000-0000-4000-8000-000000000001".into(),
+            },
+            expires_at: now + 3600,
+        };
+        match command {
+            AccountCommand::BeginEnrollment(request) if request.password == "linux-fixture" => {
+                Ok(AccountReply::Enrollment(EnrollmentProof {
+                    id: "fixture-proof-secret".into(),
+                    expires_at: now + 300,
+                }))
+            }
+            AccountCommand::CompleteEnrollment { proof, password }
+                if proof.id == "fixture-proof-secret" && &*password == "secret-test" =>
+            {
+                Ok(AccountReply::Authenticated { account, grant })
+            }
+            AccountCommand::Login(request) if request.password == "secret-test" => {
+                Ok(AccountReply::Authenticated { account, grant })
+            }
+            AccountCommand::Validate(_) => Ok(AccountReply::Validated(account)),
+            AccountCommand::Logout(_) => Ok(AccountReply::LoggedOut),
+            _ => Err(GatewayFailure::InvalidCredentials),
+        }
+    }
 }
 
 type Socket =

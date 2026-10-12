@@ -498,6 +498,8 @@ pub enum HelperInvocation {
     Account(crate::helper::account_gateway::AccountCommand),
     Authenticate(crate::auth::account::AuthRequest),
     Operation {
+        #[serde(default)]
+        grant: Option<crate::accounts::grants::SessionGrant>,
         request: Box<HelperRequest>,
         ticket: Option<crate::helper::security::IdentityTicket>,
         policy: Option<Box<crate::helper::policy::PolicySnapshot>>,
@@ -569,6 +571,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 .map_err(|_| TealDriveError::HelperStdoutFailed)
         }
         HelperInvocation::Operation {
+            grant,
             mut request,
             ticket,
             policy,
@@ -580,11 +583,58 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 gid: request.gid,
             };
             let config = if elevated {
-                let ticket = ticket.ok_or(TealDriveError::PermissionDenied)?;
-                crate::helper::security::verify(&ticket, &user)
+                let config = crate::helper::security::trusted_config()
                     .map_err(|_| TealDriveError::PermissionDenied)?;
-                crate::helper::security::trusted_config()
-                    .map_err(|_| TealDriveError::PermissionDenied)?
+                if config.web_accounts.enabled {
+                    let Some(grant) = grant else {
+                        return write_helper_response(
+                            writer,
+                            &HelperResponse::permission_denied(
+                                &request,
+                                "Session authorization required.",
+                            ),
+                        );
+                    };
+                    let reply = crate::helper::account_gateway::execute(
+                        crate::helper::account_gateway::AccountCommand::Validate(grant),
+                    );
+                    let Ok(crate::helper::account_gateway::AccountReply::Validated(account)) =
+                        reply
+                    else {
+                        return write_helper_response(
+                            writer,
+                            &HelperResponse::permission_denied(
+                                &request,
+                                "Session authorization expired or revoked.",
+                            ),
+                        );
+                    };
+                    if account.username != user.username
+                        || account.uid != user.uid
+                        || account.gid != user.gid
+                        || !config
+                            .roots
+                            .iter()
+                            .filter(|root| root.root_id == request.root_id)
+                            .any(|root| root.base_path.starts_with(&account.home))
+                    {
+                        return write_helper_response(
+                            writer,
+                            &HelperResponse::permission_denied(
+                                &request,
+                                "Root is outside the authenticated home.",
+                            ),
+                        );
+                    }
+                } else {
+                    if grant.is_some() {
+                        return Err(TealDriveError::PermissionDenied);
+                    }
+                    let ticket = ticket.ok_or(TealDriveError::PermissionDenied)?;
+                    crate::helper::security::verify(&ticket, &user)
+                        .map_err(|_| TealDriveError::PermissionDenied)?;
+                }
+                config
             } else {
                 crate::config::AppConfig {
                     roots: allowed_roots_from_env(),

@@ -63,8 +63,20 @@ where
         }
     };
 
+    let account = match crate::auth::api::validated_session_account(&state, &session).await {
+        Ok(account) => account,
+        Err(crate::helper::account_gateway::GatewayFailure::Unavailable) => {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
     let cfg = state.config.load();
-    if !cfg.account_policy.is_admin(&session.username) {
+    if !cfg.account_policy.is_admin(&session.username)
+        || account.is_some_and(|account| {
+            account.kind != crate::accounts::store::AccountKind::Linux
+                || account.role != crate::accounts::store::Role::Admin
+        })
+    {
         return (
             StatusCode::FORBIDDEN,
             Json(AdminErrorResponse {
@@ -129,8 +141,20 @@ where
         }
     };
 
+    let account = match crate::auth::api::validated_session_account(&state, &session).await {
+        Ok(account) => account,
+        Err(crate::helper::account_gateway::GatewayFailure::Unavailable) => {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
     let cfg = state.config.load();
-    if !cfg.account_policy.is_admin(&session.username) {
+    if !cfg.account_policy.is_admin(&session.username)
+        || account.is_some_and(|account| {
+            account.kind != crate::accounts::store::AccountKind::Linux
+                || account.role != crate::accounts::store::Role::Admin
+        })
+    {
         return (
             StatusCode::FORBIDDEN,
             Json(AdminErrorResponse {
@@ -251,8 +275,20 @@ where
         }
     };
 
+    let account = match crate::auth::api::validated_session_account(&state, &session).await {
+        Ok(account) => account,
+        Err(crate::helper::account_gateway::GatewayFailure::Unavailable) => {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+    };
     let cfg = state.config.load();
-    if !cfg.account_policy.is_admin(&session.username) {
+    if !cfg.account_policy.is_admin(&session.username)
+        || account.is_some_and(|account| {
+            account.kind != crate::accounts::store::AccountKind::Linux
+                || account.role != crate::accounts::store::Role::Admin
+        })
+    {
         return (
             StatusCode::FORBIDDEN,
             Json(AdminErrorResponse {

@@ -219,13 +219,21 @@ pub fn enter_identity(user: &UserContext) -> io::Result<()> {
     if user.uid == 0 {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
-    let actual = account(&user.username).map_err(io::Error::other)?;
+    let actual = if unsafe { libc::geteuid() } == 0
+        && trusted_config().is_ok_and(|config| config.web_accounts.enabled)
+    {
+        // Logical virtual names were bound to this OS UID by the root gateway.
+        account_by_uid(user.uid)
+    } else {
+        account(&user.username)
+    }
+    .map_err(io::Error::other)?;
     if actual.uid != user.uid || actual.primary_gid != user.gid {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
     unsafe {
         if libc::geteuid() == 0 {
-            let name = CString::new(user.username.as_str()).map_err(io::Error::other)?;
+            let name = CString::new(actual.username.as_str()).map_err(io::Error::other)?;
             if libc::initgroups(name.as_ptr(), user.gid) != 0
                 || libc::setresgid(user.gid, user.gid, user.gid) != 0
                 || libc::setresuid(user.uid, user.uid, user.uid) != 0

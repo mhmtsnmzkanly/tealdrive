@@ -106,3 +106,5 @@ Yeni aşama: [Web kimliği/hesap yönetimi raporu](AUTH_MANAGEMENT_REPORT.md), [
 
 
 Güncel tamamlanan aşama: [Admin erişimi, ilk kayıt onayı ve UI raporu](ADMIN_ACCESS_REPORT.md). Önceki AUTH_MANAGEMENT_REPORT.md'de bekleyen public admin kabulü bu raporla tamamlandı.
+
+Güncel otomatik home aşaması: [HOME_PROFILE_REPORT.md](HOME_PROFILE_REPORT.md). Kullanıcı politika yönetimi ve sonraki PLAN aşamaları henüz tamamlanmadı.

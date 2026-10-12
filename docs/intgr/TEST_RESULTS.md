@@ -251,3 +251,14 @@ Final normal Cargo package **544 unit passed,1 explicit PAM ignored**, normal in
 ## 2026-10-12 — Home çözümleyicisinin ilk güvenlik katmanı
 
 Dört yeni test: doğrulanmış home kullanımı ve template kısıtlarının korunması; legacy profili sessiz genişletme ve başka kullanıcı kökü reddi; ayrılmış sistem home'ları/inaktif hesap reddi; sanal kota tavanı ve eksik allocation=0. `cargo test --locked --quiet`: **548 unit passed, 1 explicit PAM ignored**, normal integration tests passed. Bu aşamada root/PAM/browser opt-in kabulü çalıştırılmadı; yeni otomatik home akışı henüz uçtan uca bağlı değildir. Canlı ve aday binary değiştirilmedi.
+
+
+## 2026-10-12 — Otomatik home public API ve Chromium/PAM kabulü
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` passed. Üç ayrı geçici gerçek Linux UID/home; Root template config'te static roots yok. SDK session tek `home` kökü, gerçek helper read fixture, açık proje .env, hidden .ssh metadata/read=NOT_FOUND ve olmayan dosyayla aynı kod; HTTP dosya indirme; cross-home traversal reddi passed. Public admin onay/suspend/enable, canlı socket ve eski cookie revoke, PAM→web password ve UI önceki kabulü aynı dynamic-home konfigürasyonunda tekrar geçti. Driver audit actor/target/no-secret + API Root config byte-identical + fixture OS/DB/home cleanup passed.
+
+İlk .env kabul denemesi existing warn_read pattern nedeniyle POLICY_DENIED verdi; fixture migration iki legacy pattern listesinde açık değişiklik yapılarak düzeltildi. Güvenlik kontrolü test için kaldırılmadı. Sonuç eski hidden/sensitive kuralların sessiz değişmediğini de doğrular.
+
+Aday 127.0.0.1:13101 güncel binary'lerle legacy config'te yeniden başlatıldı; `tools/dev/check.sh live ui-auth` passed. Rust1.85.0 all-target check passed. Root/PAM/Chromium bu kabulde gerçekten çalıştırıldı; OS virtual provisioning/native quota/undo bu testin kapsamında değildir.
+
+Son normal paket: **550 unit passed,1 explicit PAM ignored**; normal integration tests passed. Clippy all-targets -D warnings, fmt, diff ve Rust1.85.0 all-target check passed. Yeni test automatic mode için web-account zorunluluğu/static root karıştırma/invalid root ID/runtime PATCH reddi/serde roundtrip'i ve iki ayrı home'un aynı root ID ile snapshot paylaşamamasını doğrular.

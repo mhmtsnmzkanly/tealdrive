@@ -106,7 +106,34 @@ const errorCodes = {
   VALIDATIONERROR: "VALIDATION_FAILED",
   INTERNALERROR: "INTERNAL_ERROR",
 };
-const canonicalCode = (code) => errorCodes[code] ?? code ?? "OPERATION_FAILED";
+const canonicalCode = (code) => {
+  const normalized =
+    typeof code === "string" ? code.toUpperCase() : "OPERATION_FAILED";
+  return errorCodes[normalized] ?? normalized;
+};
+const httpError = (response, data) =>
+  new TealDriveError(
+    canonicalCode(
+      data?.code ??
+        {
+          400: "INVALID_ARGUMENT",
+          401: "AUTH_REQUIRED",
+          403: "PERMISSION_DENIED",
+          404: "NOT_FOUND",
+          409: "CONFLICT",
+          413: "FILE_TOO_LARGE",
+          429: "RATE_LIMITED",
+          503: "SERVICE_UNAVAILABLE",
+        }[response.status] ??
+        "HTTP_ERROR",
+    ),
+    {
+      status: response.status,
+      retryable: [429, 502, 503, 504].includes(response.status),
+      requestId: data?.request_id ?? null,
+      params: data?.params ?? {},
+    },
+  );
 const sortKeys = {
   name: "Name",
   modifiedAt: "Modified",
@@ -674,16 +701,7 @@ export class TealDriveClient {
     });
     const data =
       response.status === 204 ? null : await response.json().catch(() => null);
-    if (!response.ok)
-      throw new TealDriveError(
-        data?.code ??
-          (response.status === 401
-            ? "AUTH_REQUIRED"
-            : response.status === 403
-              ? "PERMISSION_DENIED"
-              : "HTTP_ERROR"),
-        { status: response.status },
-      );
+    if (!response.ok) throw httpError(response, data);
     return publicValue(data);
   }
   _featureHttp(feature, url, method, body, auth) {
@@ -1236,7 +1254,10 @@ export class TealDriveClient {
       credentials: "same-origin",
       signal: options.signal,
     });
-    if (!response.ok) fail("DOWNLOAD_FAILED", { status: response.status });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw httpError(response, data);
+    }
     return response;
   }
   async _upload(options = {}) {

@@ -45,3 +45,7 @@ Yeni audit varsayılanı retention_hours=504. Eski retention_days okunur ve aç�
 ## D011 — Root config ve çalışma overlay'i
 
 Migration kırılmaması için explicit --runtime-config split modunu açar; Wizard yeni kurulumda bunu kullanacak. Root config tam AppConfig ve trust/parent ownership denetimli, settings kısıtlı ConfigPatch. Güvenlik tavanı her PATCH/persist'te root dosyasından yeniden okunur; runtime dosyası root alanı ekleyemez. Feature/limit/session/search/helper/audit root tavanı aşılmaz; login limiter yalnızca sıkılaşır. Root log dizinini seçer, admin aynı dizinde ad seçebilir. İki dosya reload'da atomik snapshot olarak değerlendirilir; bind değişimi restart gerektirir. Legacy tek dosya migration için korunur ve split güvenliği sağlıyor diye sunulmaz.
+
+## D012 — HTTP ve WS SDK hata kodları
+
+İndirme hata yanıtı diğer SDK yöntemleriyle aynı TealDriveError sözleşmesine çevrilir; tek DOWNLOAD_FAILED altında kaybolmaz. 401 AUTH_REQUIRED, 403 PERMISSION_DENIED, 404 NOT_FOUND, 429 RATE_LIMITED ve 503 SERVICE_UNAVAILABLE; sunucunun açık code alanı uppercase canonical forma çevrilir. Retryable bilgisi tekrar deneme önerisidir; SDK mutasyonu kendiliğinden tekrar etmez.

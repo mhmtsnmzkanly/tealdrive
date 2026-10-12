@@ -101,3 +101,8 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - cargo test --test runtime_settings -- --ignored: root gerektiren gerçek dosya testi passed; root dosyası byte-identical, runtime0600, restart roundtrip, forbidden PATCH disk/state değiştirmiyor, bozuk reload mevcut admin/state'i koruyor, root admin değişikliği yükleniyor, bind değişikliği restart gerektiriyor, disabled retention TOML'de 0 ile kalıcı.
 - Mevcut config unit: 6 passed; SDK/browser permission/WS auth regression: 3 passed.
 - cargo clippy --locked --all-targets -- -D warnings: passed.
+
+## 2026-10-12 — SDK HTTP hata sözleşmesi
+
+- SDK deterministic regression: passed; indirme query uyumluluğuna ek olarak 401/403/404/429/503 yanıtlarında ayrı TealDriveError.code/status kontrol edildi.
+- Bu düzeltme gerçek browser'da gizli path'in indirme testinden elde edildi; genel DOWNLOAD_FAILED geliştirici için yetersizdi.

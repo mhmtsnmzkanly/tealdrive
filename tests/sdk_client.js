@@ -144,6 +144,7 @@ globalThis.crypto = webcrypto;
     }
   }
   let quota = { limit_bytes: 100, used_bytes: 80 };
+  let downloadStatus = 200;
   const fetch = async (url, options) => {
     if (url === "/api/session")
       return {
@@ -164,7 +165,9 @@ globalThis.crypto = webcrypto;
       assert.equal(query.get("root_id"), "home");
       assert.equal(query.get("path"), "download.txt");
       assert.equal(query.has("relative_path"), false);
-      return new Response("downloaded");
+      return new Response(downloadStatus === 200 ? "downloaded" : "", {
+        status: downloadStatus,
+      });
     }
     if (url.startsWith("/api/quota"))
       return { ok: true, status: 200, json: async () => quota };
@@ -256,6 +259,20 @@ globalThis.crypto = webcrypto;
   assert.equal(api._pending.size, 0);
   const downloaded = await api.files.download({ path: "download.txt" });
   assert.equal(await downloaded.text(), "downloaded");
+  for (const [status, code] of [
+    [401, "AUTH_REQUIRED"],
+    [403, "PERMISSION_DENIED"],
+    [404, "NOT_FOUND"],
+    [429, "RATE_LIMITED"],
+    [503, "SERVICE_UNAVAILABLE"],
+  ]) {
+    downloadStatus = status;
+    await assert.rejects(
+      api.files.download({ path: "download.txt" }),
+      (e) => e.code === code && e.status === status,
+    );
+  }
+  downloadStatus = 200;
   const progress = [];
   const file = new Blob(["example"]);
   Object.defineProperty(file, "name", { value: "example.txt" });

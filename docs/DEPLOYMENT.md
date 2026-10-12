@@ -25,7 +25,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo build --release --locked
 ```
 
-Önce `deployment/config.toml` ve `deployment/helper.toml` içindeki alan adını ve
+Önce `docs/deployment/config.toml` ve `docs/deployment/helper.toml` içindeki alan adını ve
 `admin_users` listesini düzenle. İki dosyada root id ve veri yolu aynı olmalı.
 Helper dosyası izin tavanıdır; bir özelliği açmak için ikisinde de izin gerekir.
 
@@ -38,8 +38,8 @@ sudo install -d -o root -g root -m 0755 /usr/local/libexec /etc/tealdrive
 sudo install -d -o tealdrive -g tealdrive -m 0700 /var/lib/tealdrive
 sudo install -o root -g root -m 0755 target/release/tealdrive-server /usr/local/bin/tealdrive-server
 sudo install -o root -g root -m 4755 target/release/tealdrive-helper /usr/local/libexec/tealdrive-helper
-sudo install -o tealdrive -g tealdrive -m 0600 deployment/config.toml /var/lib/tealdrive/config.toml
-sudo install -o root -g root -m 0600 deployment/helper.toml /etc/tealdrive/helper.toml
+sudo install -o tealdrive -g tealdrive -m 0600 docs/deployment/config.toml /var/lib/tealdrive/config.toml
+sudo install -o root -g root -m 0600 docs/deployment/helper.toml /etc/tealdrive/helper.toml
 sudo sh -c 'umask 077; head -c 32 /dev/urandom > /etc/tealdrive/helper.key'
 sudo install -d -o alice -g "$(id -gn alice)" -m 0700 /srv/tealdrive
 ```
@@ -52,7 +52,7 @@ root'a ait olmalı ve grup/diğer kullanıcılar tarafından yazılmamalı.
 Debian/Ubuntu için örnek PAM dosyası:
 
 ```sh
-sudo install -o root -g root -m 0644 deployment/pam.tealdrive /etc/pam.d/tealdrive
+sudo install -o root -g root -m 0644 docs/deployment/pam.tealdrive /etc/pam.d/tealdrive
 ```
 
 Diğer dağıtımlarda `common-auth` / `common-account` bulunmayabilir; o sunucunun
@@ -67,7 +67,7 @@ vermek gerekmez. Hiçbir kullanıcı için helper Unix dosya izinlerini aşmaz.
 
 ```sh
 /usr/local/bin/tealdrive-server --config /var/lib/tealdrive/config.toml --check-config
-sudo install -o root -g root -m 0644 deployment/tealdrive.service /etc/systemd/system/tealdrive.service
+sudo install -o root -g root -m 0644 docs/deployment/tealdrive.service /etc/systemd/system/tealdrive.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now tealdrive
 ```

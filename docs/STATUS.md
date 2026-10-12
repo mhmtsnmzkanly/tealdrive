@@ -88,7 +88,7 @@ Bu ilk kısıt daha sonra kaldırıldı; aşağıdaki sunucu testi bu eksikleri 
   audit sink sağlanmıyor. MFA/şifre yenileme PAM sohbetleri desteklenmiyor.
 - Ayrı Rust 1.85 toolchain, tarayıcıda görsel kullanım ve üretim yük testi çalıştırılmadı.
 
-Kurulum dosyaları [deployment/](../deployment/) içinde. Alan adı, kullanıcı,
+Kurulum dosyaları [deployment/](deployment/) içinde. Alan adı, kullanıcı,
 PAM stack'i ve dosya izinleriyle birlikte yapılacak kabul testi
 [DEPLOYMENT.md](DEPLOYMENT.md) içinde adım adım anlatıldı.
 

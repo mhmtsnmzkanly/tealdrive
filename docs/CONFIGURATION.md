@@ -1,7 +1,7 @@
 # Configuration
 
-Use [deployment/config.toml](../deployment/config.toml) and
-[deployment/helper.toml](../deployment/helper.toml) as tested examples. TOML and JSON
+Use [docs/deployment/config.toml](deployment/config.toml) and
+[docs/deployment/helper.toml](deployment/helper.toml) as tested examples. TOML and JSON
 are accepted. Omitted fields use defaults; unknown fields are rejected. Roots require
 all fields shown in the examples except optional `quota_bytes`.
 
@@ -11,7 +11,7 @@ compiled defaults. An explicit missing/invalid file is an error. The selected pa
 is retained for reload, file watching and UI persistence.
 
 ```sh
-tealdrive-server --config deployment/config.toml --check-config
+tealdrive-server --config docs/deployment/config.toml --check-config
 tealdrive-server --config /var/lib/tealdrive/config.toml \
   --helper-bin /usr/local/libexec/tealdrive-helper
 ```

@@ -21,11 +21,11 @@ cargo build --release --locked
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 cargo fmt --check
-./target/release/tealdrive-server --config deployment/config.toml --check-config
+./target/release/tealdrive-server --config docs/deployment/config.toml --check-config
 ```
 
 See [Caddy deployment and acceptance tests](docs/DEPLOYMENT.md) before starting
-multi-user mode. Example files are under [deployment/](deployment/).
+multi-user mode. Example files are under [docs/deployment/](docs/deployment/).
 
 ## Current behavior
 
@@ -58,3 +58,7 @@ larger files; the older WebSocket download path is bounded to 768 KiB.
 Deployment readiness is limited by the verification described in the report:
 real PAM credentials, setuid identity switching and the Caddy/browser acceptance
 path must be exercised on the target host.
+
+## Planned development
+
+The next architecture and component plans are in [docs/intgr](docs/intgr/README.md). These are proposed features, separately from the current behavior above.

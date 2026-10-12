@@ -2,9 +2,9 @@
 fn deployment_examples_validate_and_share_roots() {
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let server =
-        tealdrive::config::AppConfig::from_file(base.join("deployment/config.toml")).unwrap();
+        tealdrive::config::AppConfig::from_file(base.join("docs/deployment/config.toml")).unwrap();
     let helper =
-        tealdrive::config::AppConfig::from_file(base.join("deployment/helper.toml")).unwrap();
+        tealdrive::config::AppConfig::from_file(base.join("docs/deployment/helper.toml")).unwrap();
     assert_eq!(server.roots, helper.roots);
     assert!(server.server.behind_tls_proxy);
     assert!(server.session.secure_cookies);

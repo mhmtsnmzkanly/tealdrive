@@ -10,3 +10,7 @@ pub const POLICY_JS: &str = include_str!("static/policy.js");
 pub const VIRTUAL_JS: &str = include_str!("static/virtual.js");
 
 pub const FILES_JS: &str = include_str!("static/files.js");
+
+pub const I18N_JS: &str = include_str!("static/i18n.js");
+pub const LOCALE_TR: &str = include_str!("locales/tr.json");
+pub const LOCALE_EN: &str = include_str!("locales/en.json");

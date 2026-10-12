@@ -39,11 +39,9 @@ const fs = require("node:fs");
       .filter({ hasText: folder })
       .click();
     await prompt("#newFileBtn", "edit.txt");
-    let row = page
-      .locator("#fileTableBody tr")
-      .filter({
-        has: page.locator(".item-name").filter({ hasText: "edit.txt" }),
-      });
+    let row = page.locator("#fileTableBody tr").filter({
+      has: page.locator(".item-name").filter({ hasText: "edit.txt" }),
+    });
     await row.getByRole("button", { name: "Edit", exact: true }).click();
     await page.waitForSelector("#editorModal:not(.hidden)");
     await page.fill("#editorTextarea", "first UI content");
@@ -54,11 +52,9 @@ const fs = require("node:fs");
       () => document.querySelector("#wsStatusText").textContent === "Connected",
     );
     await page.locator("#breadcrumbs").filter({ hasText: folder }).waitFor();
-    row = page
-      .locator("#fileTableBody tr")
-      .filter({
-        has: page.locator(".item-name").filter({ hasText: "edit.txt" }),
-      });
+    row = page.locator("#fileTableBody tr").filter({
+      has: page.locator(".item-name").filter({ hasText: "edit.txt" }),
+    });
     await row.getByRole("button", { name: "Edit", exact: true }).click();
     await page.waitForSelector("#editorModal:not(.hidden)");
     if ((await page.inputValue("#editorTextarea")) !== "first UI content")
@@ -117,6 +113,11 @@ const fs = require("node:fs");
     await page.fill("#searchInput", "");
     await page.evaluate(
       async ({ folder }) => {
+        await testApi.files.createText({
+          rootId: "home",
+          path: "Cancel",
+          content: "User content remains untouched",
+        });
         await testApi.files.trash.move({ rootId: "home", path: folder });
         testApi.disconnect();
       },
@@ -127,9 +128,56 @@ const fs = require("node:fs");
       () =>
         !document.querySelector("#breadcrumbs").textContent.includes("ui-sdk-"),
     );
+    await page.selectOption("#uiLanguage", "tr");
+    await page.waitForFunction(() => document.documentElement.lang === "tr");
+    if (!(await page.textContent("#newFolderBtn")).includes("Yeni klasör"))
+      throw Error("Turkish UI was not rendered");
+    await page
+      .locator("#fileTableBody .item-name")
+      .filter({ hasText: "Cancel" })
+      .waitFor();
+    await page.click("#personalPolicyBtn");
+    const policy = page.locator("dialog.policy-editor");
+    await policy
+      .getByRole("button", { name: "Kısıtlama ekle", exact: true })
+      .click();
+    if ((await policy.locator("input[type=text]").count()) !== 1)
+      throw Error("Missing policy input");
+    await page.evaluate(() => TealDriveI18n.setLanguage("en", true));
+    if ((await policy.locator("input[type=text]").count()) !== 1)
+      throw Error("Translation removed a form control");
+    await policy.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.selectOption("#uiLanguage", "tr");
+    await page.waitForFunction(() => document.documentElement.lang === "tr");
+    await page.reload();
+    await page.waitForFunction(() => document.documentElement.lang === "tr");
+    if (!(await page.textContent("#newFolderBtn")).includes("Yeni klasör"))
+      throw Error("User language was not restored");
+    const stored = await page.evaluate(() =>
+      Object.values(localStorage).join(" "),
+    );
+    if (
+      users.some(
+        (account) =>
+          stored.includes(account.password) ||
+          stored.includes(account.linuxPassword),
+      )
+    )
+      throw Error("A credential reached browser storage");
+    await page.click("#logoutBtn");
+    await page.waitForSelector("#loginModal:not(.hidden)");
+    await page.fill("#usernameInput", users[0].username);
+    await page.fill("#passwordInput", users[0].password);
+    await page.locator("#loginForm button[type=submit]").click();
+    await page.waitForSelector("#loginModal.hidden", { state: "attached" });
+    await page.waitForFunction(() => document.documentElement.lang === "en");
     console.log(
       JSON.stringify({
         uiSharedSdk: true,
+        trEnUi: true,
+        perAccountLanguage: true,
+        untranslatedUserNames: true,
+        preservedLocalizedFormControls: true,
         singleAuthSocket: true,
         crudAndUpload: true,
         managedReloadState: true,

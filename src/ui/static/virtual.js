@@ -1,3 +1,4 @@
+import { t, text as uiText } from "/static/i18n.js";
 /** Virtual-account dialogs. Root decides OS identities, pool and lifecycle policy. */
 export async function openVirtualDialog({ client, account, onSaved }) {
   const budget = await client.admin.quota.getBudget();
@@ -12,14 +13,20 @@ export async function openVirtualDialog({ client, account, onSaved }) {
     account ? "Change virtual quota" : "Create virtual user",
   );
   dialog.addEventListener("keydown", (event) => event.stopPropagation());
-  const node = (tag, text) => {
+  const node = (tag, text, params = {}) => {
     const n = document.createElement(tag);
-    if (text !== undefined) n.textContent = text;
+    if (text !== undefined) {
+      const caption = document.createElement("span");
+      uiText(caption, text, params);
+      n.append(caption);
+    }
     return n;
   };
   const title = node(
       "h3",
-      account ? `Quota · ${account.username}` : "Create virtual user",
+      account
+        ? t("Quota · {username}", { username: account.username })
+        : "Create virtual user",
     ),
     form = node("form"),
     error = node("p"),
@@ -34,7 +41,8 @@ export async function openVirtualDialog({ client, account, onSaved }) {
     field.type = type;
     field.required = true;
     field.value = value ?? "";
-    field.setAttribute("aria-label", label);
+    field.setAttribute("aria-label", t(label));
+    field.dataset.i18nAriaLabel = label;
     wrapper.append(field);
     form.append(wrapper);
     fields[key] = field;
@@ -67,7 +75,17 @@ export async function openVirtualDialog({ client, account, onSaved }) {
   form.append(
     node(
       "p",
-      `Assigned ${budget.limitBytes} bytes; reserved ${budget.reservedBytes}; available ${budget.remainingBytes}. ${native ? "Kernel quota counts allocated blocks and metadata. New quotas must be multiples of 1024 bytes." : "Usage is measured by the helper."}`,
+      t("Assigned {limit} bytes; reserved {reserved}; available {available}.", {
+        limit: budget.limitBytes,
+        reserved: budget.reservedBytes,
+        available: budget.remainingBytes,
+      }) +
+        " " +
+        t(
+          native
+            ? "Kernel quota counts allocated blocks and metadata. New quotas must be multiples of 1024 bytes."
+            : "Usage is measured by the helper.",
+        ),
     ),
   );
   form.append(
@@ -123,12 +141,13 @@ export async function openVirtualDialog({ client, account, onSaved }) {
       close();
       await onSaved(result);
     } catch (failure) {
-      error.textContent =
+      error.textContent = t(
         failure.code === "QUOTA_EXCEEDED"
           ? "The allocation exceeds available budget or existing usage."
           : failure.code === "CONFLICT"
             ? "The account changed. Close and refresh before retrying."
-            : "Request failed: " + failure.message;
+            : t("Request failed: ") + t(failure.message),
+      );
     } finally {
       busy = false;
       for (const field of form.querySelectorAll("input,button"))

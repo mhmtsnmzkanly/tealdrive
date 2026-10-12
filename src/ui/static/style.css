@@ -771,3 +771,5 @@ body {
 .policy-editor button { margin:4px; }
 
 .quota-warning { padding: 12px 24px; background: #78350f; color: #fef3c7; border-bottom: 1px solid #b45309; }
+
+.language-picker {display:flex;align-items:center;gap:6px;font-size:.8rem;} .language-picker select {background:var(--slate-800);color:var(--text-main);border:1px solid var(--slate-700);border-radius:4px;padding:4px;}

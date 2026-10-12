@@ -3,6 +3,11 @@
 (function() {
   'use strict';
 
+  const t = (value,params={}) => window.TealDriveI18n?.t(value,params) ?? value.replace(/\{(\w+)\}/g,(match,key)=>String(params[key]??match));
+  const label = (node,value,params={}) => {
+    node.textContent=t(value,params);
+    if(node.dataset) {node.dataset.i18n=value;node.dataset.i18nValues=JSON.stringify(params);}
+  };
   // State
   let state = {
     session: null,
@@ -135,7 +140,7 @@
   let filesModule = null;
   async function connectWebSocket() {
     el.wsStatusDot.className = 'status-dot';
-    el.wsStatusText.textContent = 'Connecting...';
+    el.wsStatusText.textContent = t('Connecting...');
     try {
       const client = await getAuthClient();
       const info = client.getInfo();
@@ -148,7 +153,7 @@
       state.currentPath = (location.currentDirectory ?? '/').replace(/^\//,'');
       el.rootSelect.value = state.currentRoot;
       el.wsStatusDot.className = 'status-dot connected';
-      el.wsStatusText.textContent = 'Connected';
+      el.wsStatusText.textContent = t('Connected');
       loadDirectory(state.currentPath);
       client.files.quota.get().catch(()=>{});
     } catch (error) { state.wsConnected=false; showToast(error.message,'error'); }
@@ -192,10 +197,10 @@
     state.serverShuttingDown = true;
     state.wsConnected = false;
     el.wsStatusDot.className = 'status-dot disconnected';
-    el.wsStatusText.textContent = 'Server shutting down';
-    el.shutdownTitle.textContent = 'Server is shutting down';
+    el.wsStatusText.textContent = t('Server shutting down');
+    el.shutdownTitle.textContent = t('Server is shutting down');
     const grace = Number.isFinite(graceSeconds) && graceSeconds >= 0 ? graceSeconds : 30;
-    el.shutdownMessage.textContent = `New actions are paused. Running operations have up to ${grace} seconds to finish; incomplete uploads will need to be retried. Keep a copy of any unsaved changes. Sign in again after the server restarts.`;
+    el.shutdownMessage.textContent = t('New actions are paused. Running operations have up to {seconds} seconds to finish; incomplete uploads will need to be retried. Keep a copy of any unsaved changes. Sign in again after the server restarts.',{seconds:grace});
     if (firstNotice) {
       state.shutdownPreviousFocus = document.activeElement;
       el.shutdownModal.classList.remove('hidden');
@@ -217,7 +222,7 @@
       el.shutdownModal.classList.add('hidden');
       await checkSession();
     } catch(error) {
-      el.shutdownMessage.textContent = 'The server is still unavailable. Keep this page open to preserve unsaved changes and try again shortly.';
+      el.shutdownMessage.textContent = t('The server is still unavailable. Keep this page open to preserve unsaved changes and try again shortly.');
     } finally {
       el.shutdownRetryBtn.disabled = false;
     }
@@ -250,7 +255,7 @@
     for (let i = 0; i < parts.length; i++) {
       const sep = document.createElement('span');
       sep.className = 'breadcrumb-sep';
-      sep.textContent = '/';
+      sep.textContent = t('/');
       el.breadcrumbs.appendChild(sep);
 
       accum += (accum ? '/' : '') + parts[i];
@@ -274,8 +279,8 @@
 
     if(data.has_more && data.next_cursor) {
       const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;
-      const previous=document.createElement('button');previous.textContent='First page';previous.onclick=()=>loadDirectory(state.currentPath);
-      const next=document.createElement('button');next.textContent='Next page';next.onclick=()=>loadDirectory(state.currentPath,data.next_cursor);
+      const previous=document.createElement('button');previous.textContent=t('First page');previous.onclick=()=>loadDirectory(state.currentPath);
+      const next=document.createElement('button');next.textContent=t('Next page');next.onclick=()=>loadDirectory(state.currentPath,data.next_cursor);
       cell.append(previous,next);row.appendChild(cell);el.fileTableBody.appendChild(row);
     }
     // Sort: directories first, then alphabetical
@@ -456,7 +461,7 @@
   function createActionButton(text, onClick, extraClass = '') {
     const btn = document.createElement('button');
     btn.className = `btn btn-secondary btn-sm ${extraClass}`;
-    btn.textContent = text;
+    label(btn,text);
     btn.onclick = (e) => {
       e.stopPropagation();
       onClick();
@@ -566,7 +571,7 @@
         el.editorModal.classList.add('hidden');
         showToast('File saved','success');loadDirectory(state.currentPath);
       } catch(error) {
-        el.editorMetaHint.textContent=error.message;
+        el.editorMetaHint.textContent=t(error.message);
         showToast(error.message,'error');
       } finally {el.editorSaveBtn.disabled=false;}
     };
@@ -643,7 +648,7 @@
   }
 
   function deletePermanentlyFromTrash(trashId) {
-    if (!confirm('Are you sure you want to permanently delete this item? This action cannot be undone.')) return;
+    if (!confirm(t('Are you sure you want to permanently delete this item? This action cannot be undone.'))) return;
     runFileAction('DeletePermanently', {
       root_id: state.currentRoot,
       relative_path: `.tealdrive-trash/files/${trashId}`,
@@ -679,7 +684,7 @@
     const removed=(state.chmodOriginalMode&0o555)&~mode;
     if(removed)messages.push(state.chmodIsDirectory?'Removing read or traversal permissions may prevent services from accessing this directory.':'Removing read or execute permissions may prevent applications from using this file.');
     if(state.chmodOriginalMode&0o7000)messages.push('Special permission bits will be removed; this panel cannot set them.');
-    el.chmodWarning.textContent=messages.join(' ');
+    el.chmodWarning.textContent=messages.map(message=>t(message)).join(' ');
     return mode;
   }
   function syncChmodFromCheckboxes() {
@@ -701,9 +706,9 @@
 
   // --- Prompts & Modals ---
   let promptCallback = null;
-  function openPrompt(title, label, defaultValue, callback) {
-    el.promptTitle.textContent = title;
-    el.promptLabel.textContent = label;
+  function openPrompt(title, promptLabel, defaultValue, callback) {
+    label(el.promptTitle,title);
+    label(el.promptLabel,promptLabel);
     el.promptInput.value = defaultValue || '';
     promptCallback = callback;
     el.promptModal.classList.remove('hidden');
@@ -749,6 +754,9 @@
   }
 
   function onSessionActive() {
+    const uiAccount=state.session.account_id??String(state.session.uid);
+    if(document.documentElement)document.documentElement.dataset.uiAccount=uiAccount;
+    window.TealDriveI18n?.bindAccount(uiAccount).catch(()=>{});
     getAuthClient().catch(()=>{});
     el.loginModal.classList.add('hidden');
     el.userInfo.classList.remove('hidden');
@@ -797,7 +805,7 @@
         authClient.files.observeQuotaWarning(warning=>{
           const banner = document.getElementById('quotaWarning');
           banner.classList[warning.active?'remove':'add']('hidden');
-          banner.textContent = warning.active ? `Storage usage is ${Math.round(warning.quota?.usagePercent ?? 0)}%. Free space to keep uploads and edits available.${warning.status==='unknown'?' Current usage could not be refreshed.':''}` : '';
+          banner.textContent = warning.active ? t('Storage usage is {percent}%. Free space to keep uploads and edits available.',{percent:Math.round(warning.quota?.usagePercent ?? 0)})+(warning.status==='unknown'?' '+t('Current usage could not be refreshed.'):'') : '';
         });
       }
     }
@@ -807,7 +815,7 @@
     document.getElementById('manageAccountsBtn').classList[info?.authentication?.accountManagement && state.session?.role==='admin'?'remove':'add']('hidden');
     document.getElementById('accountSecurityBtn').classList[info?.authentication?.passwordChange?'remove':'add']('hidden');
     document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
-    if (!enrolling) document.getElementById('passwordLabel').textContent = webPasswords?'Web password':'Password';
+    if (!enrolling) label(document.getElementById('passwordLabel'),webPasswords?'Web password':'Password');
     return authClient;
   }
   let accountManagement = null;
@@ -844,14 +852,14 @@
     const newPassword=document.getElementById('accountNewPassword').value;
     const confirmed=document.getElementById('accountConfirmPassword').value;
     for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
-    if(newPassword!==confirmed){document.getElementById('accountSecurityError').textContent='Passwords do not match.';return;}
+    if(newPassword!==confirmed){document.getElementById('accountSecurityError').textContent=t('Passwords do not match.');return;}
     const button=event.submitter; if(button)button.disabled=true;
     try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.changePassword({currentPassword,newPassword}); closeAccountSecurity(); location.reload(); }
     catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
     finally{if(button)button.disabled=false;}
   };
   document.getElementById('accountRevokeBtn').onclick=async(event)=>{
-    if(!confirm('Disable your web access and sign out all web sessions? Your Linux account and files are retained. Re-registration requires your Linux password and remains subject to administrator rules.'))return;
+    if(!confirm(t('Disable your web access and sign out all web sessions? Your Linux account and files are retained. Re-registration requires your Linux password and remains subject to administrator rules.')))return;
     event.target.disabled=true;
     try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.revokeSelf(); closeAccountSecurity(); location.reload(); }
     catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
@@ -875,8 +883,8 @@
         el.webPasswordGroup.classList.remove('hidden');
         el.webPasswordConfirm.required = true;
         el.passwordInput.autocomplete = 'new-password';
-        document.getElementById('passwordLabel').textContent='New web password';
-        el.loginError.textContent = 'Linux identity verified. Choose a separate web password (at least 12 characters), then confirm it below.';
+        label(document.getElementById('passwordLabel'),'New web password');
+        el.loginError.textContent = t('Linux identity verified. Choose a separate web password (at least 12 characters), then confirm it below.');
         el.loginError.classList.remove('hidden');
         el.passwordInput.focus();
         return;
@@ -893,7 +901,7 @@
       await checkSession();
     } catch(err) {
       const messages = {PASSWORD_MISMATCH:'The web passwords do not match.',INVALID_ARGUMENT:'Enter a web password of at least 12 characters.',FEATURE_DISABLED:'Self-registration is not enabled on this server.',INVALID_CREDENTIALS:'Invalid credentials or account access is disabled.',ENROLLMENT_REQUIRED:'Start registration again.',SESSION_BIND_FAILED:'Session could not be established. Please sign in again.'};
-      el.loginError.textContent = messages[err.code] || 'Connection or authentication error. Please try again.';
+      el.loginError.textContent = t(messages[err.code] || 'Connection or authentication error. Please try again.');
       el.loginError.classList.remove('hidden');
       if (['DISCONNECTED','CONNECTION_CLOSED','CONNECTION_FAILED','HANDSHAKE_REQUIRED','SESSION_BIND_FAILED','ENROLLMENT_REQUIRED'].includes(err.code)) {
         authClient?.disconnect(); authClient=null; enrolling=false;
@@ -915,7 +923,7 @@
   function showToast(msg, type = 'info') {
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
-    t.textContent = msg;
+    t.textContent = window.TealDriveI18n?.t(msg) ?? msg;
     el.toastContainer.appendChild(t);
     setTimeout(() => {
       t.style.opacity = '0';
@@ -962,7 +970,7 @@
     selectedLoginUsers = new Set(configured);
     userChoicesReady = false;
     el.cfgAllowedUsers.replaceChildren();
-    el.cfgUsersStatus.textContent='Loading local users...';
+    el.cfgUsersStatus.textContent=t('Loading local users...');
     const client = await getAuthClient();
     const data = await client.admin.systemUsers.list();
     const available=new Set(data.users.map(user=>user.username));
@@ -1004,7 +1012,7 @@
       await loadUserChoices(cfg.account_policy?.allowed_users||[]);
       if (split) {
         for (const input of el.cfgAllowedUsers.querySelectorAll("input")) input.disabled = true;
-        el.cfgUsersStatus.textContent = "Root policy controls eligible users. Account grants use account management.";
+        el.cfgUsersStatus.textContent = t("Root policy controls eligible users. Account grants use account management.");
       }
       el.cfgTrustedProxies.value=(cfg.proxy?.trusted_proxies||[]).join('\n');
       el.cfgClientIpHeader.value=cfg.proxy?.client_ip_header||'XForwardedFor';
@@ -1111,7 +1119,7 @@
     el.cfgSaveBtn.onclick = saveSettings;
     el.cfgReloadBtn.onclick = reloadSettingsFromDisk;
     el.registerWeb.onchange = () => {
-      document.getElementById('passwordLabel').textContent=el.registerWeb.checked?'Linux password':(webPasswords?'Web password':'Password');
+      label(document.getElementById('passwordLabel'),el.registerWeb.checked?'Linux password':(webPasswords?'Web password':'Password'));
       el.passwordInput.autocomplete=el.registerWeb.checked?'off':'current-password';
       el.passwordInput.value='';
     };
@@ -1185,7 +1193,7 @@
       e.preventDefault();
       const mode=syncChmodFromCode();
       if(mode===null)return;
-      if((mode&0o002)&&!(state.chmodOriginalMode&0o002)&&!window.confirm('Allow other users to write to this item?'))return;
+      if((mode&0o002)&&!(state.chmodOriginalMode&0o002)&&!window.confirm(t('Allow other users to write to this item?')))return;
       el.chmodApplyBtn.disabled=true;
       try {
         await requestFile('ChmodFile',{root_id:state.chmodRootId,relative_path:state.chmodTarget,mode});

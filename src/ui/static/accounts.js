@@ -1,3 +1,4 @@
+import { t, text as uiText } from "/static/i18n.js";
 /** Account-management presentation. Identity, authorization and persistence stay on the server/helper. */
 export function createAccountManagement({ getClient, toast, formatBytes }) {
   const $ = (id) => document.getElementById(id);
@@ -31,7 +32,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     const row = document.createElement("tr"),
       cell = document.createElement("td");
     cell.colSpan = 5;
-    cell.textContent = text;
+    uiText(cell, text);
     row.append(cell);
     body.replaceChildren(row);
   }
@@ -53,15 +54,20 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     $("accountsApproveArea").classList[
       kind === "linux" && info.authentication.linuxApproval ? "remove" : "add"
     ]("hidden");
-    $("accountsPolicyNote").textContent = info.authentication.selfRegistration
-      ? "Eligible system users can register themselves. Approval also prepares an account for its first Linux-password verification. Root restrictions always apply."
-      : "System users need approval or root eligibility before their first Linux-password verification. Root restrictions always apply.";
-    $("accountsScope").textContent =
+    uiText(
+      $("accountsPolicyNote"),
+      info.authentication.selfRegistration
+        ? "Eligible system users can register themselves. Approval also prepares an account for its first Linux-password verification. Root restrictions always apply."
+        : "System users need approval or root eligibility before their first Linux-password verification. Root restrictions always apply.",
+    );
+    uiText(
+      $("accountsScope"),
       kind === "linux"
         ? "Registered system users"
         : globalAdmin()
           ? "Registered virtual users"
-          : "Your virtual users";
+          : "Your virtual users",
+    );
   }
   async function virtualDialog(account) {
     try {
@@ -69,7 +75,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       const { openVirtualDialog } = await import("/static/virtual.js");
       await openVirtualDialog({ client, account, onSaved: refresh });
     } catch (error) {
-      $("accountsError").textContent = message(error);
+      $("accountsError").textContent = t(message(error));
     }
   }
   function status(account) {
@@ -111,20 +117,20 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       ]) {
         const cell = document.createElement("td");
         cell.dataset.label = label;
-        cell.textContent = value;
+        uiText(cell, value);
         row.append(cell);
       }
       const actions = document.createElement("td");
       actions.dataset.label = "Actions";
       if (account.role === "admin" || account.id === session.accountId)
-        actions.textContent = "Root managed";
-      else if (account.status === "deleted") actions.textContent = "Deleted";
+        actions.textContent = t("Root managed");
+      else if (account.status === "deleted") actions.textContent = t("Deleted");
       else {
         const enable = account.status !== "active" || !account.loginEnabled;
         const button = document.createElement("button");
         button.type = "button";
         button.className = `btn btn-sm ${enable ? "btn-secondary" : "btn-danger"}`;
-        button.textContent = enable ? "Enable" : "Suspend";
+        uiText(button, enable ? "Enable" : "Suspend");
         button.onclick = () =>
           mutate(
             async (client) => {
@@ -149,7 +155,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
         const policy = document.createElement("button");
         policy.type = "button";
         policy.className = "btn btn-secondary btn-sm";
-        policy.textContent = "File policy";
+        policy.textContent = t("File policy");
         policy.onclick = async () => {
           try {
             const client = await getClient();
@@ -160,7 +166,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
               onSaved: refresh,
             });
           } catch (error) {
-            $("accountsError").textContent = message(error);
+            $("accountsError").textContent = t(message(error));
           }
         };
         actions.append(policy);
@@ -168,13 +174,13 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
           const quota = document.createElement("button");
           quota.type = "button";
           quota.className = "btn btn-secondary btn-sm";
-          quota.textContent = "Quota";
+          quota.textContent = t("Quota");
           quota.onclick = () => virtualDialog(account);
           actions.append(quota);
           const remove = document.createElement("button");
           remove.type = "button";
           remove.className = "btn btn-danger btn-sm";
-          remove.textContent = "Delete";
+          remove.textContent = t("Delete");
           remove.onclick = () =>
             mutate(
               async (client) =>
@@ -199,8 +205,8 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
   async function refresh() {
     const ticket = ++epoch;
     setBusy(true);
-    $("accountsError").textContent = "";
-    $("accountsStatus").textContent = "Loading accounts…";
+    $("accountsError").textContent = t("");
+    $("accountsStatus").textContent = t("Loading accounts…");
     candidates = [];
     select.replaceChildren();
     note("Loading accounts…");
@@ -218,8 +224,14 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       if (kind === "virtual" && info.authentication.virtualAccounts) {
         const budget = await client.admin.quota.getBudget();
         if (ticket !== epoch || !visible()) return;
-        $("accountsBudget").textContent =
-          `Assigned ${formatBytes(budget.limitBytes)} · Reserved ${formatBytes(budget.reservedBytes)} · Available ${formatBytes(budget.remainingBytes)}`;
+        $("accountsBudget").textContent = t(
+          "Assigned {limit} · Reserved {reserved} · Available {available}",
+          {
+            limit: formatBytes(budget.limitBytes),
+            reserved: formatBytes(budget.reservedBytes),
+            available: formatBytes(budget.remainingBytes),
+          },
+        );
       }
       const [accounts, eligible] =
         kind === "linux"
@@ -236,7 +248,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       );
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "Select an eligible system user";
+      placeholder.textContent = t("Select an eligible system user");
       select.append(placeholder);
       for (const user of candidates) {
         const option = document.createElement("option");
@@ -254,8 +266,8 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     } catch (error) {
       if (ticket === epoch && visible()) {
         note("Accounts could not be loaded.");
-        $("accountsError").textContent = message(error);
-        $("accountsStatus").textContent = "";
+        $("accountsError").textContent = t(message(error));
+        $("accountsStatus").textContent = t("");
       }
     } finally {
       if (ticket === epoch) setBusy(false);
@@ -265,7 +277,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     if (busy || !visible() || !window.confirm(confirmation)) return;
     const ticket = epoch;
     setBusy(true);
-    $("accountsError").textContent = "";
+    $("accountsError").textContent = t("");
     try {
       const client = await getClient();
       await operation(client);
@@ -274,7 +286,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       toast(success, "success");
     } catch (error) {
       if (ticket === epoch && visible()) {
-        $("accountsError").textContent = message(error);
+        $("accountsError").textContent = t(message(error));
         toast(message(error), "error");
       }
     } finally {
@@ -361,8 +373,14 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       if (kind === "virtual" && info.authentication.virtualAccounts) {
         const budget = await client.admin.quota.getBudget();
         if (ticket !== epoch || !visible()) return;
-        $("accountsBudget").textContent =
-          `Assigned ${formatBytes(budget.limitBytes)} · Reserved ${formatBytes(budget.reservedBytes)} · Available ${formatBytes(budget.remainingBytes)}`;
+        $("accountsBudget").textContent = t(
+          "Assigned {limit} · Reserved {reserved} · Available {available}",
+          {
+            limit: formatBytes(budget.limitBytes),
+            reserved: formatBytes(budget.reservedBytes),
+            available: formatBytes(budget.remainingBytes),
+          },
+        );
       }
       $("accountsCloseBtn").focus();
       await refresh();

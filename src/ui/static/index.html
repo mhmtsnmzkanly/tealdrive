@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="status" content="ok">
-  <title>TealDrive - Modern Two-Tier File Manager</title>
+  <title data-i18n="TealDrive - Modern Two-Tier File Manager">TealDrive - Modern Two-Tier File Manager</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -19,22 +19,23 @@
           <line x1="9" y1="14" x2="15" y2="14"></line>
         </svg>
         <span class="brand-title">TealDrive</span>
-        <span class="brand-badge">Privileged Two-Tier</span>
+        <span class="brand-badge"><span data-i18n="Privileged Two-Tier">Privileged Two-Tier</span></span>
       </div>
 
       <div class="header-controls">
         <div class="control-group">
-          <label for="rootSelect">Storage Root:</label>
+          <label for="rootSelect"><span data-i18n="Storage Root:">Storage Root:</span></label>
           <select id="rootSelect" class="form-select"></select>
         </div>
 
+        <label class="language-picker"><span data-i18n="Language">Language</span> <select id="uiLanguage" aria-label="Language" data-i18n-aria-label="Language"><option value="en">English</option><option value="tr">Türkçe</option></select></label>
         <div id="userInfo" class="user-info hidden">
           <span class="user-badge" id="userBadge">user</span>
-          <button id="manageAccountsBtn" class="btn btn-secondary btn-sm hidden">Accounts</button>
-          <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings">Settings</button>
-          <button id="accountSecurityBtn" class="btn btn-secondary btn-sm hidden">Account security</button>
-          <button id="personalPolicyBtn" class="btn btn-secondary btn-sm hidden">File policy</button>
-          <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</button>
+          <button id="manageAccountsBtn" class="btn btn-secondary btn-sm hidden"><span data-i18n="Accounts">Accounts</span></button>
+          <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings" data-i18n-title="Server Settings"><span data-i18n="Settings">Settings</span></button>
+          <button id="accountSecurityBtn" class="btn btn-secondary btn-sm hidden"><span data-i18n="Account security">Account security</span></button>
+          <button id="personalPolicyBtn" class="btn btn-secondary btn-sm hidden"><span data-i18n="File policy">File policy</span></button>
+          <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out" data-i18n-title="Sign Out"><span data-i18n="Sign Out">Sign Out</span></button>
         </div>
       </div>
     </header>
@@ -44,44 +45,44 @@
     <!-- Breadcrumb & Action Toolbar -->
     <nav class="toolbar">
       <div class="breadcrumb-container" id="breadcrumbs">
-        <span class="breadcrumb-item root" data-path="">Home</span>
+        <span class="breadcrumb-item root" data-path=""><span data-i18n="Home">Home</span></span>
       </div>
 
       <div class="action-buttons">
-        <button id="refreshBtn" class="btn btn-secondary" title="Refresh listing">
+        <button id="refreshBtn" class="btn btn-secondary" title="Refresh listing" data-i18n-title="Refresh listing">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-          Refresh
+          <span data-i18n="Refresh">Refresh</span>
         </button>
         <button id="newFolderBtn" class="btn btn-secondary">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
-          New Folder
+          <span data-i18n="New Folder">New Folder</span>
         </button>
         <button id="newFileBtn" class="btn btn-secondary">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
-          New File
+          <span data-i18n="New File">New File</span>
         </button>
         <button id="uploadBtn" class="btn btn-primary">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          Upload
+          <span data-i18n="Upload">Upload</span>
         </button>
-        <button id="trashBtn" class="btn btn-secondary" title="View Trash Bin">
+        <button id="trashBtn" class="btn btn-secondary" title="View Trash Bin" data-i18n-title="View Trash Bin">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          Trash Bin
+          <span data-i18n="Trash Bin">Trash Bin</span>
         </button>
         <div class="search-box" style="display:inline-flex;align-items:center;gap:4px;margin-left:0.5rem;">
-          <input type="text" id="searchInput" placeholder="Search files..." style="padding:4px 8px;font-size:0.85rem;border-radius:4px;border:1px solid var(--slate-700);background:var(--slate-800);color:var(--text-main);width:150px;">
-          <button id="searchClearBtn" class="btn btn-secondary btn-sm hidden" title="Clear Search">&times;</button>
+          <input type="text" id="searchInput" placeholder="Search files..." style="padding:4px 8px;font-size:0.85rem;border-radius:4px;border:1px solid var(--slate-700);background:var(--slate-800);color:var(--text-main);width:150px;" data-i18n-placeholder="Search files...">
+          <button id="searchClearBtn" class="btn btn-secondary btn-sm hidden" title="Clear Search" data-i18n-title="Clear Search">&times;</button>
         </div>
       </div>
     </nav>
 
     <!-- Main Content Area: File Table -->
     <main class="content-container">
-      <p class="muted activity-note">Files may be used by other applications. Editing, deleting, moving or changing permissions can affect running services; simultaneous changes may overwrite data.</p>
+      <p class="muted activity-note"><span data-i18n="Files may be used by other applications. Editing, deleting, moving or changing permissions can affect running services; simultaneous changes may overwrite data.">Files may be used by other applications. Editing, deleting, moving or changing permissions can affect running services; simultaneous changes may overwrite data.</span></p>
       <div id="dropzoneOverlay" class="dropzone-overlay hidden">
         <div class="dropzone-box">
           <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          <p>Drop files here to upload</p>
+          <p><span data-i18n="Drop files here to upload">Drop files here to upload</span></p>
         </div>
       </div>
 
@@ -89,16 +90,16 @@
         <table class="file-table" id="fileTable">
           <thead>
             <tr>
-              <th class="col-name">Name</th>
-              <th class="col-size">Size</th>
-              <th class="col-mode">Mode</th>
-              <th class="col-modified">Modified</th>
-              <th class="col-actions">Actions</th>
+              <th class="col-name"><span data-i18n="Name">Name</span></th>
+              <th class="col-size"><span data-i18n="Size">Size</span></th>
+              <th class="col-mode"><span data-i18n="Mode">Mode</span></th>
+              <th class="col-modified"><span data-i18n="Modified">Modified</span></th>
+              <th class="col-actions"><span data-i18n="Actions">Actions</span></th>
             </tr>
           </thead>
           <tbody id="fileTableBody">
             <tr class="empty-row">
-              <td colspan="5">Loading directory contents...</td>
+              <td colspan="5"><span data-i18n="Loading directory contents...">Loading directory contents...</span></td>
             </tr>
           </tbody>
         </table>
@@ -108,7 +109,7 @@
     <!-- Upload Progress Banner -->
     <div id="uploadProgressContainer" class="upload-progress-container hidden">
       <div class="progress-info">
-        <span id="uploadFileName">Uploading file...</span>
+        <span id="uploadFileName"><span data-i18n="Uploading file...">Uploading file...</span></span>
         <span id="uploadPercent">0%</span>
       </div>
       <div class="progress-bar-bg">
@@ -120,7 +121,7 @@
     <footer class="app-footer">
       <div class="footer-status">
         <span class="status-dot disconnected" id="wsStatusDot"></span>
-        <span id="wsStatusText">Not connected</span>
+        <span id="wsStatusText"><span data-i18n="Not connected">Not connected</span></span>
       </div>
       <div class="footer-meta">
         <span>TealDrive Safe Sandboxed Environment &copy; 2026</span>
@@ -136,42 +137,42 @@
   <!-- 1. Login Modal -->
   <div id="accountsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="accountsTitle">
     <div class="modal-card modal-lg">
-      <div class="modal-header"><h3 id="accountsTitle">Account access</h3><button type="button" id="accountsCloseBtn" class="modal-close" aria-label="Close account management">&times;</button></div>
+      <div class="modal-header"><h3 id="accountsTitle"><span data-i18n="Account access">Account access</span></h3><button type="button" id="accountsCloseBtn" class="modal-close" aria-label="Close account management" data-i18n-aria-label="Close account management">&times;</button></div>
       <div class="modal-body">
-        <p>Approve first registration and manage web access. Suspension closes active web sessions; existing files are kept.</p>
-        <div class="account-tabs" aria-label="Account groups"><button type="button" id="accountsSystemTab" class="btn btn-secondary" aria-pressed="true">System users</button><button type="button" id="accountsVirtualTab" class="btn btn-secondary" aria-pressed="false">Virtual users</button><button type="button" id="accountsRefreshBtn" class="btn btn-secondary">Refresh</button></div>
+        <p><span data-i18n="Approve first registration and manage web access. Suspension closes active web sessions; existing files are kept.">Approve first registration and manage web access. Suspension closes active web sessions; existing files are kept.</span></p>
+        <div class="account-tabs" aria-label="Account groups" data-i18n-aria-label="Account groups"><button type="button" id="accountsSystemTab" class="btn btn-secondary" aria-pressed="true"><span data-i18n="System users">System users</span></button><button type="button" id="accountsVirtualTab" class="btn btn-secondary" aria-pressed="false"><span data-i18n="Virtual users">Virtual users</span></button><button type="button" id="accountsRefreshBtn" class="btn btn-secondary"><span data-i18n="Refresh">Refresh</span></button></div>
         <section id="accountsApproveArea" class="settings-section">
-          <h4>Approve a system user</h4><p id="accountsPolicyNote"></p>
-          <label for="accountsCandidate">Eligible local user</label>
-          <div class="account-approval"><select id="accountsCandidate" class="form-input"><option value="">Select an eligible system user</option></select><button type="button" id="accountsApproveBtn" class="btn btn-primary" disabled>Approve registration</button></div>
+          <h4><span data-i18n="Approve a system user">Approve a system user</span></h4><p id="accountsPolicyNote"></p>
+          <label for="accountsCandidate"><span data-i18n="Eligible local user">Eligible local user</span></label>
+          <div class="account-approval"><select id="accountsCandidate" class="form-input"><option value="" data-i18n="Select an eligible system user">Select an eligible system user</option></select><button type="button" id="accountsApproveBtn" class="btn btn-primary" disabled><span data-i18n="Approve registration">Approve registration</span></button></div>
           <p id="accountsCandidatesNote"></p>
         </section>
         <p id="accountsError" class="permission-warning" role="alert"></p>
-        <section id="accountsVirtualArea" class="settings-section hidden"><p id="accountsBudget"></p><button id="accountsCreateVirtualBtn" class="btn btn-primary" type="button">Create virtual user</button></section>
-        <h4 id="accountsScope">Registered system users</h4><p id="accountsStatus" aria-live="polite"></p>
-        <div class="account-table-wrap"><table class="account-table"><thead><tr><th>Account</th><th>Role</th><th>State</th><th>Allocation</th><th>Actions</th></tr></thead><tbody id="accountsTableBody"></tbody></table></div>
+        <section id="accountsVirtualArea" class="settings-section hidden"><p id="accountsBudget"></p><button id="accountsCreateVirtualBtn" class="btn btn-primary" type="button"><span data-i18n="Create virtual user">Create virtual user</span></button></section>
+        <h4 id="accountsScope"><span data-i18n="Registered system users">Registered system users</span></h4><p id="accountsStatus" aria-live="polite"></p>
+        <div class="account-table-wrap"><table class="account-table"><thead><tr><th><span data-i18n="Account">Account</span></th><th><span data-i18n="Role">Role</span></th><th><span data-i18n="State">State</span></th><th><span data-i18n="Allocation">Allocation</span></th><th><span data-i18n="Actions">Actions</span></th></tr></thead><tbody id="accountsTableBody"></tbody></table></div>
       </div>
     </div>
   </div>
 
   <div id="accountSecurityModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="accountSecurityTitle">
     <div class="modal-card">
-      <div class="modal-header"><h3 id="accountSecurityTitle">Account security</h3></div>
+      <div class="modal-header"><h3 id="accountSecurityTitle"><span data-i18n="Account security">Account security</span></h3></div>
       <form id="accountPasswordForm">
         <div class="modal-body">
-          <p>Changing your web password signs out all current web sessions. Your Linux password stays the same.</p>
-          <label for="accountCurrentPassword">Current web password</label>
+          <p><span data-i18n="Changing your web password signs out all current web sessions. Your Linux password stays the same.">Changing your web password signs out all current web sessions. Your Linux password stays the same.</span></p>
+          <label for="accountCurrentPassword"><span data-i18n="Current web password">Current web password</span></label>
           <input id="accountCurrentPassword" type="password" autocomplete="current-password" required maxlength="1024">
-          <label for="accountNewPassword">New web password (at least 12 characters)</label>
+          <label for="accountNewPassword"><span data-i18n="New web password (at least 12 characters)">New web password (at least 12 characters)</span></label>
           <input id="accountNewPassword" type="password" autocomplete="new-password" required maxlength="1024">
-          <label for="accountConfirmPassword">Confirm new web password</label>
+          <label for="accountConfirmPassword"><span data-i18n="Confirm new web password">Confirm new web password</span></label>
           <input id="accountConfirmPassword" type="password" autocomplete="new-password" required maxlength="1024">
           <p id="accountSecurityError" role="alert"></p>
         </div>
         <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Change password</button>
-          <button type="button" id="accountRevokeBtn" class="btn btn-danger hidden">Disable my web access</button>
-          <button type="button" id="accountSecurityCloseBtn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary"><span data-i18n="Change password">Change password</span></button>
+          <button type="button" id="accountRevokeBtn" class="btn btn-danger hidden"><span data-i18n="Disable my web access">Disable my web access</span></button>
+          <button type="button" id="accountSecurityCloseBtn" class="btn btn-secondary"><span data-i18n="Cancel">Cancel</span></button>
         </div>
       </form>
     </div>
@@ -181,26 +182,26 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="brand-brand">
-          <span class="brand-title">Sign in to TealDrive</span>
+          <span class="brand-title"><span data-i18n="Sign in to TealDrive">Sign in to TealDrive</span></span>
         </div>
       </div>
       <form id="loginForm" class="modal-body">
         <div id="loginError" class="alert-error hidden"></div>
         <div class="form-group">
-          <label for="usernameInput">Username</label>
+          <label for="usernameInput"><span data-i18n="Username">Username</span></label>
           <input type="text" id="usernameInput" class="form-input" required autocomplete="username" autofocus>
         </div>
         <div class="form-group">
-          <label id="passwordLabel" for="passwordInput">Password</label>
+          <label id="passwordLabel" for="passwordInput"><span data-i18n="Password">Password</span></label>
           <input type="password" id="passwordInput" class="form-input" required autocomplete="current-password">
         </div>
-        <label id="registerWebOption" class="hidden"><input type="checkbox" id="registerWeb"> First-time web access: verify my Linux password</label>
+        <label id="registerWebOption" class="hidden"><input type="checkbox" id="registerWeb"> <span data-i18n="First-time web access: verify my Linux password">First-time web access: verify my Linux password</span></label>
         <div class="form-group hidden" id="webPasswordGroup">
-          <label for="webPasswordConfirm">Confirm new web password</label>
+          <label for="webPasswordConfirm"><span data-i18n="Confirm new web password">Confirm new web password</span></label>
           <input type="password" id="webPasswordConfirm" class="form-input" autocomplete="new-password">
         </div>
         <div class="modal-actions">
-          <button type="submit" class="btn btn-primary btn-block">Continue</button>
+          <button type="submit" class="btn btn-primary btn-block"><span data-i18n="Continue">Continue</span></button>
         </div>
       </form>
     </div>
@@ -210,7 +211,7 @@
   <div id="editorModal" class="modal-backdrop hidden">
     <div class="modal-card modal-lg">
       <div class="modal-header">
-        <h3 id="editorTitle">Edit File</h3>
+        <h3 id="editorTitle"><span data-i18n="Edit File">Edit File</span></h3>
         <button class="modal-close" id="editorCloseBtn">&times;</button>
       </div>
       <div class="modal-body editor-body">
@@ -219,8 +220,8 @@
       <div class="modal-footer">
         <span class="file-meta-hint" id="editorMetaHint"></span>
         <div class="modal-actions">
-          <button id="editorCancelBtn" class="btn btn-secondary">Cancel</button>
-          <button id="editorSaveBtn" class="btn btn-primary">Save Changes</button>
+          <button id="editorCancelBtn" class="btn btn-secondary"><span data-i18n="Cancel">Cancel</span></button>
+          <button id="editorSaveBtn" class="btn btn-primary"><span data-i18n="Save Changes">Save Changes</span></button>
         </div>
       </div>
     </div>
@@ -230,17 +231,17 @@
   <div id="promptModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 id="promptTitle">Prompt</h3>
+        <h3 id="promptTitle"><span data-i18n="Prompt">Prompt</span></h3>
         <button class="modal-close" id="promptCloseBtn">&times;</button>
       </div>
       <form id="promptForm" class="modal-body">
         <div class="form-group">
-          <label id="promptLabel" for="promptInput">Name</label>
+          <label id="promptLabel" for="promptInput"><span data-i18n="Name">Name</span></label>
           <input type="text" id="promptInput" class="form-input" required>
         </div>
         <div class="modal-actions">
-          <button type="button" id="promptCancelBtn" class="btn btn-secondary">Cancel</button>
-          <button type="submit" class="btn btn-primary">Confirm</button>
+          <button type="button" id="promptCancelBtn" class="btn btn-secondary"><span data-i18n="Cancel">Cancel</span></button>
+          <button type="submit" class="btn btn-primary"><span data-i18n="Confirm">Confirm</span></button>
         </div>
       </form>
     </div>
@@ -250,30 +251,30 @@
   <div id="chmodModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>File Permissions</h3>
+        <h3><span data-i18n="File Permissions">File Permissions</span></h3>
         <button class="modal-close" id="chmodCloseBtn">&times;</button>
       </div>
       <form id="chmodForm" class="modal-body">
         <p class="file-target-name" id="chmodTargetName"></p>
-        <p class="muted">Select permissions or enter an octal code. Both stay in sync.</p>
-        <p class="muted">Permission changes may prevent applications or services from accessing this item. Broad permissions may let other users read or change it. Directory execute permission allows traversal.</p>
+        <p class="muted"><span data-i18n="Select permissions or enter an octal code. Both stay in sync.">Select permissions or enter an octal code. Both stay in sync.</span></p>
+        <p class="muted"><span data-i18n="Permission changes may prevent applications or services from accessing this item. Broad permissions may let other users read or change it. Directory execute permission allows traversal.">Permission changes may prevent applications or services from accessing this item. Broad permissions may let other users read or change it. Directory execute permission allows traversal.</span></p>
         <p id="chmodWarning" class="permission-warning" aria-live="polite"></p>
         <table class="permission-grid">
-          <thead><tr><th scope="col">Who</th><th scope="col">Read</th><th scope="col">Write</th><th scope="col">Execute</th></tr></thead>
-          <tbody><tr><th scope="row">Owner</th><td><input type="checkbox" class="chmod-bit" data-bit="256" aria-label="Owner: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="128" aria-label="Owner: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="64" aria-label="Owner: Execute"></td></tr>
-<tr><th scope="row">Group</th><td><input type="checkbox" class="chmod-bit" data-bit="32" aria-label="Group: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="16" aria-label="Group: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="8" aria-label="Group: Execute"></td></tr>
-<tr><th scope="row">Others</th><td><input type="checkbox" class="chmod-bit" data-bit="4" aria-label="Others: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="2" aria-label="Others: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="1" aria-label="Others: Execute"></td></tr>
+          <thead><tr><th scope="col"><span data-i18n="Who">Who</span></th><th scope="col"><span data-i18n="Read">Read</span></th><th scope="col"><span data-i18n="Write">Write</span></th><th scope="col"><span data-i18n="Execute">Execute</span></th></tr></thead>
+          <tbody><tr><th scope="row"><span data-i18n="Owner">Owner</span></th><td><input type="checkbox" class="chmod-bit" data-bit="256" aria-label="Owner: Read" data-i18n-aria-label="Owner: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="128" aria-label="Owner: Write" data-i18n-aria-label="Owner: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="64" aria-label="Owner: Execute" data-i18n-aria-label="Owner: Execute"></td></tr>
+<tr><th scope="row"><span data-i18n="Group">Group</span></th><td><input type="checkbox" class="chmod-bit" data-bit="32" aria-label="Group: Read" data-i18n-aria-label="Group: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="16" aria-label="Group: Write" data-i18n-aria-label="Group: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="8" aria-label="Group: Execute" data-i18n-aria-label="Group: Execute"></td></tr>
+<tr><th scope="row"><span data-i18n="Others">Others</span></th><td><input type="checkbox" class="chmod-bit" data-bit="4" aria-label="Others: Read" data-i18n-aria-label="Others: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="2" aria-label="Others: Write" data-i18n-aria-label="Others: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="1" aria-label="Others: Execute" data-i18n-aria-label="Others: Execute"></td></tr>
 </tbody>
         </table>
         <div class="form-group">
-          <label for="chmodOctalInput">Permission code</label>
+          <label for="chmodOctalInput"><span data-i18n="Permission code">Permission code</span></label>
           <input type="text" id="chmodOctalInput" class="form-input" pattern="0?[0-7]{3}" maxlength="4" inputmode="numeric" autocomplete="off" aria-describedby="chmodPreview chmodError" required>
           <p id="chmodPreview" class="permission-preview" aria-live="polite"></p>
           <p id="chmodError" class="permission-error" role="status"></p>
         </div>
         <div class="modal-actions">
-          <button type="button" id="chmodCancelBtn" class="btn btn-secondary">Cancel</button>
-          <button type="submit" id="chmodApplyBtn" class="btn btn-primary">Apply Permissions</button>
+          <button type="button" id="chmodCancelBtn" class="btn btn-secondary"><span data-i18n="Cancel">Cancel</span></button>
+          <button type="submit" id="chmodApplyBtn" class="btn btn-primary"><span data-i18n="Apply Permissions">Apply Permissions</span></button>
         </div>
       </form>
     </div>
@@ -283,17 +284,17 @@
   <div id="archiveModal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 id="archiveTitle">Create Archive</h3>
+        <h3 id="archiveTitle"><span data-i18n="Create Archive">Create Archive</span></h3>
         <button class="modal-close" id="archiveCloseBtn">&times;</button>
       </div>
       <form id="archiveForm" class="modal-body">
         <div class="form-group">
-          <label for="archiveNameInput">Archive Name (e.g. bundle.zip or backup.tar.gz):</label>
+          <label for="archiveNameInput"><span data-i18n="Archive Name (e.g. bundle.zip or backup.tar.gz):">Archive Name (e.g. bundle.zip or backup.tar.gz):</span></label>
           <input type="text" id="archiveNameInput" class="form-input" required>
         </div>
         <div class="modal-actions">
-          <button type="button" id="archiveCancelBtn" class="btn btn-secondary">Cancel</button>
-          <button type="submit" class="btn btn-primary">Compress</button>
+          <button type="button" id="archiveCancelBtn" class="btn btn-secondary"><span data-i18n="Cancel">Cancel</span></button>
+          <button type="submit" class="btn btn-primary"><span data-i18n="Compress">Compress</span></button>
         </div>
       </form>
     </div>
@@ -303,29 +304,29 @@
   <div id="trashModal" class="modal-backdrop hidden">
     <div class="modal-card modal-lg">
       <div class="modal-header">
-        <h3>Trash Bin</h3>
+        <h3><span data-i18n="Trash Bin">Trash Bin</span></h3>
         <button class="modal-close" id="trashCloseBtn">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="muted">Items moved to trash can be restored or permanently removed.</p>
+        <p class="muted"><span data-i18n="Items moved to trash can be restored or permanently removed.">Items moved to trash can be restored or permanently removed.</span></p>
         <div class="table-card">
           <table class="file-table" id="trashTable">
             <thead>
               <tr>
-                <th>Original Name</th>
-                <th>Original Path</th>
-                <th>Deleted Time</th>
-                <th>Actions</th>
+                <th><span data-i18n="Original Name">Original Name</span></th>
+                <th><span data-i18n="Original Path">Original Path</span></th>
+                <th><span data-i18n="Deleted Time">Deleted Time</span></th>
+                <th><span data-i18n="Actions">Actions</span></th>
               </tr>
             </thead>
             <tbody id="trashTableBody">
-              <tr class="empty-row"><td colspan="4">Trash bin is empty.</td></tr>
+              <tr class="empty-row"><td colspan="4"><span data-i18n="Trash bin is empty.">Trash bin is empty.</span></td></tr>
             </tbody>
           </table>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" id="trashDoneBtn" class="btn btn-secondary">Close</button>
+        <button type="button" id="trashDoneBtn" class="btn btn-secondary"><span data-i18n="Close">Close</span></button>
       </div>
     </div>
   </div>
@@ -334,15 +335,15 @@
   <div id="lightboxModal" class="modal-backdrop hidden">
     <div class="modal-card modal-lightbox">
       <div class="modal-header">
-        <h3 id="lightboxTitle">File Preview</h3>
+        <h3 id="lightboxTitle"><span data-i18n="File Preview">File Preview</span></h3>
         <button class="modal-close" id="lightboxCloseBtn">&times;</button>
       </div>
       <div class="modal-body lightbox-body">
         <div id="lightboxContent" class="lightbox-content"></div>
       </div>
       <div class="modal-footer">
-        <a id="lightboxDownloadBtn" href="#" class="btn btn-secondary" target="_blank">Download</a>
-        <button type="button" id="lightboxDoneBtn" class="btn btn-secondary">Close</button>
+        <a id="lightboxDownloadBtn" href="#" class="btn btn-secondary" target="_blank"><span data-i18n="Download">Download</span></a>
+        <button type="button" id="lightboxDoneBtn" class="btn btn-secondary"><span data-i18n="Close">Close</span></button>
       </div>
     </div>
   </div>
@@ -351,56 +352,56 @@
   <div id="settingsModal" class="modal-backdrop hidden">
     <div class="modal-card modal-lg">
       <div class="modal-header">
-        <h3>Server Settings &amp; Dynamic Config</h3>
+        <h3><span data-i18n="Server Settings">Server Settings</span> &amp; Dynamic Config</h3>
         <button class="modal-close" id="settingsCloseBtn">&times;</button>
       </div>
       <div class="modal-body settings-body">
         <div class="settings-section">
-          <h4>Login access</h4>
-          <p id="cfgUsersStatus" role="status">Loading local users...</p>
-          <div id="cfgAllowedUsers" class="user-picker" role="group" aria-label="Allowed Linux users"></div>
-          <p>Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server's system administrator.</p>
+          <h4><span data-i18n="Login access">Login access</span></h4>
+          <p id="cfgUsersStatus" role="status"><span data-i18n="Loading local users...">Loading local users...</span></p>
+          <div id="cfgAllowedUsers" class="user-picker" role="group" aria-label="Allowed Linux users" data-i18n-aria-label="Allowed Linux users"></div>
+          <p><span data-i18n="Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server&#x27;s system administrator.">Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server&#x27;s system administrator.</span></p>
         </div>
         <div class="settings-section">
-          <h4>Feature Gates</h4>
+          <h4><span data-i18n="Feature Gates">Feature Gates</span></h4>
           <div class="settings-grid">
-            <label><input type="checkbox" id="cfgFeatEdit"> Allow File Editing</label>
-            <label><input type="checkbox" id="cfgFeatDelete"> Allow Permanent Deletion</label>
-            <label><input type="checkbox" id="cfgFeatChmod"> Allow Chmod Permissions</label>
-            <label><input type="checkbox" id="cfgFeatArchive"> Allow Archive Extraction</label>
+            <label><input type="checkbox" id="cfgFeatEdit"> <span data-i18n="Allow File Editing">Allow File Editing</span></label>
+            <label><input type="checkbox" id="cfgFeatDelete"> <span data-i18n="Allow Permanent Deletion">Allow Permanent Deletion</span></label>
+            <label><input type="checkbox" id="cfgFeatChmod"> <span data-i18n="Allow Chmod Permissions">Allow Chmod Permissions</span></label>
+            <label><input type="checkbox" id="cfgFeatArchive"> <span data-i18n="Allow Archive Extraction">Allow Archive Extraction</span></label>
           </div>
         </div>
 
         <div class="settings-section">
-          <h4>Client IP / Trusted proxies</h4>
-          <div class="settings-row"><label for="cfgTrustedProxies">Trusted proxy IPs / CIDRs (one per line):</label><textarea id="cfgTrustedProxies" class="form-input" rows="3"></textarea></div>
-          <div class="settings-row"><label for="cfgClientIpHeader">Client IP header:</label><select id="cfgClientIpHeader" class="form-input"><option value="XForwardedFor">X-Forwarded-For</option><option value="XRealIp">X-Real-IP</option><option value="CfConnectingIp">CF-Connecting-IP</option></select></div>
-          <p>Only connections from trusted proxies may supply this header. Leave the list empty for direct connections. Trust your immediate proxy, not every address.</p>
-          <h4>Audit Logs</h4>
+          <h4><span data-i18n="Client IP / Trusted proxies">Client IP / Trusted proxies</span></h4>
+          <div class="settings-row"><label for="cfgTrustedProxies"><span data-i18n="Trusted proxy IPs / CIDRs (one per line):">Trusted proxy IPs / CIDRs (one per line):</span></label><textarea id="cfgTrustedProxies" class="form-input" rows="3"></textarea></div>
+          <div class="settings-row"><label for="cfgClientIpHeader"><span data-i18n="Client IP header:">Client IP header:</span></label><select id="cfgClientIpHeader" class="form-input"><option value="XForwardedFor">X-Forwarded-For</option><option value="XRealIp">X-Real-IP</option><option value="CfConnectingIp">CF-Connecting-IP</option></select></div>
+          <p><span data-i18n="Only connections from trusted proxies may supply this header. Leave the list empty for direct connections. Trust your immediate proxy, not every address.">Only connections from trusted proxies may supply this header. Leave the list empty for direct connections. Trust your immediate proxy, not every address.</span></p>
+          <h4><span data-i18n="Audit Logs">Audit Logs</span></h4>
           <p id="cfgAuditHealth"></p>
-          <div class="settings-row"><label for="cfgAuditPath">Log file path:</label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
-          <div class="settings-row"><label for="cfgAuditMaxMB">Maximum file size (MiB):</label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
-          <div class="settings-row"><label for="cfgAuditArchives">Archives to keep:</label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
-          <div class="settings-row"><label for="cfgAuditDays">Delete archives older than (hours):</label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="876000" step="1" placeholder="No age limit"></div>
+          <div class="settings-row"><label for="cfgAuditPath"><span data-i18n="Log file path:">Log file path:</span></label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
+          <div class="settings-row"><label for="cfgAuditMaxMB"><span data-i18n="Maximum file size (MiB):">Maximum file size (MiB):</span></label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
+          <div class="settings-row"><label for="cfgAuditArchives"><span data-i18n="Archives to keep:">Archives to keep:</span></label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
+          <div class="settings-row"><label for="cfgAuditDays"><span data-i18n="Delete archives older than (hours):">Delete archives older than (hours):</span></label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="876000" step="1" placeholder="No age limit" data-i18n-placeholder="No age limit"></div>
           <p class="muted">Archives use .1, .2, …; .1 is newest. Leave days empty for no age limit. Cleanup runs when logs are written. A new path must be writable by the service; existing logs stay at their old path.</p>
         </div>
 
         <div class="settings-section">
           <h4>Retention &amp; Limits</h4>
           <div class="settings-row">
-            <label for="cfgTrashRetention">Trash Retention (automatic cleanup unavailable):</label>
+            <label for="cfgTrashRetention"><span data-i18n="Trash Retention (automatic cleanup unavailable):">Trash Retention (automatic cleanup unavailable):</span></label>
             <input type="number" id="cfgTrashRetention" class="form-input" min="0" max="365" disabled>
           </div>
           <div class="settings-row">
-            <label for="cfgMaxUploadBytes">Max Upload (MB):</label>
+            <label for="cfgMaxUploadBytes"><span data-i18n="Max Upload (MB):">Max Upload (MB):</span></label>
             <input type="number" id="cfgMaxUploadBytes" class="form-input" min="1" max="3">
           </div>
           <div class="settings-row">
-            <label for="cfgMaxEditTextBytes">Max Text Edit (KB):</label>
+            <label for="cfgMaxEditTextBytes"><span data-i18n="Max Text Edit (KB):">Max Text Edit (KB):</span></label>
             <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1" max="128">
           </div>
           <div class="settings-row">
-            <label for="cfgMaxPreviewBytes">Max Preview / Inline (MB):</label>
+            <label for="cfgMaxPreviewBytes"><span data-i18n="Max Preview / Inline (MB):">Max Preview / Inline (MB):</span></label>
             <input type="number" id="cfgMaxPreviewBytes" class="form-input" min="1" max="1024">
           </div>
         </div>
@@ -408,15 +409,15 @@
         <div class="settings-section">
           <h4>Rate Limiting &amp; Session</h4>
           <div class="settings-row">
-            <label for="cfgRateLimitMaxFailures">Max Login Failures:</label>
+            <label for="cfgRateLimitMaxFailures"><span data-i18n="Max Login Failures:">Max Login Failures:</span></label>
             <input type="number" id="cfgRateLimitMaxFailures" class="form-input" min="1" max="100">
           </div>
           <div class="settings-row">
-            <label for="cfgRateLimitLockoutSecs">Lockout Duration (Seconds):</label>
+            <label for="cfgRateLimitLockoutSecs"><span data-i18n="Lockout Duration (Seconds):">Lockout Duration (Seconds):</span></label>
             <input type="number" id="cfgRateLimitLockoutSecs" class="form-input" min="1" max="86400">
           </div>
           <div class="settings-row">
-            <label for="cfgSessionIdleMins">Session Idle Timeout (Minutes):</label>
+            <label for="cfgSessionIdleMins"><span data-i18n="Session Idle Timeout (Minutes):">Session Idle Timeout (Minutes):</span></label>
             <input type="number" id="cfgSessionIdleMins" class="form-input" min="1" max="10080">
           </div>
         </div>
@@ -424,30 +425,30 @@
         <div class="settings-section">
           <h4>Helper Engine &amp; Search</h4>
           <div class="settings-row">
-            <label for="cfgHelperTimeoutSecs">Helper Process Timeout (Seconds):</label>
+            <label for="cfgHelperTimeoutSecs"><span data-i18n="Helper Process Timeout (Seconds):">Helper Process Timeout (Seconds):</span></label>
             <input type="number" id="cfgHelperTimeoutSecs" class="form-input" min="1" max="300">
           </div>
           <div class="settings-row">
-            <label for="cfgSearchMaxDepth">Search Max Depth (Levels):</label>
+            <label for="cfgSearchMaxDepth"><span data-i18n="Search Max Depth (Levels):">Search Max Depth (Levels):</span></label>
             <input type="number" id="cfgSearchMaxDepth" class="form-input" min="1" max="100">
           </div>
           <div class="settings-row">
-            <label for="cfgSearchMaxResults">Search Default Max Results:</label>
+            <label for="cfgSearchMaxResults"><span data-i18n="Search Default Max Results:">Search Default Max Results:</span></label>
             <input type="number" id="cfgSearchMaxResults" class="form-input" min="1" max="5000">
           </div>
         </div>
 
         <div class="settings-section">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="checkbox" id="cfgPersistDisk" checked> Persist changes to disk config file
+            <input type="checkbox" id="cfgPersistDisk" checked> <span data-i18n="Persist changes to disk config file">Persist changes to disk config file</span>
           </label>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" id="cfgReloadBtn" class="btn btn-secondary">Reload from Disk</button>
+        <button type="button" id="cfgReloadBtn" class="btn btn-secondary"><span data-i18n="Reload from Disk">Reload from Disk</span></button>
         <div class="modal-actions">
-          <button type="button" id="settingsCancelBtn" class="btn btn-secondary">Close</button>
-          <button type="button" id="cfgSaveBtn" class="btn btn-primary">Save Settings</button>
+          <button type="button" id="settingsCancelBtn" class="btn btn-secondary"><span data-i18n="Close">Close</span></button>
+          <button type="button" id="cfgSaveBtn" class="btn btn-primary"><span data-i18n="Save Settings">Save Settings</span></button>
         </div>
       </div>
     </div>
@@ -455,11 +456,11 @@
 
   <div id="shutdownModal" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="shutdownTitle" aria-describedby="shutdownMessage">
     <div class="modal-card">
-      <div class="modal-header"><h2 id="shutdownTitle">Server is shutting down</h2></div>
+      <div class="modal-header"><h2 id="shutdownTitle"><span data-i18n="Server is shutting down">Server is shutting down</span></h2></div>
       <div class="modal-body"><p id="shutdownMessage"></p></div>
       <div class="modal-footer"><div class="modal-actions">
-        <button type="button" id="shutdownDismissBtn" class="btn btn-secondary">Dismiss</button>
-        <button type="button" id="shutdownRetryBtn" class="btn btn-primary">Check availability</button>
+        <button type="button" id="shutdownDismissBtn" class="btn btn-secondary"><span data-i18n="Dismiss">Dismiss</span></button>
+        <button type="button" id="shutdownRetryBtn" class="btn btn-primary"><span data-i18n="Check availability">Check availability</span></button>
       </div></div>
     </div>
   </div>
@@ -467,6 +468,7 @@
   <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container"></div>
 
+  <script type="module" src="/static/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

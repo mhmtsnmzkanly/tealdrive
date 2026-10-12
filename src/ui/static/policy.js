@@ -1,3 +1,4 @@
+import { t, text as uiText } from "/static/i18n.js";
 /** Policy presentation only. Identity, scope, CAS and enforcement are helper responsibilities. */
 export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
   const api = target
@@ -14,12 +15,18 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
   dialog.className = "policy-editor";
   dialog.setAttribute("aria-label", "File access policy");
   dialog.addEventListener("keydown", (event) => event.stopPropagation());
-  const make = (tag, text) => {
+  const make = (tag, text, params = {}) => {
     const node = document.createElement(tag);
-    if (text !== undefined) node.textContent = text;
+    if (text !== undefined) {
+      const caption = document.createElement("span");
+      uiText(caption, text, params);
+      node.append(caption);
+    }
     return node;
   };
-  const title = make("h3", `File policy · ${view.account.username}`);
+  const title = make("h3", "File policy · {username}", {
+    username: view.account.username,
+  });
   const notice = make(
     "p",
     "Rules only restrict access. Discover hides the path and blocks direct access. Saving signs out all sessions for this account; sign in again to use the new policy.",
@@ -29,7 +36,7 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
   fixed.append(
     make(
       "p",
-      "Protected system components: " + view.denySystemComponents.join(", "),
+      t("Protected system components: ") + view.denySystemComponents.join(", "),
     ),
   );
   for (const source of ["root", "admin", "personal"]) {
@@ -58,7 +65,7 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
   const collect = [];
   function addRow(rule = { path: "", recursive: true, deny: ["discover"] }) {
     if (collect.length >= 512) {
-      error.textContent = "At most 512 rules are allowed.";
+      error.textContent = t("At most 512 rules are allowed.");
       return;
     }
     const row = make("fieldset"),
@@ -68,7 +75,8 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
     path.value = rule.path;
     path.maxLength = 4096;
     path.required = true;
-    path.setAttribute("aria-label", "Relative path");
+    path.setAttribute("aria-label", t("Relative path"));
+    path.dataset.i18nAriaLabel = "Relative path";
     pathLabel.append(path);
     const recursive = make("input");
     recursive.type = "checkbox";
@@ -132,7 +140,9 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
     if (busy) return;
     if (
       !confirm(
-        "Save these restrictions and sign out all sessions for this account?",
+        t(
+          "Save these restrictions and sign out all sessions for this account?",
+        ),
       )
     )
       return;
@@ -150,10 +160,11 @@ export async function openPolicyEditor({ client, target, onSaved = () => {} }) {
       finish();
       await onSaved(result);
     } catch (failure) {
-      error.textContent =
+      error.textContent = t(
         failure.code === "CONFLICT"
           ? "The account changed. Close and reopen this editor before retrying."
-          : "Policy was not saved: " + failure.message;
+          : t("Policy was not saved: ") + t(failure.message),
+      );
     } finally {
       busy = false;
       for (const input of dialog.querySelectorAll("input,button"))

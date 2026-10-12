@@ -102,6 +102,9 @@ where
             crate::ui::assets::POLICY_JS,
             crate::ui::assets::VIRTUAL_JS,
             crate::ui::assets::FILES_JS,
+            crate::ui::assets::I18N_JS,
+            crate::ui::assets::LOCALE_TR,
+            crate::ui::assets::LOCALE_EN,
             include_str!("protocol.js"),
             crate::protocol::JAVASCRIPT_CONTRACT,
         ] {
@@ -232,13 +235,28 @@ where
     }
 
     match clean {
+        "locales/tr.json" | "locales/en.json" => {
+            let mut response = (if clean == "locales/tr.json" {
+                crate::ui::assets::LOCALE_TR
+            } else {
+                crate::ui::assets::LOCALE_EN
+            })
+            .into_response();
+            apply_security_headers(response.headers_mut(), "application/json; charset=utf-8");
+            response
+                .headers_mut()
+                .insert("cache-control", HeaderValue::from_static("no-cache"));
+            response
+        }
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
-        "accounts.js" | "policy.js" | "virtual.js" | "files.js" => {
+        "accounts.js" | "policy.js" | "virtual.js" | "files.js" | "i18n.js" => {
             let mut response = (if clean == "accounts.js" {
                 crate::ui::assets::ACCOUNTS_JS
             } else if clean == "policy.js" {
                 crate::ui::assets::POLICY_JS
+            } else if clean == "i18n.js" {
+                crate::ui::assets::I18N_JS
             } else if clean == "files.js" {
                 crate::ui::assets::FILES_JS
             } else {
@@ -323,6 +341,27 @@ mod tests {
         assert!(resolve_safe_static_path(&temp, "non_existent.txt").is_none());
 
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn locale_catalogues_match_keys_and_interpolation_names() {
+        use std::collections::BTreeMap;
+        let en: BTreeMap<String, String> =
+            serde_json::from_str(crate::ui::assets::LOCALE_EN).unwrap();
+        let tr: BTreeMap<String, String> =
+            serde_json::from_str(crate::ui::assets::LOCALE_TR).unwrap();
+        assert_eq!(en.keys().collect::<Vec<_>>(), tr.keys().collect::<Vec<_>>());
+        let placeholders = |value: &str| {
+            value
+                .split('{')
+                .skip(1)
+                .filter_map(|part| part.split_once('}').map(|(name, _)| name.to_owned()))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        for (key, value) in &en {
+            assert_eq!(key, value);
+            assert_eq!(placeholders(value), placeholders(&tr[key]), "{key}");
+        }
     }
 
     #[test]

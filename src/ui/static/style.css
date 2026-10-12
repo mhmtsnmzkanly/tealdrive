@@ -743,3 +743,6 @@ body {
   .footer-meta { overflow-wrap: anywhere; }
   .toast-container { bottom: 1rem; right: 1rem; }
 }
+
+.activity-note { margin: 0 0 1rem; font-size: .85rem; }
+.permission-warning { color: var(--amber-400, #fbbf24); min-height: 1.3em; }

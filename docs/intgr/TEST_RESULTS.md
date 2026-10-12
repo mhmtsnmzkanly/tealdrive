@@ -18,3 +18,11 @@ HTML/CSS/JS/SVG ayrı src/ui/static dosyalarına byte içeriği korunarak taşı
 
 - cargo test --locked --test browser_contract --test browser_shutdown: 2 passed.
 - Binary içinde gömme korunuyor; dış asset dizini zorunlu değil.
+
+## 2026-10-12 — UI güvenlik uyarıları ve parola alanı
+
+Aktif program/dosya çakışması notu, chmod izin kaldırma/special-bit açıklaması ve yeni Others-write için iptal edilebilir onay eklendi. Login input ağ başlamadan temizlenir; hata/success/finally sonrası da boş kalır.
+
+- cargo test --locked --test browser_permissions --test browser_shutdown --test browser_contract: 3 passed.
+- Deterministic UI testi: cancel mutation göndermiyor, onaylanan chmod doğru mode gönderiyor, invalid octal reddediliyor, special bit uyarısı, existing world-write yeniden onay istemiyor, success/denial/network login'de parola alanı temiz.
+- node --check src/ui/static/app.js: passed.

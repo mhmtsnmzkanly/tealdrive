@@ -72,6 +72,7 @@
 
     <!-- Main Content Area: File Table -->
     <main class="content-container">
+      <p class="muted activity-note">Files may be used by other applications. Editing, deleting, moving or changing permissions can affect running services; simultaneous changes may overwrite data.</p>
       <div id="dropzoneOverlay" class="dropzone-overlay hidden">
         <div class="dropzone-box">
           <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -202,6 +203,8 @@
       <form id="chmodForm" class="modal-body">
         <p class="file-target-name" id="chmodTargetName"></p>
         <p class="muted">Select permissions or enter an octal code. Both stay in sync.</p>
+        <p class="muted">Permission changes may prevent applications or services from accessing this item. Broad permissions may let other users read or change it. Directory execute permission allows traversal.</p>
+        <p id="chmodWarning" class="permission-warning" aria-live="polite"></p>
         <table class="permission-grid">
           <thead><tr><th scope="col">Who</th><th scope="col">Read</th><th scope="col">Write</th><th scope="col">Execute</th></tr></thead>
           <tbody><tr><th scope="row">Owner</th><td><input type="checkbox" class="chmod-bit" data-bit="256" aria-label="Owner: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="128" aria-label="Owner: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="64" aria-label="Owner: Execute"></td></tr>

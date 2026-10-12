@@ -18,6 +18,8 @@
     pendingRequests: new Map(),
     currentEditorFile: null,
     chmodTarget: null,
+    chmodOriginalMode: 0,
+    chmodIsDirectory: false,
     archiveSources: [],
   };
 
@@ -72,6 +74,7 @@
     chmodBits: [...document.querySelectorAll('#chmodForm .chmod-bit')],
     chmodPreview: document.getElementById('chmodPreview'),
     chmodError: document.getElementById('chmodError'),
+    chmodWarning: document.getElementById('chmodWarning'),
     chmodApplyBtn: document.getElementById('chmodApplyBtn'),
     archiveModal: document.getElementById('archiveModal'),
     archiveForm: document.getElementById('archiveForm'),
@@ -383,7 +386,7 @@
         }
       }
 
-      const chmodBtn = createActionButton('Permissions', () => openChmodModal(itemRelPath, item.mode));
+      const chmodBtn = createActionButton('Permissions', () => openChmodModal(itemRelPath, item.mode, item.is_dir));
       actionGroup.appendChild(chmodBtn);
 
       const renameBtn = createActionButton('Rename', () => openRenameModal(item.name, itemRelPath));
@@ -698,6 +701,12 @@
     const mode=parseInt(value,8);
     for(const checkbox of el.chmodBits)checkbox.checked=Boolean(mode&Number(checkbox.dataset.bit));
     el.chmodPreview.textContent=el.chmodBits.map((checkbox,index)=>checkbox.checked?'rwx'[index%3]:'-').join('');
+    const messages=[];
+    if((mode&0o002)&&!(state.chmodOriginalMode&0o002))messages.push('You are enabling write access for other users.');
+    const removed=(state.chmodOriginalMode&0o555)&~mode;
+    if(removed)messages.push(state.chmodIsDirectory?'Removing read or traversal permissions may prevent services from accessing this directory.':'Removing read or execute permissions may prevent applications from using this file.');
+    if(state.chmodOriginalMode&0o7000)messages.push('Special permission bits will be removed; this panel cannot set them.');
+    el.chmodWarning.textContent=messages.join(' ');
     return mode;
   }
   function syncChmodFromCheckboxes() {
@@ -705,7 +714,9 @@
     el.chmodOctalInput.value='0'+mode.toString(8).padStart(3,'0');
     syncChmodFromCode();
   }
-  function openChmodModal(relPath, currentMode) {
+  function openChmodModal(relPath, currentMode, isDirectory = false) {
+    state.chmodOriginalMode=(currentMode??0o644)&0o7777;
+    state.chmodIsDirectory=isDirectory;
     state.chmodTarget = relPath;
     el.chmodTargetName.textContent = relPath;
     const mode=(currentMode??0o644)&0o777;
@@ -799,6 +810,7 @@
 
   async function performLogin(username, password) {
     el.loginError.classList.add('hidden');
+    el.passwordInput.value='';
     try {
       const resp = await fetch('/api/login', {
         method: 'POST',
@@ -816,6 +828,9 @@
     } catch(err) {
       el.loginError.textContent = 'Connection error. Please try again.';
       el.loginError.classList.remove('hidden');
+    } finally {
+      password='';
+      el.passwordInput.value='';
     }
   }
 
@@ -1109,6 +1124,7 @@
       e.preventDefault();
       const mode=syncChmodFromCode();
       if(mode===null)return;
+      if((mode&0o002)&&!(state.chmodOriginalMode&0o002)&&!window.confirm('Allow other users to write to this item?'))return;
       el.chmodApplyBtn.disabled=true;
       try {
         await requestWs(MT.ChmodFile,{root_id:state.currentRoot,relative_path:state.chmodTarget,mode});

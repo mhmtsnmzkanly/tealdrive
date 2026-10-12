@@ -29,6 +29,8 @@ pub struct RootSummary {
     pub is_web_root: bool,
     pub uploads_allowed: bool,
     #[serde(default)]
+    pub hidden_files_allowed: bool,
+    #[serde(default)]
     pub quota_bytes: Option<u64>,
     #[serde(default)]
     pub used_bytes: Option<u64>,
@@ -419,6 +421,7 @@ where
             read_only: r.read_only,
             is_web_root: r.is_web_root,
             uploads_allowed: r.uploads_allowed,
+            hidden_files_allowed: r.hidden_files_allowed,
             quota_bytes: r.quota_bytes,
             used_bytes: None,
         })
@@ -583,6 +586,7 @@ where
                     read_only: r.read_only,
                     is_web_root: r.is_web_root,
                     uploads_allowed: r.uploads_allowed,
+                    hidden_files_allowed: r.hidden_files_allowed,
                     quota_bytes: if account.as_ref().is_some_and(|account| {
                         account.kind == crate::accounts::store::AccountKind::Virtual
                     }) {

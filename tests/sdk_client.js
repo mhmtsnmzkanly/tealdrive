@@ -171,7 +171,19 @@ globalThis.crypto = webcrypto;
   let downloadStatus = 200;
   let policyGeneration = 1,
     personalRules = [];
+  const settingsRequests = [];
   const fetch = async (url, options) => {
+    if (url.startsWith("/api/admin/config")) {
+      settingsRequests.push({ url, options });
+      if (options.method !== "GET")
+        assert.equal(options.headers["x-csrf-token"], "csrf");
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => "split" },
+        json: async () => ({ config: { features: { save_text_file: true } } }),
+      };
+    }
     if (url === "/api/session")
       return {
         status: session ? 200 : 401,
@@ -298,6 +310,37 @@ globalThis.crypto = webcrypto;
     (e) => e.code === "INVALID_CREDENTIALS",
   );
   await api.auth.login({ username: "alice", password: "right" });
+  assert.equal(
+    api.files.getDownloadUrl({ rootId: "home", path: "/name with spaces.txt" }),
+    "/api/download?root_id=home&path=name+with+spaces.txt",
+  );
+  assert.equal(
+    api.files.getPreviewUrl({ rootId: "home", path: "/name.png" }),
+    "/api/preview?root_id=home&path=name.png",
+  );
+  assert.throws(
+    () => api.files.getDownloadUrl({ rootId: "other", path: "/file" }),
+    (e) => e.code === "INVALID_ROOT",
+  );
+  assert.throws(
+    () => api.files.getPreviewUrl({ rootId: "home", path: "../private" }),
+    (e) => e.code === "INVALID_PATH",
+  );
+  assert.deepEqual(await api.admin.settings.inspect(), {
+    mode: "split",
+    config: { features: { saveTextFile: true } },
+  });
+  await api.admin.settings.patch({
+    changes: { features: { save_text_file: false } },
+    persist: false,
+  });
+  assert.equal(settingsRequests.at(-1).url, "/api/admin/config");
+  await api.admin.settings.patch({
+    changes: { features: { save_text_file: true } },
+  });
+  assert.equal(settingsRequests.at(-1).url, "/api/admin/config?save=true");
+  await api.admin.settings.reload();
+  assert.equal(settingsRequests.at(-1).url, "/api/admin/config/reload");
   await api.files.goTo("/musics");
   assert.equal(api.files.getCurrentDirectory(), "/musics");
   await api.files.list({

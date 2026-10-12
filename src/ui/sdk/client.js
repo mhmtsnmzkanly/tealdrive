@@ -257,6 +257,8 @@ export class TealDriveClient {
       search: async (o) => this._search(o),
       upload: async (o) => this._upload(o),
       download: async (o) => this._download(o),
+      getDownloadUrl: (o) => this._fileUrl("download", o),
+      getPreviewUrl: (o) => this._fileUrl("preview", o),
       validatePath: (p, o) => this._validatePath(p, o?.rootId),
       goTo: (p, o) => this._goTo(p, o),
       getCurrentDirectory: () => this._current(),
@@ -292,6 +294,10 @@ export class TealDriveClient {
       settings: Object.freeze({
         get: async () => this._http("/api/admin/config", "GET", {}, true),
         patch: async (o) => this._settings(o),
+        inspect: async () =>
+          this._http("/api/admin/config", "GET", {}, true, true),
+        reload: async () =>
+          this._http("/api/admin/config/reload", "POST", {}, true),
       }),
       systemUsers: Object.freeze({
         getPolicy: async (o) => this._getPolicy({ ...o, kind: "linux" }),
@@ -446,8 +452,16 @@ export class TealDriveClient {
           socket.close();
         }
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (this._socket !== socket) return;
+        if (
+          !this._shutdown &&
+          event?.code === 1001 &&
+          event?.reason === "Server shutting down"
+        ) {
+          this._shutdown = true;
+          this._emit("server.shutdown", { deadlineSeconds: 0 });
+        }
         this._ready = false;
         this._handshakePromise = null;
         this._stopQuotaPolling();
@@ -674,7 +688,7 @@ export class TealDriveClient {
       }
     });
   }
-  async _http(url, method = "GET", body = {}, auth = true) {
+  async _http(url, method = "GET", body = {}, auth = true, detailed = false) {
     this._require(auth);
     if (method === "GET" && body && Object.keys(body).length) {
       const params = new URLSearchParams(
@@ -698,7 +712,12 @@ export class TealDriveClient {
     const data =
       response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) throw httpError(response, data);
-    return publicValue(data);
+    return detailed
+      ? {
+          config: publicValue(data?.config ?? data),
+          mode: response.headers.get("x-tealdrive-config-mode") ?? "legacy",
+        }
+      : publicValue(data);
   }
   _virtualRequired(deletion = false) {
     this._require(true);
@@ -1580,12 +1599,26 @@ export class TealDriveClient {
     return freeze(clone(quota));
   }
   _settings(options = {}) {
-    object(options, ["changes"]);
+    object(options, ["changes", "persist"]);
+    if (options.persist !== undefined && typeof options.persist !== "boolean")
+      fail("INVALID_ARGUMENT");
     return this._http(
-      "/api/admin/config?save=true",
+      options.persist === false
+        ? "/api/admin/config"
+        : "/api/admin/config?save=true",
       "PATCH",
       options.changes,
       true,
+    );
+  }
+  _fileUrl(route, options = {}) {
+    object(options, ["rootId", "path"]);
+    const ref = this._ref(options);
+    return (
+      "/api/" +
+      route +
+      "?" +
+      new URLSearchParams({ root_id: ref.root_id, path: ref.relative_path })
     );
   }
   async _download(options = {}) {

@@ -1,6 +1,6 @@
 /**
- * TealDrive SDK API taslağı — kullanım/JSDoc referansı, SDK implementasyonu değildir.
- * Kaynak: TASARIM.md ve plan.md. Bu adlar/hatalar henüz mevcut server sözleşmesi değildir.
+ * TealDrive SDK v1 kullanım/JSDoc referansı; implementasyon /sdk/v1/tealdrive.js içindedir.
+ * Kaynak: docs/intgr/SDK.md ve src/ui/sdk/client.d.ts. audit/undo capability tamamlanana kadar FEATURE_DISABLED kalır.
  * Import edilince ağ çağrısı veya dosya değişikliği yapmaz. Her örnek ayrı çağrılabilir;
  * mutasyon örnekleri gerçek SDK ile çalıştırılırsa veri değiştirir. Placeholder'ları değiştirin.
  *
@@ -466,9 +466,9 @@ export const examples = {
    */
   quotaGet: (API) => API.files.quota.get(),
 
-  // API.admin.settings.get(); — Webden değişebilir ayarları ve revision bilgisini döndürür; kritik config/secrets yoktur.
+  // API.admin.settings.get(); — Panelin görebildiği config snapshot döner; kritik alanları değiştirmek server tarafından reddedilir.
   /**
-   * Webden değişebilir ayarları ve revision bilgisini döndürür; kritik config/secrets yoktur.
+   * Panelin görebildiği config snapshot döner; kritik alanları değiştirmek server tarafından reddedilir.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
    * @example API.admin.settings.get();
    * @description SDK yöntemi parametreleri: Parametre yok.
@@ -477,16 +477,16 @@ export const examples = {
    */
   settingsGet: (API) => API.admin.settings.get(),
 
-  // API.admin.settings.patch({ changes: { quota_notifications: { warning_percent: 80 } } }); — Yalnızca izinli çalışma ayarlarını tavan içinde günceller.
+  // API.admin.settings.patch({ changes: { quota_warning_percent: 80 } }); — Yalnızca izinli çalışma ayarlarını tavan içinde günceller.
   /**
    * Yalnızca izinli çalışma ayarlarını tavan içinde günceller.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.settings.patch({ changes: { quota_notifications: { warning_percent: 80 } } });
+   * @example API.admin.settings.patch({ changes: { quota_warning_percent: 80 } });
    * @description SDK yöntemi parametreleri: options: { expectedRevision: string, changes: object }.
    * @returns {Promise<{ settings: object, revision: string }>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, CRITICAL_SETTING_DENIED, REVISION_CONFLICT, VALIDATION_FAILED.
    */
-  settingsPatch: (API) => API.admin.settings.patch({ changes: { quota_notifications: { warning_percent: 80 } } }),
+  settingsPatch: (API) => API.admin.settings.patch({ changes: { quota_warning_percent: 80 } }),
 
   // API.admin.systemUsers.list(); — Servis/sistem kullanıcıları filtrelenmiş yerel adayları döndürür; erişim açmaz.
   /**
@@ -537,38 +537,38 @@ export const examples = {
    */
   adminUsersDeny: (API) => API.admin.systemUsers.deny({accountId:"account-uuid"}),
 
-  // API.admin.virtualUsers.list({ limit: 50, cursor: null }); — Yalnızca yönettiği sanal alt hesapları listeler.
+  // API.admin.virtualUsers.list(); — Yalnızca yönettiği sanal alt hesapları listeler.
   /**
    * Yalnızca yönettiği sanal alt hesapları listeler.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.virtualUsers.list({ limit: 50, cursor: null });
+   * @example API.admin.virtualUsers.list();
    * @description SDK yöntemi parametreleri: options: { limit?: number, cursor?: string|null }.
-   * @returns {Promise<{ items: AccountView[], nextCursor: string|null }>} Örnek çağrının sonucu.
+   * @returns {Promise<AccountMetadata[]>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED.
    */
-  virtualList: (API) => API.admin.virtualUsers.list({ limit: 50, cursor: null }),
+  virtualList: (API) => API.admin.virtualUsers.list(),
 
-  // API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, idempotencyKey: "unique_request_key" }); — Ayrı UID/GID ile awaiting_password alt hesap sağlar; admin oluşturamaz.
+  // API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, password: "<kullanıcıdan alınan ilk web parolası>", idempotencyKey: crypto.randomUUID() }); — Ayrı locked/nologin UID/GID ve ilk web parolasıyla User alt hesap sağlar; admin oluşturamaz.
   /**
-   * Ayrı UID/GID ile awaiting_password alt hesap sağlar; admin oluşturamaz.
+   * Ayrı locked/nologin UID/GID ve ilk web parolasıyla User alt hesap sağlar; admin oluşturamaz.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, idempotencyKey: "unique_request_key" });
-   * @description SDK yöntemi parametreleri: options: { name: string, quotaBytes: number, idempotencyKey: string }.
+   * @example API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, password: "<kullanıcıdan alınan ilk web parolası>", idempotencyKey: crypto.randomUUID() });
+   * @description SDK yöntemi parametreleri: options: { name: string, password: string, quotaBytes: number, idempotencyKey?: UUID }.
    * @returns {Promise<AccountView>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, QUOTA_BUDGET_EXCEEDED, INVALID_NAME, AUDIT_UNAVAILABLE, PROVISIONING_FAILED.
    */
-  virtualCreate: (API) => API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, idempotencyKey: "unique_request_key" }),
+  virtualCreate: (API) => API.admin.virtualUsers.create({ name: "customer-one", quotaBytes: 20 * 1024 ** 3, password: "<kullanıcıdan alınan ilk web parolası>", idempotencyKey: crypto.randomUUID() }),
 
-  // API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedRevision: "account_revision" }); — Admin bütçesi içinde sanal alt hesabın kotasını değiştirir; root havuzunu değiştirmez.
+  // API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedGeneration: 1 }); — Admin bütçesi içinde sanal alt hesabın kotasını değiştirir; root havuzunu değiştirmez.
   /**
    * Admin bütçesi içinde sanal alt hesabın kotasını değiştirir; root havuzunu değiştirmez.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedRevision: "account_revision" });
+   * @example API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedGeneration: 1 });
    * @description SDK yöntemi parametreleri: options: { accountId: string, quotaBytes: number, expectedRevision: string }.
    * @returns {Promise<AccountView>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, PERMISSION_DENIED, QUOTA_BUDGET_EXCEEDED, QUOTA_BELOW_USAGE, REVISION_CONFLICT.
    */
-  virtualQuota: (API) => API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedRevision: "account_revision" }),
+  virtualQuota: (API) => API.admin.virtualUsers.setQuota({ accountId: "acct_customer", quotaBytes: 10 * 1024 ** 3, expectedGeneration: 1 }),
 
   // API.admin.virtualUsers.disable({ accountId: "acct_customer" }); — Sanal alt hesabı kapatır ve oturumlarını iptal eder; veriyi silmez.
   /**
@@ -635,5 +635,31 @@ export const examples = {
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, QUOTA_MEASUREMENT_UNAVAILABLE.
    */
   adminBudget: (API) => API.admin.quota.getBudget(),
+
+
+  // API.files.createText({rootId:"home",path:"notes.txt",content:"Yeni içerik"}); — Yalnız yeni dosya; mevcut adı ezmez.
+  /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} ALREADY_EXISTS, POLICY_DENIED, DISK_FULL */
+  createText: API => API.files.createText({rootId:"home",path:"notes.txt",content:"Yeni içerik"}),
+  // API.files.refreshState(); — Kayıtlı dizini helper ile tekrar doğrular; silindiyse en yakın üst dizine gider.
+  /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} AUTH_REQUIRED, STATE_DISABLED */
+  refreshState: API => API.files.refreshState(),
+  // API.files.getState(); — Immutable UI snapshot; stale=true güncel disk garantisi değildir.
+  /** @param {Object} API @returns {Object} */
+  getState: API => API.files.getState(),
+  // API.files.getDownloadUrl({rootId:"home",path:"large.zip"}); — Native browser indirme URL'si; secret query'ye konmaz.
+  /** @param {Object} API @returns {string} @throws {TealDriveError} INVALID_PATH, INVALID_ROOT, AUTH_REQUIRED */
+  downloadUrl: API => API.files.getDownloadUrl({rootId:"home",path:"large.zip"}),
+  // API.files.getPreviewUrl({rootId:"home",path:"photo.jpg"}); — Media element URL'si; erişim/size/type backend'de denetlenir.
+  /** @param {Object} API @returns {string} @throws {TealDriveError} INVALID_PATH, INVALID_ROOT, AUTH_REQUIRED */
+  previewUrl: API => API.files.getPreviewUrl({rootId:"home",path:"photo.jpg"}),
+  // API.admin.settings.inspect(); — {config, mode} döner; mode=split Root ceiling/runtime ayrımıdır.
+  /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} PERMISSION_DENIED */
+  settingsInspect: API => API.admin.settings.inspect(),
+  // API.admin.settings.reload(); — Root policy ve runtime overlay doğrulanarak yeniden okunur; Root dosyasına yazmaz.
+  /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} PERMISSION_DENIED, VALIDATION_FAILED */
+  settingsReload: API => API.admin.settings.reload(),
+  // API.admin.virtualUsers.delete({accountId:"ACCOUNT_ID",expectedGeneration:1}); — Root izinliyse retained delete; OS purge Root lifecycle işidir.
+  /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} FEATURE_DISABLED, CONFLICT, PERMISSION_DENIED */
+  virtualDelete: API => API.admin.virtualUsers.delete({accountId:"ACCOUNT_ID",expectedGeneration:1}),
 
 };

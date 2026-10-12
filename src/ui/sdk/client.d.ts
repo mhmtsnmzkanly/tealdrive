@@ -90,6 +90,7 @@ export interface Session {
     readOnly: boolean;
     isWebRoot: boolean;
     uploadsAllowed: boolean;
+    hiddenFilesAllowed?: boolean;
     usedBytes: number | null;
     quotaBytes: number | null;
   }>;
@@ -161,6 +162,19 @@ export interface AccountMetadata {
   updatedAt: number;
   deletedAt: number | null;
   denyEnrollment: boolean;
+}
+/** Transient reactions; use observeState/observeQuotaWarning for persistent conditions. */
+export interface ClientEvents {
+  "state.changed": ClientState;
+  "connection.changed": {status:ClientState["connection"]};
+  "server.shutdown": {deadlineSeconds:number};
+  "session.revoked": Record<string,never>;
+  "files.changed": {operation:string;rootId?:string;path?:string};
+  "accounts.changed": {operation:"create"|"quota"|"delete";accountId:string;kind:"virtual"};
+  "policy.changed": {accountId:string;generation:number};
+  "quota.warning.changed": QuotaWarning;
+  "quota.warning.entered": Quota;
+  "quota.warning.cleared": Quota;
 }
 export interface AuthAPI {
   /** Same established WebSocket; no HTTP password submission. @throws INVALID_CREDENTIALS, RATE_LIMITED */
@@ -241,6 +255,10 @@ export interface FilesAPI {
   ): Promise<OperationResult>;
   /** Streaming Response; UI chooses how to save. Promise resolution is not proof of user disk write. */
   download(options: FileOptions): Promise<Response>;
+  /** Native browser download/media URL; no secret/token in query. Authorization occurs when requested. */
+  getDownloadUrl(options: Omit<FileOptions, "signal">): string;
+  /** Same-origin preview URL; backend checks size/type/access policy. */
+  getPreviewUrl(options: Omit<FileOptions, "signal">): string;
   validatePath(
     path: string,
     options?: { rootId?: string },
@@ -254,6 +272,7 @@ export interface FilesAPI {
   observeState(callback: (state: ClientState) => void): Unsubscribe;
   /** Immediate current condition + changes. SDK never renders a popup or writes DOM. */
   observeQuotaWarning(callback: (warning: QuotaWarning) => void): Unsubscribe;
+  on<K extends keyof ClientEvents>(event:K,callback:(payload:ClientEvents[K])=>void):Unsubscribe;
   on(event: string, callback: (payload: unknown) => void): Unsubscribe;
   trash: {
     move(options: FileOptions): Promise<OperationResult>;
@@ -387,7 +406,16 @@ export interface AdminBudget {
 export interface AdminAPI {
   settings: {
     get(): Promise<unknown>;
-    patch(options: { changes: Record<string, unknown> }): Promise<unknown>;
+    patch(options: {
+      changes: Record<string, unknown>;
+      persist?: boolean;
+    }): Promise<unknown>;
+    /** Runtime/legacy configuration mode; root-managed fields remain protected. */
+    inspect(): Promise<{
+      config: Record<string, unknown>;
+      mode: "split" | "legacy";
+    }>;
+    reload(): Promise<unknown>;
   };
   systemUsers: {
     list(): Promise<UserCandidates>;
@@ -459,6 +487,7 @@ export class TealDriveClient {
   disconnect(): void;
   getState(): ClientState;
   observeState(callback: (state: ClientState) => void): Unsubscribe;
+  on<K extends keyof ClientEvents>(event:K,callback:(payload:ClientEvents[K])=>void):Unsubscribe;
   on(event: string, callback: (payload: unknown) => void): Unsubscribe;
 }
 export function createClient(options?: ClientOptions): TealDriveClient;

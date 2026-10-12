@@ -49,10 +49,12 @@ pub fn compress_zip_request<H: CompressZipHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     if request.relative_paths.is_empty() {
         return Err(TealDriveError::InvalidPath);
     }
     let validated_target = validate_relative_path(&request.target_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &validated_target)?;
     if validated_target.0.is_empty() {
         return Err(TealDriveError::InvalidTarget);
     }
@@ -68,6 +70,7 @@ pub fn compress_zip_request<H: CompressZipHelper>(
     let mut validated_sources = Vec::with_capacity(request.relative_paths.len());
     for src in &request.relative_paths {
         let val_src = validate_relative_path(src)?;
+        policy_engine.ensure_visible(&request.root_id, &val_src)?;
         if val_src.0.is_empty() {
             return Err(TealDriveError::InvalidPath);
         }
@@ -147,10 +150,12 @@ pub fn compress_targz_request<H: CompressTarGzHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     if request.relative_paths.is_empty() {
         return Err(TealDriveError::InvalidPath);
     }
     let validated_target = validate_relative_path(&request.target_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &validated_target)?;
     if validated_target.0.is_empty() {
         return Err(TealDriveError::InvalidTarget);
     }
@@ -167,6 +172,7 @@ pub fn compress_targz_request<H: CompressTarGzHelper>(
     let mut validated_sources = Vec::with_capacity(request.relative_paths.len());
     for src in &request.relative_paths {
         let val_src = validate_relative_path(src)?;
+        policy_engine.ensure_visible(&request.root_id, &val_src)?;
         if val_src.0.is_empty() {
             return Err(TealDriveError::InvalidPath);
         }
@@ -246,11 +252,14 @@ pub fn extract_archive_request<H: ExtractArchiveHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let validated_archive = validate_relative_path(&request.archive_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &validated_archive)?;
     if validated_archive.0.is_empty() {
         return Err(TealDriveError::InvalidPath);
     }
     let validated_target = validate_relative_path(&request.target_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &validated_target)?;
 
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     if root.read_only {

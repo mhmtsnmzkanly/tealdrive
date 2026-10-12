@@ -48,7 +48,9 @@ fn add_dir_to_tar<W: Write>(
                 .map_err(std::io::Error::other)?
                 .to_string_lossy(),
         );
-        if metadata.is_symlink()
+        if !crate::helper::access::visible(&relative, &metadata)
+            || crate::helper::access::check(&relative, crate::policy::access::Access::Read).is_err()
+            || metadata.is_symlink()
             || (!allow_hidden && name.starts_with('.'))
             || detect_sensitive(&relative, sensitive).is_sensitive
         {
@@ -239,7 +241,7 @@ pub fn compress_zip_with_roots(
                     "zip_error",
                 );
             }
-            let mut f = match File::open(&res_path.resolved_path) {
+            let mut f = match crate::helper::sandbox::open(root, &rel_path, libc::O_RDONLY, 0) {
                 Ok(f) => f,
                 Err(err) => {
                     let _ = fs::remove_file(&target.resolved_path);
@@ -292,6 +294,15 @@ fn add_dir_to_zip<W: Write + Seek>(
             continue;
         }
 
+        if let Ok(rel) = path.strip_prefix(canonical_base) {
+            let relative = RelativePath::new(rel.to_string_lossy());
+            if !crate::helper::access::visible(&relative, &metadata)
+                || crate::helper::access::check(&relative, crate::policy::access::Access::Read)
+                    .is_err()
+            {
+                continue;
+            }
+        }
         // Sensitive check
         if let Ok(rel) = path.strip_prefix(canonical_base) {
             let rel_str = rel.to_string_lossy();
@@ -683,7 +694,22 @@ fn extract_zip(
     sensitive_config: &SensitivePolicyConfig,
     request: &HelperRequest,
 ) -> HelperResponse {
-    let file = match File::open(archive_path) {
+    let root = AllowedRoot {
+        base_path: canonical_base.to_path_buf(),
+        ..Default::default()
+    };
+    let relative = match archive_path.strip_prefix(canonical_base) {
+        Ok(path) => RelativePath::new(path.to_string_lossy()),
+        Err(_) => {
+            return helper_error(
+                request,
+                ErrorKind::InvalidPath,
+                "Archive path invalid.",
+                "invalid_path",
+            )
+        }
+    };
+    let file = match crate::helper::sandbox::open(&root, &relative, libc::O_RDONLY, 0) {
         Ok(f) => f,
         Err(err) => return helper_error_from_io(request, err),
     };
@@ -748,6 +774,12 @@ fn extract_zip(
         }
 
         if let Ok(rel) = outpath.strip_prefix(canonical_base) {
+            if let Err(error) = crate::helper::access::check(
+                &RelativePath::new(rel.to_string_lossy()),
+                crate::policy::access::Access::Write,
+            ) {
+                return helper_error_from_tealdrive(request, error);
+            }
             let rel_str = rel.to_string_lossy();
             if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive
             {
@@ -854,7 +886,22 @@ fn extract_tar(
     lower_name: &str,
     request: &HelperRequest,
 ) -> HelperResponse {
-    let file = match File::open(archive_path) {
+    let root = AllowedRoot {
+        base_path: canonical_base.to_path_buf(),
+        ..Default::default()
+    };
+    let relative = match archive_path.strip_prefix(canonical_base) {
+        Ok(path) => RelativePath::new(path.to_string_lossy()),
+        Err(_) => {
+            return helper_error(
+                request,
+                ErrorKind::InvalidPath,
+                "Archive path invalid.",
+                "invalid_path",
+            )
+        }
+    };
+    let file = match crate::helper::sandbox::open(&root, &relative, libc::O_RDONLY, 0) {
         Ok(f) => f,
         Err(err) => return helper_error_from_io(request, err),
     };
@@ -934,6 +981,12 @@ fn extract_tar(
         }
 
         if let Ok(rel) = outpath.strip_prefix(canonical_base) {
+            if let Err(error) = crate::helper::access::check(
+                &RelativePath::new(rel.to_string_lossy()),
+                crate::policy::access::Access::Write,
+            ) {
+                return helper_error_from_tealdrive(request, error);
+            }
             let rel_str = rel.to_string_lossy();
             if detect_sensitive(&RelativePath::new(rel_str.as_ref()), sensitive_config).is_sensitive
             {

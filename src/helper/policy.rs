@@ -44,6 +44,8 @@ pub fn restrict(
 ) -> Result<AppConfig, TealDriveError> {
     snapshot.validate()?;
     let mut config = snapshot.config.clone();
+    config.access_policy.extend_ceiling(&ceiling.access_policy);
+    config.access_policy.validate()?;
     for root in &mut config.roots {
         let trusted = ceiling
             .roots
@@ -101,6 +103,7 @@ pub fn authorize(
     request: &crate::helper::types::HelperRequest,
     config: &AppConfig,
 ) -> Result<(), TealDriveError> {
+    crate::helper::access::authorize(request, config)?;
     use crate::helper::types::HelperCommand::*;
     if let Some(options) = &request.write_options {
         let bound = match request.command {

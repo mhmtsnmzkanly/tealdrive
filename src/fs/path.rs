@@ -99,6 +99,7 @@ pub fn resolve_existing_path(
 ) -> Result<ExistingPathResolution, TealDriveError> {
     let resolved_root = resolve_root(root)?;
     let validated = validate_relative_path(relative_path)?;
+    crate::helper::access::check(&validated, crate::policy::access::Access::Discover)?;
     let candidate = if validated.0.is_empty() {
         resolved_root.canonical_base.clone()
     } else {
@@ -107,10 +108,6 @@ pub fn resolve_existing_path(
 
     let symlink_meta = std::fs::symlink_metadata(&candidate).map_err(map_path_io_error)?;
     let is_symlink = symlink_meta.file_type().is_symlink();
-    if is_symlink && !follow_symlinks {
-        return Err(TealDriveError::SymlinkDenied);
-    }
-
     let canonical = candidate.canonicalize().map_err(map_path_io_error)?;
     if !canonical.starts_with(&resolved_root.canonical_base) {
         return Err(if is_symlink {
@@ -120,6 +117,17 @@ pub fn resolve_existing_path(
         });
     }
 
+    let canonical_relative = canonical
+        .strip_prefix(&resolved_root.canonical_base)
+        .map_err(|_| TealDriveError::PathEscapesRoot)?;
+    crate::helper::access::check(
+        &RelativePath::new(canonical_relative.to_string_lossy()),
+        crate::policy::access::Access::Discover,
+    )?;
+    crate::helper::access::check_metadata(&symlink_meta)?;
+    if is_symlink && !follow_symlinks {
+        return Err(TealDriveError::SymlinkDenied);
+    }
     Ok(ExistingPathResolution {
         root: resolved_root,
         relative_path: validated,

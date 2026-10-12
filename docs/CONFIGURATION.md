@@ -303,3 +303,60 @@ GET config includes `X-Tealdrive-Config-Mode: split`; the bundled UI disables cr
 controls and submits only permitted settings. Legacy single-file mode remains available
 for migration and retains its previous administrative surface; it is not the new
 root/runtime protection model.
+
+## Shared path access policy
+
+Root config and the helper ceiling accept an `access_policy`. Root constraints and all
+user layers combine by denial; server snapshots can add restrictions but cannot remove
+helper restrictions. The service-writable settings overlay cannot change this section.
+
+```toml
+[access_policy]
+deny_system_components = [".ssh", ".gnupg", ".aws", ".kube"]
+reject_file_hardlinks = true
+
+[[access_policy.root_rules]]
+path = "private"
+recursive = true
+deny = ["discover"]
+
+[[access_policy.users.alice.admin_rules]]
+path = "projects/production"
+root_id = "home"
+recursive = true
+deny = ["chmod", "delete", "move"]
+
+[[access_policy.users.alice.personal_rules]]
+path = "projects/app/.env"
+recursive = false
+deny = ["read", "write"]
+```
+
+The default blocked components are matched anywhere within the root, exactly and
+case-sensitively. Project `.env` is not blocked by this section; the legacy
+`sensitive_policy` may still deny it. Explicitly review that legacy section for
+new home profiles; it is not silently loosened by this migration. `.tealdrive-trash`
+and `.tdrv-transaction-*` are reserved internal names even if hidden listing is enabled.
+
+Actions: `discover`, `read`, `write`, `chmod`, `delete`, `move`. `discover` denial returns
+NotFound and hides descendants even if the rule is nonrecursive. Other denials return
+PolicyDenied. Listing/search filter before pagination; capabilities reflect path rules.
+Read-only recursive archives omit denied children. Whole-tree move/rename/delete
+preflight instead rejects restricted descendants, checks target children and prevents
+renaming an unreadable source into a readable name. Extraction checks final paths
+through staging aliases; failed extraction publishes nothing. Trash metadata is
+untrusted, bounded and opened without following symlinks; restore/delete recheck current
+original-path policy, including descendants. Quota totals still include hidden/trash bytes.
+
+With default `reject_file_hardlinks=true`, all regular files with more than one hardlink
+are inaccessible through the panel, including legitimate hardlinks; descriptor checks
+prevent reading a hidden file through another linked name. Root may disable this only
+after accepting that path restrictions do not then protect hardlinked content. Normal
+content opens reject symlinks in all components using openat2.
+
+Rule scope is a pathname in the web API, not an inode label or an OS prohibition for
+SSH users. A Linux owner can rename/change their files outside TealDrive. Kernel
+confinement prevents escaping the pinned root; noncooperative external mutations can
+race application policy preflight. These restrictions are not a separate backup or
+immutable-data boundary. Per-user layers are currently configured by root in TOML;
+web/CLI policy management will use the protected account-management boundary.

@@ -114,6 +114,9 @@ pub fn search_files_with_roots(
                 format!("{dir_rel}/{name}")
             };
 
+            if !crate::helper::access::visible(&RelativePath::new(&item_rel), &metadata) {
+                continue;
+            }
             let name_lower = name.to_ascii_lowercase();
             let query_matched = name_lower.contains(&query_lower);
 
@@ -127,8 +130,12 @@ pub fn search_files_with_roots(
             };
 
             if query_matched && ext_matched {
-                let helper_entry =
+                let mut helper_entry =
                     directory_entry_from_metadata(name, &metadata, root, sensitive_config);
+                crate::helper::listing::refine_capabilities(
+                    &mut helper_entry,
+                    &RelativePath::new(&item_rel),
+                );
                 let payload_entry = helper_entry_to_payload(helper_entry);
                 matches.push(SearchMatchEntry {
                     relative_path: RelativePath::new(&item_rel),

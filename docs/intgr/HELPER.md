@@ -1,6 +1,8 @@
 # TealDrive HELPER geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Revision/atomik edit, quota ölçümü ve ortak access_policy motoru uygulandı. Çalışan şema [CONFIGURATION](../CONFIGURATION.md#shared-path-access-policy). Aşağıdaki helper identity/database/home/users.d örnekleri hedef şemadır; hesap yönetimi ve home geçişi henüz tamamlanmadı.
+
+Ortak motor root/global + kullanıcı root/admin/personal yasaklarını birleştirir; config snapshot helper root yasaklarını silemez. Gizli öğe doğrudan read/stat/download'da NotFound, list/search/recursive archive'da yok. Parent move/rename, final extraction target, restore ve trash delete tekrar kontrol edilir. Hardlinkli normal dosyalar default erişilemez. Şimdilik root TOML yönetir; web yönetim protokolü ayrıca tamamlanacak.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 

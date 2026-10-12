@@ -28,7 +28,9 @@ pub fn chmod_file_request<H: ChmodFileHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     if relative_path.0.is_empty() {
         return Err(TealDriveError::InvalidTarget);
     }

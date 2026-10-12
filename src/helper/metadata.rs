@@ -48,8 +48,27 @@ pub fn file_metadata_with_roots(
         return helper_error_from_tealdrive(request, error);
     }
 
+    if let Err(error) =
+        crate::helper::access::check(&relative_path, crate::policy::access::Access::Discover)
+            .and_then(|_| crate::helper::access::check_metadata(&metadata))
+    {
+        return helper_error_from_tealdrive(request, error);
+    }
+    if let Ok(canonical) = candidate.canonicalize() {
+        if let Ok(base) = root.base_path.canonicalize() {
+            if let Ok(relative) = canonical.strip_prefix(base) {
+                if let Err(error) = crate::helper::access::check(
+                    &RelativePath::new(relative.to_string_lossy()),
+                    crate::policy::access::Access::Discover,
+                ) {
+                    return helper_error_from_tealdrive(request, error);
+                }
+            }
+        }
+    }
     let name = metadata_name(&candidate, &relative_path);
-    let entry = directory_entry_from_metadata(name, &metadata, root, sensitive_config);
+    let mut entry = directory_entry_from_metadata(name, &metadata, root, sensitive_config);
+    crate::helper::listing::refine_capabilities(&mut entry, &relative_path);
     HelperResponse::file_metadata(request, entry)
 }
 

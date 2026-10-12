@@ -12,6 +12,68 @@ use crate::trash::model::TrashEntry;
 
 pub(crate) const TRASH_DIR_NAME: &str = ".tealdrive-trash";
 
+// Read only the validated UUID's metadata via a pinned root descriptor. This narrow
+// internal access does not make trash available through the general file API.
+pub(crate) fn internal_trash_id(path: &RelativePath) -> Option<String> {
+    let id = path.0.strip_prefix(".tealdrive-trash/files/")?;
+    let uuid = uuid::Uuid::parse_str(id).ok()?;
+    (uuid.to_string() == id).then(|| id.to_owned())
+}
+fn read_entry(root: &AllowedRoot, id: &str) -> Result<TrashEntry, crate::errors::TealDriveError> {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    let uuid = uuid::Uuid::parse_str(id).map_err(|_| crate::errors::TealDriveError::NotFound)?;
+    if uuid.to_string() != id {
+        return Err(crate::errors::TealDriveError::NotFound);
+    }
+    let rootfd = crate::helper::sandbox::open(
+        root,
+        &RelativePath::new(""),
+        libc::O_PATH | libc::O_DIRECTORY,
+        0,
+    )
+    .map_err(|_| crate::errors::TealDriveError::NotFound)?;
+    let mut file = crate::helper::sandbox::open_at(
+        rootfd.as_raw_fd(),
+        &format!(".tealdrive-trash/info/{id}.msgpack"),
+        libc::O_RDONLY | libc::O_NONBLOCK,
+        0,
+    )
+    .map_err(|_| crate::errors::TealDriveError::NotFound)?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| crate::errors::TealDriveError::NotFound)?;
+    if !metadata.is_file() || metadata.len() > 65536 {
+        return Err(crate::errors::TealDriveError::NotFound);
+    }
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(65537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| crate::errors::TealDriveError::NotFound)?;
+    if bytes.len() > 65536 {
+        return Err(crate::errors::TealDriveError::NotFound);
+    }
+    rmp_serde::from_slice(&bytes).map_err(|_| crate::errors::TealDriveError::NotFound)
+}
+pub(crate) fn policy_original_path(
+    request: &HelperRequest,
+    root: &AllowedRoot,
+) -> Result<RelativePath, crate::errors::TealDriveError> {
+    let id =
+        internal_trash_id(&request.relative_path).ok_or(crate::errors::TealDriveError::NotFound)?;
+    let entry = read_entry(root, &id)?;
+    if entry.uid != request.uid || entry.trash_id != id || entry.original_root_id != request.root_id
+    {
+        return Err(crate::errors::TealDriveError::NotFound);
+    }
+    let original = crate::fs::path::validate_relative_path(&entry.original_relative_path)?;
+    if original.0.is_empty() {
+        return Err(crate::errors::TealDriveError::NotFound);
+    }
+    Ok(original)
+}
+
 pub fn move_file_to_trash_with_roots(
     request: &HelperRequest,
     roots: &[AllowedRoot],
@@ -182,29 +244,18 @@ pub fn restore_file_from_trash_with_roots(
     let trash_info_dir = trash_dir.join("info");
 
     let info_path = trash_info_dir.join(format!("{}.msgpack", trash_id));
-    let info_bytes = match fs::read(&info_path) {
-        Ok(b) => b,
-        Err(_) => {
-            return helper_error(
-                request,
-                ErrorKind::NotFound,
-                "Trash entry not found.",
-                "not_found",
-            )
-        }
+    let entry = match read_entry(root, &trash_id) {
+        Ok(entry) => entry,
+        Err(error) => return helper_error_from_tealdrive(request, error),
     };
-
-    let entry: TrashEntry = match rmp_serde::from_slice(&info_bytes) {
-        Ok(e) => e,
-        Err(_) => {
-            return helper_error(
-                request,
-                ErrorKind::InternalError,
-                "Corrupt trash metadata.",
-                "corrupt_metadata",
-            )
-        }
-    };
+    if entry.trash_id != trash_id {
+        return helper_error(
+            request,
+            ErrorKind::NotFound,
+            "Trash entry not found.",
+            "not_found",
+        );
+    }
 
     if entry.uid != request.uid && request.uid != 0 {
         return helper_error(
@@ -248,7 +299,32 @@ pub fn restore_file_from_trash_with_roots(
         }
     };
 
-    let original_path = original_canonical.join(&entry.original_relative_path.0);
+    let original_relative =
+        match crate::fs::path::validate_relative_path(&entry.original_relative_path) {
+            Ok(path) if !path.0.is_empty() => path,
+            _ => {
+                return helper_error(
+                    request,
+                    ErrorKind::NotFound,
+                    "Trash entry not found.",
+                    "not_found",
+                )
+            }
+        };
+    if entry.original_root_id != request.root_id {
+        return helper_error(
+            request,
+            ErrorKind::NotFound,
+            "Trash entry not found.",
+            "not_found",
+        );
+    }
+    if let Err(error) =
+        crate::helper::access::check(&original_relative, crate::policy::access::Access::Write)
+    {
+        return helper_error_from_tealdrive(request, error);
+    }
+    let original_path = original_canonical.join(&original_relative.0);
     if !original_path.starts_with(&original_canonical) {
         return helper_error(
             request,
@@ -267,6 +343,18 @@ pub fn restore_file_from_trash_with_roots(
         );
     }
 
+    let trash_relative = RelativePath::new(format!(".tealdrive-trash/files/{trash_id}"));
+    if let Err(error) =
+        crate::helper::access::with_alias(trash_relative.clone(), original_relative, || {
+            crate::helper::access::preflight_tree(
+                root,
+                &trash_relative,
+                crate::policy::access::Access::Write,
+            )
+        })
+    {
+        return helper_error_from_tealdrive(request, error);
+    }
     match fs::rename(&trash_file_path, &original_path) {
         Ok(()) => {}
         Err(e) => return helper_error_from_trash_io(request, e),
@@ -429,9 +517,26 @@ pub fn list_trash_with_roots(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("msgpack") {
-                if let Ok(bytes) = fs::read(&path) {
-                    if let Ok(entry_model) = rmp_serde::from_slice::<TrashEntry>(&bytes) {
+                if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
+                    if let Ok(entry_model) = read_entry(root, id) {
+                        if entry_model.trash_id != id {
+                            continue;
+                        }
                         if entry_model.uid != request.uid && request.uid != 0 {
+                            continue;
+                        }
+                        if entry_model.original_root_id != request.root_id
+                            || crate::fs::path::validate_relative_path(
+                                &entry_model.original_relative_path,
+                            )
+                            .is_err()
+                            || crate::helper::access::check(
+                                &entry_model.original_relative_path,
+                                crate::policy::access::Access::Discover,
+                            )
+                            .is_err()
+                            || SafeFileName::parse(&entry_model.trash_id).is_err()
+                        {
                             continue;
                         }
                         let file_path = trash_files_dir.join(&entry_model.trash_id);

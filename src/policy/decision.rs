@@ -99,11 +99,35 @@ pub struct PolicyAuditMetadata {
 
 pub struct PolicyEngine<'a> {
     config: &'a AppConfig,
+    username: Option<String>,
 }
 
 impl<'a> PolicyEngine<'a> {
     pub fn new(config: &'a AppConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            username: None,
+        }
+    }
+
+    pub fn for_user(&self, username: &str) -> Self {
+        Self {
+            config: self.config,
+            username: Some(username.to_owned()),
+        }
+    }
+
+    pub fn ensure_visible(
+        &self,
+        root_id: &RootId,
+        path: &RelativePath,
+    ) -> Result<(), TealDriveError> {
+        self.config.access_policy.check(
+            self.username.as_deref().unwrap_or(""),
+            root_id,
+            path,
+            crate::policy::access::Access::Discover,
+        )
     }
 
     pub fn check_operation(
@@ -115,6 +139,37 @@ impl<'a> PolicyEngine<'a> {
         target_filename: Option<&SafeFileName>,
         include_hidden: bool,
     ) -> Result<PolicyDecision, TealDriveError> {
+        let username = self.username.as_deref().unwrap_or("");
+        let internal_delete = operation == FileOperation::DeletePermanently
+            && crate::helper::trash::internal_trash_id(relative_path).is_some();
+        if !internal_delete && operation != FileOperation::RestoreFromTrash {
+            self.config.access_policy.check(
+                username,
+                root_id,
+                relative_path,
+                crate::policy::access::Access::Discover,
+            )?;
+        }
+        if let Some(target) = target_relative_path {
+            self.config.access_policy.check(
+                username,
+                root_id,
+                target,
+                crate::policy::access::Access::Discover,
+            )?;
+        } else if let Some(name) = target_filename {
+            let target = RelativePath::new(if relative_path.0.is_empty() {
+                name.0.clone()
+            } else {
+                format!("{}/{}", relative_path.0, name.0)
+            });
+            self.config.access_policy.check(
+                username,
+                root_id,
+                &target,
+                crate::policy::access::Access::Discover,
+            )?;
+        }
         if operation == FileOperation::Chown && !self.config.features.chown {
             return Ok(PolicyDecision::Deny(PolicyReason::FeatureDisabled));
         }

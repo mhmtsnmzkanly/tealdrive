@@ -155,10 +155,20 @@ fn collect_entries(
             continue;
         };
         let is_hidden = name.starts_with('.');
-        if is_hidden && !include_hidden {
+        if is_hidden && (!include_hidden || !root.hidden_files_allowed) {
             continue;
         }
         let metadata = fs::symlink_metadata(entry.path())?;
+        let relative = RelativePath::new(
+            entry
+                .path()
+                .strip_prefix(&root.base_path)
+                .map_err(io::Error::other)?
+                .to_string_lossy(),
+        );
+        if !crate::helper::access::visible(&relative, &metadata) {
+            continue;
+        }
         let is_symlink = metadata.file_type().is_symlink();
         let file_type = if is_symlink {
             FileKind::Symlink
@@ -172,12 +182,9 @@ fn collect_entries(
         if !matches_filter(&name, file_type, filter, is_hidden, is_symlink) {
             continue;
         }
-        entries.push(directory_entry_from_metadata(
-            name,
-            &metadata,
-            root,
-            sensitive_config,
-        ));
+        let mut item = directory_entry_from_metadata(name, &metadata, root, sensitive_config);
+        refine_capabilities(&mut item, &relative);
+        entries.push(item);
     }
     Ok(entries)
 }
@@ -235,6 +242,21 @@ pub(crate) fn directory_entry_from_metadata(
             can_restore_from_trash: !root.read_only,
         },
     }
+}
+
+pub(crate) fn refine_capabilities(entry: &mut HelperDirectoryEntry, path: &RelativePath) {
+    use crate::policy::access::Access;
+    let allowed = |access| crate::helper::access::check(path, access).is_ok();
+    entry.capabilities.can_download &= allowed(Access::Read);
+    entry.capabilities.can_upload &= allowed(Access::Write);
+    entry.capabilities.can_create_folder &= allowed(Access::Write);
+    entry.capabilities.can_rename &= allowed(Access::Move) && allowed(Access::Read);
+    entry.capabilities.can_move_to_trash &= allowed(Access::Delete);
+    entry.capabilities.can_restore_from_trash &= allowed(Access::Write);
+    entry.is_protected |= !allowed(Access::Write)
+        || !allowed(Access::Chmod)
+        || !allowed(Access::Delete)
+        || !allowed(Access::Move);
 }
 
 fn matches_filter(
@@ -369,6 +391,12 @@ pub(crate) fn helper_error_from_tealdrive(
             ErrorKind::ValidationError,
             "Invalid filename.",
             "invalid_filename",
+        ),
+        TealDriveError::PolicyDenied => helper_error(
+            request,
+            ErrorKind::PolicyDenied,
+            "Operation denied by policy.",
+            "policy_denied",
         ),
         TealDriveError::NotFound => {
             helper_error(request, ErrorKind::NotFound, "Path not found.", "not_found")

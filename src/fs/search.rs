@@ -28,7 +28,9 @@ pub fn search_files_request<H: SearchFilesHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<SearchResultsPayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let base_relative_path = validate_relative_path(&request.base_path)?;
+    policy_engine.ensure_visible(&request.root_id, &base_relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
 
     match policy_engine.check_operation(

@@ -312,7 +312,7 @@ where
         }
     };
 
-    let policy_engine = PolicyEngine::new(&cfg);
+    let policy_engine = PolicyEngine::new(&cfg).for_user(&user_context.username);
 
     match policy_engine.check_operation(
         FileOperation::DownloadFile,
@@ -323,6 +323,7 @@ where
         root.hidden_files_allowed,
     ) {
         Ok(PolicyDecision::Allow | PolicyDecision::WarnAllowed(_)) => {}
+        Err(TealDriveError::NotFound) => return StatusCode::NOT_FOUND.into_response(),
         _ => {
             let mut response =
                 (StatusCode::FORBIDDEN, r#"{"error":"policy_denied"}"#).into_response();

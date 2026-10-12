@@ -115,8 +115,39 @@ pub fn handle_helper_request_with_config(
     request: &HelperRequest,
     config: &crate::config::AppConfig,
 ) -> HelperResponse {
+    if request.command == HelperCommand::DeletePermanently
+        && crate::helper::trash::internal_trash_id(&request.relative_path).is_some()
+    {
+        let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
+            return HelperResponse::permission_denied(request, "Unknown root.");
+        };
+        let original = match crate::helper::trash::policy_original_path(request, root) {
+            Ok(path) => path,
+            Err(error) => {
+                return crate::helper::listing::helper_error_from_tealdrive(request, error)
+            }
+        };
+        return crate::helper::access::with_context(request, config, || {
+            crate::helper::access::with_alias(request.relative_path.clone(), original, || {
+                handle_helper_operation(request, config)
+            })
+        });
+    }
+    crate::helper::access::with_context(request, config, || {
+        handle_helper_operation(request, config)
+    })
+}
+fn handle_helper_operation(
+    request: &HelperRequest,
+    config: &crate::config::AppConfig,
+) -> HelperResponse {
     if request.uid == 0 {
         return HelperResponse::permission_denied(request, "Helper refuses uid 0.");
+    }
+    if let Err(error) = crate::helper::access::authorize(request, config)
+        .and_then(|_| crate::helper::access::preflight(request, config))
+    {
+        return crate::helper::listing::helper_error_from_tealdrive(request, error);
     }
     if crate::helper::policy::authorize(request, config).is_err() {
         return HelperResponse::permission_denied(request, "Operation denied by helper policy.");
@@ -575,6 +606,12 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 );
             };
             // Validate first; privileged accounting never reads an untrusted root.
+            if let Err(error) = crate::helper::access::authorize(&request, &config) {
+                return write_helper_response(
+                    writer,
+                    &crate::helper::listing::helper_error_from_tealdrive(&request, error),
+                );
+            }
             if crate::helper::policy::authorize(&request, &config).is_err() {
                 return write_helper_response(
                     writer,

@@ -45,8 +45,10 @@ pub fn read_text_file_request<H: TextPreviewHelper + MetadataHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<TextFileContentPayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     request.validate(&config.limits)?;
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     match policy_engine.check_operation(
         FileOperation::ReadTextFile,
@@ -162,8 +164,10 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     request.validate(&config.limits)?;
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
 
     if root.read_only {

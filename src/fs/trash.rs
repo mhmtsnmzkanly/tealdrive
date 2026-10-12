@@ -63,7 +63,9 @@ pub fn move_to_trash_request<H: MoveToTrashHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<MoveToTrashPayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     let source = resolve_existing_path(root, &relative_path, false)?;
 
@@ -147,6 +149,7 @@ pub fn restore_from_trash_request<H: RestoreFromTrashHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let safe_trash_id = SafeFileName::parse(&request.trash_id)?;
 
     let root_id = request
@@ -223,7 +226,11 @@ pub fn delete_permanently_request<H: DeletePermanentlyHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let relative_path = validate_relative_path(&request.relative_path)?;
+    if crate::helper::trash::internal_trash_id(&relative_path).is_none() {
+        policy_engine.ensure_visible(&request.root_id, &relative_path)?;
+    }
     if relative_path.0.is_empty() {
         return Err(TealDriveError::InvalidTarget);
     }
@@ -305,6 +312,7 @@ pub fn list_trash_request<H: ListTrashHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<TrashListPayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     let relative_path = RelativePath::new(String::new());
 

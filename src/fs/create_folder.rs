@@ -29,10 +29,13 @@ pub fn create_folder_request<H: CreateFolderHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let parent_relative_path = validate_relative_path(&request.parent_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &parent_relative_path)?;
     let folder_name = SafeFileName::parse(&request.folder_name)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     let target_relative_path = join_relative_name(&parent_relative_path, &folder_name);
+    policy_engine.ensure_visible(&request.root_id, &target_relative_path)?;
     if detect_sensitive(&target_relative_path, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);
     }

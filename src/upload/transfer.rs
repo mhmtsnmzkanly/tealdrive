@@ -56,11 +56,12 @@ impl UploadHelper for HelperProcessClient {
 }
 
 pub fn upload_begin_request(
-    _user_context: &UserContext,
+    user_context: &UserContext,
     request: UploadBeginRequest,
     config: &AppConfig,
     policy_engine: &PolicyEngine<'_>,
 ) -> Result<(ActiveUpload, UploadBeginResponse), TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     request.validate(&config.limits)?;
 
     if request.total_size > config.limits.max_in_flight_upload as u64 {

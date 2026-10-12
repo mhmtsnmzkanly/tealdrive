@@ -42,6 +42,7 @@ pub fn list_directory_request<H: DirectoryListingHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<DirectoryListResponse, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let effective_limit = effective_limit(request.limit, config);
     let request = ListDirectoryRequest {
         limit: effective_limit,
@@ -49,6 +50,7 @@ pub fn list_directory_request<H: DirectoryListingHelper>(
     };
     request.validate(&config.limits)?;
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
     match policy_engine.check_operation(
         FileOperation::ListDirectory,
@@ -300,7 +302,8 @@ mod tests {
         let base = temp_root();
         fs::write(base.join(".hidden"), b"hidden").expect("hidden");
         fs::write(base.join("visible"), b"visible").expect("visible");
-        let config = config_for(base, false);
+        let mut config = config_for(base, false);
+        config.roots[0].hidden_files_allowed = true;
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),
@@ -325,7 +328,8 @@ mod tests {
     fn sensitive_file_flagged() {
         let base = temp_root();
         fs::write(base.join(".env"), b"secret").expect("env");
-        let config = config_for(base, false);
+        let mut config = config_for(base, false);
+        config.roots[0].hidden_files_allowed = true;
         let engine = PolicyEngine::new(&config);
         let helper = InProcessHelper {
             roots: config.roots.clone(),

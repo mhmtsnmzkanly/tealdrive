@@ -15,6 +15,23 @@ struct OpenHow {
 }
 pub fn open(root: &AllowedRoot, path: &RelativePath, flags: i32, mode: u32) -> io::Result<File> {
     let path = crate::fs::path::validate_relative_path(path).map_err(io::Error::other)?;
+    crate::helper::access::check(
+        &path,
+        if flags & (libc::O_WRONLY | libc::O_RDWR | libc::O_CREAT) != 0 {
+            crate::policy::access::Access::Write
+        } else if flags & libc::O_PATH != 0 {
+            crate::policy::access::Access::Discover
+        } else {
+            crate::policy::access::Access::Read
+        },
+    )
+    .map_err(|e| {
+        if e == crate::errors::TealDriveError::NotFound {
+            io::Error::from(io::ErrorKind::NotFound)
+        } else {
+            io::Error::from(io::ErrorKind::PermissionDenied)
+        }
+    })?;
     let base = CString::new(root.base_path.as_os_str().as_bytes()).map_err(io::Error::other)?;
     let rootfd = unsafe {
         libc::open(
@@ -26,12 +43,15 @@ pub fn open(root: &AllowedRoot, path: &RelativePath, flags: i32, mode: u32) -> i
         return Err(io::Error::last_os_error());
     }
     let rootfd = unsafe { OwnedFd::from_raw_fd(rootfd) };
-    open_at(
+    let file = open_at(
         rootfd.as_raw_fd(),
         if path.0.is_empty() { "." } else { &path.0 },
         flags,
         mode,
-    )
+    )?;
+    crate::helper::access::check_metadata(&file.metadata()?)
+        .map_err(|_| io::Error::from(io::ErrorKind::NotFound))?;
+    Ok(file)
 }
 pub(crate) fn open_at(fd: i32, path: &str, flags: i32, mode: u32) -> io::Result<File> {
     let name = CString::new(path).map_err(io::Error::other)?;

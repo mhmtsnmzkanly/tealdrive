@@ -46,8 +46,11 @@ pub fn move_file_request<H: MoveHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let source_relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &source_relative_path)?;
     let target_relative_path = validate_relative_path(&request.target_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &target_relative_path)?;
 
     if request.root_id != request.target_root_id {
         return Err(TealDriveError::InvalidTarget);
@@ -139,8 +142,11 @@ pub fn copy_file_request<H: CopyHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let source_relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &source_relative_path)?;
     let target_relative_path = validate_relative_path(&request.target_relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &target_relative_path)?;
 
     if request.root_id != request.target_root_id {
         return Err(TealDriveError::InvalidTarget);

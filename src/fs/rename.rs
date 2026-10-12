@@ -36,13 +36,16 @@ pub fn rename_file_request<H: RenameHelper>(
     policy_engine: &PolicyEngine<'_>,
     helper_client: &H,
 ) -> Result<OperationDonePayload, TealDriveError> {
+    let policy_engine = &policy_engine.for_user(&user_context.username);
     let relative_path = validate_relative_path(&request.relative_path)?;
+    policy_engine.ensure_visible(&request.root_id, &relative_path)?;
     let new_name = SafeFileName::parse(&request.new_name)?;
     let root = require_allowed_root(config.allowed_roots(), &request.root_id)?;
 
     let source = resolve_existing_path(root, &relative_path, false)?;
     let parent_relative_path = parent_relative_path(&source.relative_path);
     let target_relative_path = join_relative_name(&parent_relative_path, &new_name);
+    policy_engine.ensure_visible(&request.root_id, &target_relative_path)?;
 
     if detect_sensitive(&source.relative_path, &config.sensitive_policy).is_sensitive {
         return Err(TealDriveError::PolicyDenied);

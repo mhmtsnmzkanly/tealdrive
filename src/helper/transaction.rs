@@ -41,6 +41,9 @@ pub fn rename(
     Ok(())
 }
 pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
+    crate::helper::access::with_context(request, config, || execute_inner(request, config))
+}
+fn execute_inner(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
     use HelperCommand::*;
     if !matches!(
         request.command,
@@ -51,6 +54,9 @@ pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
     let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
         return HelperResponse::permission_denied(request, "Unknown root.");
     };
+    if let Err(error) = crate::helper::access::authorize(request, config) {
+        return crate::helper::listing::helper_error_from_tealdrive(request, error);
+    }
     if crate::helper::policy::authorize(request, config).is_err() {
         return HelperResponse::permission_denied(request, "Operation denied by helper policy.");
     }
@@ -139,46 +145,48 @@ pub fn execute(request: &HelperRequest, config: &AppConfig) -> HelperResponse {
             remaining
         }
     });
-    let mut response = crate::helper::quota::with_budget(available, || {
-        crate::helper::policy::with_snapshot(config, || {
-            crate::helper::ipc::handle_helper_request_with_config(&staged, &stage_config)
-        })
-    });
-    if response.success && crate::helper::cancellation::check().is_err() {
-        return HelperResponse::permission_denied(
-            request,
-            "Operation cancelled before publication.",
-        );
-    }
-    if response.success
-        && request.command == WriteFile
-        && expected.is_some_and(|token| {
-            !crate::helper::revision::matches(
-                root,
-                &clean,
-                token,
-                request.limits.max_text_edit_size,
-            )
-        })
-    {
-        return crate::helper::listing::helper_error(
-            request,
-            crate::errors::ErrorKind::RevisionConflict,
-            "File revision changed before publication.",
-            "revision_conflict",
-        );
-    }
-    if response.success && request.command == WriteFile {
-        if let Err(error) = preserve_permissions(root, &clean, &staging) {
-            return crate::helper::listing::helper_error_from_io(request, error);
+    crate::helper::access::with_alias(staging.clone(), clean.clone(), || {
+        let mut response = crate::helper::quota::with_budget(available, || {
+            crate::helper::policy::with_snapshot(config, || {
+                crate::helper::ipc::handle_helper_request_with_config(&staged, &stage_config)
+            })
+        });
+        if response.success && crate::helper::cancellation::check().is_err() {
+            return HelperResponse::permission_denied(
+                request,
+                "Operation cancelled before publication.",
+            );
         }
-    }
-    if response.success {
-        if let Err(error) = rename(root, &staging, &clean, request.command == WriteFile) {
-            response = crate::helper::listing::helper_error_from_io(request, error);
+        if response.success
+            && request.command == WriteFile
+            && expected.is_some_and(|token| {
+                !crate::helper::revision::matches(
+                    root,
+                    &clean,
+                    token,
+                    request.limits.max_text_edit_size,
+                )
+            })
+        {
+            return crate::helper::listing::helper_error(
+                request,
+                crate::errors::ErrorKind::RevisionConflict,
+                "File revision changed before publication.",
+                "revision_conflict",
+            );
         }
-    }
-    response
+        if response.success && request.command == WriteFile {
+            if let Err(error) = preserve_permissions(root, &clean, &staging) {
+                return crate::helper::listing::helper_error_from_io(request, error);
+            }
+        }
+        if response.success {
+            if let Err(error) = rename(root, &staging, &clean, request.command == WriteFile) {
+                response = crate::helper::listing::helper_error_from_io(request, error);
+            }
+        }
+        response
+    })
 }
 
 #[cfg(test)]

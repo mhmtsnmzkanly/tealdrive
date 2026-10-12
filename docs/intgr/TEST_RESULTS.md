@@ -106,3 +106,14 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 
 - SDK deterministic regression: passed; indirme query uyumluluğuna ek olarak 401/403/404/429/503 yanıtlarında ayrı TealDriveError.code/status kontrol edildi.
 - Bu düzeltme gerçek browser'da gizli path'in indirme testinden elde edildi; genel DOWNLOAD_FAILED geliştirici için yetersizdi.
+
+## 2026-10-12 — Ortak dosya erişim politikası
+
+- policy::access: 2 passed; katman yasakları, kullanıcı ayrımı, component sınırları, malformed path, helper ceiling union ve nonrecursive Discover ancestor bypass reddi.
+- helper::access: 6 passed; doğrudan gizli işlem NotFound, list/pagination filtresi, .env izinli explicit profile, chmod kullanıcısı ayrımı, hardlink/symlink alias, parent move/rename, ZIP exclusion, final extraction/staging kontrolü, search/trash/restore/delete current policy ve includeHidden ceiling.
+- Tam cargo test --locked --quiet: 522 unit + diğer aktif integration/CLI/browser/SDK testleri geçti. Root gerektiren 3 test varsayılan suite'de ignored; ayrı komutla sonuç ayrıca kaydedilir.
+- Gerçek Chromium + PAM + setuid candidate: tests/live/sdk-access.cjs PASS; .ssh/alias list/read/stat/download yok, parent move reddi, normal dosya okunuyor. Fixture gerçek UID/GID ile oluşturulup yalnızca kendi UUID dizinleri temizlendi. Eski Caddy servisi değiştirilmedi.
+- Gerçek SDK CRUD/revision/chmod/filter/upload/download/quota kabulü tekrar PASS.
+- Clippy all targets: passed.
+
+- Ayrı privileged kabul: cargo test --test e2e_integration_test -- --ignored --nocapture: 2 passed (gerçek helper lifecycle, quota-lock cancellation). Kernel confinement açık çıktıyla: 1 passed, skip olmadı.

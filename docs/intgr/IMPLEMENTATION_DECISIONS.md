@@ -49,3 +49,7 @@ Migration kırılmaması için explicit --runtime-config split modunu açar; Wiz
 ## D012 — HTTP ve WS SDK hata kodları
 
 İndirme hata yanıtı diğer SDK yöntemleriyle aynı TealDriveError sözleşmesine çevrilir; tek DOWNLOAD_FAILED altında kaybolmaz. 401 AUTH_REQUIRED, 403 PERMISSION_DENIED, 404 NOT_FOUND, 429 RATE_LIMITED ve 503 SERVICE_UNAVAILABLE; sunucunun açık code alanı uppercase canonical forma çevrilir. Retryable bilgisi tekrar deneme önerisidir; SDK mutasyonu kendiliğinden tekrar etmez.
+
+## D013 — Ortak path policy ve dolaylı erişim
+
+Yeni access_policy deny union; root/global ve username root/admin/personal katmanları. Discover tüm alt ağacı kapatır (recursive yanlış false olsa da), NotFound; diğer action yasağı PolicyDenied. Default .ssh/.gnupg/.aws/.kube bileşenleri her derinlikte kapalı. .env bu motorun default yasağı değil; legacy sensitive varsayılanı migration'da ayrı değerlendirilecek. Özel staging path gerçek destination'a çevrilerek kontrol edilir; açık generic staging bypass yok. Parent taşıma/silme bounded tree preflight, source Read ve target Write; archive readonly'de yasaklı child omission. Trash metadata bounded/no-follow ve original/current policy kontrolü. Hardlink inode alternatifi için root default reject_file_hardlinks=true; meşru multi-link file da kapalı. Bu path politikası harici Linux owner rename'lerini engelleyen inode etiketi veya ayrı OS izolasyonu değildir.

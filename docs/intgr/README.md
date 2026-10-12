@@ -103,3 +103,6 @@ Root
 
 
 Yeni aşama: [Web kimliği/hesap yönetimi raporu](AUTH_MANAGEMENT_REPORT.md), [geliştirme araçları](../../tools/dev/README.md), [temizlik kaydı](../../tools/dev/CLEANUP.md).
+
+
+Güncel tamamlanan aşama: [Admin erişimi, ilk kayıt onayı ve UI raporu](ADMIN_ACCESS_REPORT.md). Önceki AUTH_MANAGEMENT_REPORT.md'de bekleyen public admin kabulü bu raporla tamamlandı.

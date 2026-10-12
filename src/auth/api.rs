@@ -15,8 +15,9 @@ use crate::session::store::{
 };
 use crate::ws::server::{extract_client_ip, extract_session_id, WsHelperBackend, WsServerState};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize, zeroize::ZeroizeOnDrop)]
 pub struct LoginPayload {
+    #[zeroize(skip)]
     pub username: String,
     pub password: String,
 }
@@ -67,7 +68,7 @@ pub struct AuthErrorResponse {
 pub async fn login_handler<H>(
     State(state): State<WsServerState<H>>,
     headers: HeaderMap,
-    Json(payload): Json<LoginPayload>,
+    Json(mut payload): Json<LoginPayload>,
 ) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
@@ -132,7 +133,7 @@ where
     }
     let auth_req = AuthRequest {
         username: payload.username.clone(),
-        password: payload.password,
+        password: std::mem::take(&mut payload.password),
         ip: client_ip.clone(),
     };
 

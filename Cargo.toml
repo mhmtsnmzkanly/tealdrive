@@ -33,6 +33,7 @@ zip = { version = "2.2", default-features = false, features = ["deflate"] }
 toml = "0.8"
 arc-swap = "1.9.2"
 notify = "8.2.0"
+zeroize = { version = "1.9.1", features = ["derive"] }
 
 [features]
 default = []

@@ -232,7 +232,9 @@ fn encode_length_prefixed<T: serde::Serialize>(
     max_size: usize,
     too_large_error: TealDriveError,
 ) -> Result<Vec<u8>, TealDriveError> {
-    let payload = rmp_serde::to_vec_named(value).map_err(|_| TealDriveError::HelperEncodeFailed)?;
+    let payload = zeroize::Zeroizing::new(
+        rmp_serde::to_vec_named(value).map_err(|_| TealDriveError::HelperEncodeFailed)?,
+    );
     if payload.is_empty() {
         return Err(TealDriveError::HelperEncodeFailed);
     }
@@ -496,11 +498,11 @@ pub fn run_secure_helper<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
 ) -> Result<(), TealDriveError> {
-    let bytes = read_length_prefixed(
+    let bytes = zeroize::Zeroizing::new(read_length_prefixed(
         reader,
         MAX_HELPER_REQUEST_SIZE,
         TealDriveError::HelperRequestTooLarge,
-    )?;
+    )?);
     let invocation: HelperInvocation =
         rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)?;
     match invocation {

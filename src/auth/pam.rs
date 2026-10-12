@@ -51,7 +51,7 @@ struct PamConversation {
 }
 struct Credentials {
     user: CString,
-    password: CString,
+    password: zeroize::Zeroizing<Vec<u8>>,
 }
 unsafe extern "C" fn converse(
     n: libc::c_int,
@@ -77,7 +77,7 @@ unsafe extern "C" fn converse(
             return 19;
         }
         let answer = match (*message).style {
-            1 => Some(credentials.password.as_ptr()),
+            1 => Some(credentials.password.as_ptr().cast::<libc::c_char>()),
             2 => Some(credentials.user.as_ptr()),
             3 | 4 => None,
             _ => {
@@ -114,8 +114,11 @@ pub fn authenticate_local(
     }
     let mut credentials = Credentials {
         user: CString::new(request.username.as_str()).map_err(|_| AuthError::InvalidCredentials)?,
-        password: CString::new(request.password.as_str())
-            .map_err(|_| AuthError::InvalidCredentials)?,
+        password: zeroize::Zeroizing::new(
+            CString::new(request.password.as_str())
+                .map_err(|_| AuthError::InvalidCredentials)?
+                .into_bytes_with_nul(),
+        ),
     };
     unsafe {
         let library = libc::dlopen(c"libpam.so.0".as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);

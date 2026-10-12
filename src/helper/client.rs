@@ -112,6 +112,7 @@ impl HelperProcessClient {
     /// Read and write both pipes while the child runs. All exits kill/reap the child
     /// and join pipe workers; timeout includes input writes, authentication and output.
     fn communicate(&self, bytes: Vec<u8>) -> Result<Vec<u8>, TealDriveError> {
+        let bytes = zeroize::Zeroizing::new(bytes);
         let start = Instant::now();
         let timeout = self.timeout();
         let cancellation = crate::session::lease::current_cancellation();

@@ -34,3 +34,11 @@ script-src 'unsafe-inline' kaldırıldı; programatik event listener/property ha
 - cargo test --locked ui::tests --lib: 3 passed.
 - Gerçek Chromium: mevcut dış app script'i çalıştı; eklenen inline script çalışmadı; operasyon notu ve 6 viewport taşma kontrolü başarılı.
 - Browser script: /root/tdrv-ui-check/csp-current.cjs (sunucuya özel test aracı, repo dışı).
+
+## 2026-10-12 — Backend parola ömrü
+
+AuthRequest/LoginPayload drop sırasında zeroize; PAM password CString yerine zeroizing nul-terminated byte buffer; helper stdin/serialization/auth receive tamponlarında zeroize. LoginPayload Debug artık plaintext parola basamaz. PAM/tarayıcı/kütüphane iç kopyaları için mutlak temizleme garantisi verilmez.
+
+- cargo test --locked --lib auth::: 14 passed.
+- cargo test --locked --lib helper::ipc::tests: 10 passed.
+- cargo clippy --locked --all-targets -- -D warnings: passed.

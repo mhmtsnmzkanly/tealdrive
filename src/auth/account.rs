@@ -11,10 +11,12 @@ pub trait Authenticator: Send + Sync {
     fn authenticate(&self, request: &AuthRequest) -> Result<AuthSuccess, AuthError>;
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, zeroize::ZeroizeOnDrop)]
 pub struct AuthRequest {
+    #[zeroize(skip)]
     pub username: String,
     pub password: String,
+    #[zeroize(skip)]
     pub ip: Option<String>,
 }
 

@@ -64,3 +64,10 @@ FilterMode optional extensions eklenmesi eski MessagePack alanlarını korur. Se
 - helper::text::: 7 passed.
 - SDK/browser permission/shutdown/contract: 4 passed.
 - UI ek testi: conflict editor'ü kapatmıyor, unsaved text kalıyor, root seçimi değişse bile opened-file root'u kullanılıyor; başarılı ack sonrası kapanıyor.
+
+## 2026-10-12 — Helper kullanım sorgusu
+
+- helper::usage::tests: passed; hardlink dedup, dış symlink ignore, iç/trash byte sayımı, missing scan error.
+- quota_api_measures_on_helper_and_validates_warning_threshold: passed; anonymous401, valid helper result/no-store, unknown root404, warning0 rejected, warning75 reflected.
+- SDK transport/state/filter/quota/transfer testi: passed.
+- Clippy all targets: passed.

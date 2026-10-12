@@ -29,3 +29,7 @@ Yeni SDK /ws/auth endpoint'i ile WS-first login yapar; legacy /ws session-bound 
 ## D007 — Editör revision ve izin korunumu
 
 Revision SHA256(content + aynı FD'nin inode/device/uid/gid/mode/mtime/ctime metadata)'dır; bare content hash değildir. Helper read sırasında metadata değişimini reddeder; transaction gerçek hedefi staging öncesi ve publish öncesi yeniden karşılaştırır. Panel helper işleri mevcut ortak root reservation ile sıralanır. Harici kilide uymayan writer ile son compare/rename arasındaki yarış için mutlak garanti verilmez. Legacy optional wire alanı korunur; yeni SDK ve gömülü editör revision gönderir. Staged overwrite normal izin/owner/group/POSIX ACL'yi korur; koruma yapılamazsa original değiştirilmez; özel bitler yazma sırasında korunmaz.
+
+## D008 — Kota sorgusu ortak helper taraması
+
+Yeni ayrı path-based scanner yerine mevcut FD tabanlı quota taraması yeniden kullanılır. Paylaşımlı flock, symlink takip etmeme, hardlink inode dedup, depth/entry sınırı ve cancellation. Limit helper'ın kısıtlanmış config'inden; warning percent server çalışma ayarı (1..100), default80. HTTP session/allowlist ve lease doğrulanır; ölçüm hatası503, used=0 değil. Yeni /api/quota mevcut config-root düzeninde çalışır; DB sanal tahsisi sonraki hesap altyapısına bağlanacak.

@@ -2,9 +2,11 @@
 //! or rollback. Initial usage is measured before dropping elevated privileges.
 use crate::config::AllowedRoot;
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
 thread_local! { static BUDGET:Cell<Option<u64>>=const { Cell::new(None) }; }
 pub fn budget() -> Option<u64> {
     BUDGET.with(Cell::get)
@@ -35,7 +37,7 @@ impl Reservation {
             return Err(io::Error::last_os_error());
         }
         let available = match root.quota_bytes {
-            Some(limit) => Some(limit.saturating_sub(size(&file, 0)?)),
+            Some(limit) => Some(limit.saturating_sub(size(&file, 0, &mut HashSet::new(), &mut 0)?)),
             None => None,
         };
         Ok(Self {
@@ -44,7 +46,24 @@ impl Reservation {
         })
     }
 }
-fn size(directory: &File, depth: usize) -> io::Result<u64> {
+pub fn measure(root: &AllowedRoot) -> io::Result<u64> {
+    let file = crate::helper::sandbox::open(
+        root,
+        &crate::config::RelativePath::new(""),
+        libc::O_RDONLY | libc::O_DIRECTORY,
+        0,
+    )?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    size(&file, 0, &mut HashSet::new(), &mut 0)
+}
+fn size(
+    directory: &File,
+    depth: usize,
+    seen: &mut HashSet<(u64, u64)>,
+    count: &mut usize,
+) -> io::Result<u64> {
     if depth > 128 {
         return Err(io::Error::other("quota traversal depth exceeded"));
     }
@@ -52,6 +71,10 @@ fn size(directory: &File, depth: usize) -> io::Result<u64> {
     crate::helper::cancellation::check()?;
     for entry in std::fs::read_dir(format!("/proc/self/fd/{}", directory.as_raw_fd()))? {
         let entry = entry?;
+        *count += 1;
+        if *count > 1_000_000 {
+            return Err(io::Error::other("quota entry limit"));
+        }
         let name = entry.file_name();
         let name = name
             .to_str()
@@ -68,8 +91,8 @@ fn size(directory: &File, depth: usize) -> io::Result<u64> {
                 libc::O_RDONLY | libc::O_DIRECTORY,
                 0,
             )?;
-            size(&child, depth + 1)?
-        } else if metadata.is_file() {
+            size(&child, depth + 1, seen, count)?
+        } else if metadata.is_file() && seen.insert((metadata.dev(), metadata.ino())) {
             metadata.len()
         } else {
             0

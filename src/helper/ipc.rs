@@ -134,6 +134,9 @@ pub fn handle_helper_request_with_config(
     if command_disabled_in_v1(request.command) {
         return HelperResponse::feature_disabled(request);
     }
+    if request.command == HelperCommand::QuotaUsage {
+        return crate::helper::usage::measure(request, config);
+    }
     if request.command == HelperCommand::ListDirectory {
         let roots = &config.roots;
         return list_directory_with_roots(request, roots, &config.sensitive_policy);
@@ -583,7 +586,8 @@ pub fn run_secure_helper<R: Read, W: Write>(
             }
             let reservation = if matches!(
                 request.command,
-                HelperCommand::ListDirectory
+                HelperCommand::QuotaUsage
+                    | HelperCommand::ListDirectory
                     | HelperCommand::FileMetadata
                     | HelperCommand::ReadTextFile
                     | HelperCommand::ReadFileRange

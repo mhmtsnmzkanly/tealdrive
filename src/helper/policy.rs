@@ -124,7 +124,8 @@ pub fn authorize(
         .ok_or(TealDriveError::InvalidRootId)?;
     let read = matches!(
         request.command,
-        ListDirectory
+        QuotaUsage
+            | ListDirectory
             | FileMetadata
             | DownloadFile
             | ReadFileRange

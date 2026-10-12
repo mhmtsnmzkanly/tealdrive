@@ -52,6 +52,7 @@ pub struct HelperWriteOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HelperCommand {
+    QuotaUsage,
     ListDirectory,
     FileMetadata,
     DownloadFile,
@@ -114,6 +115,10 @@ pub struct HelperResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HelperResponsePayload {
+    Usage {
+        used_bytes: u64,
+        limit_bytes: Option<u64>,
+    },
     None,
     DirectoryList(HelperDirectoryList),
     FileMetadata(HelperDirectoryEntry),

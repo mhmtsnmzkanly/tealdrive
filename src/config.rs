@@ -59,6 +59,7 @@ pub struct UserContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub quota_warning_percent: u8,
     pub server: ServerConfig,
     pub audit: AuditConfig,
     pub proxy: crate::client_ip::ProxyConfig,
@@ -83,6 +84,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            quota_warning_percent: 80,
             server: ServerConfig::default(),
             audit: AuditConfig::default(),
             proxy: crate::client_ip::ProxyConfig::default(),
@@ -151,6 +153,9 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
+        if !(1..=100).contains(&self.quota_warning_percent) {
+            return Err(TealDriveError::Validation);
+        }
         if self.roots.is_empty() {
             return Err(TealDriveError::Validation);
         }
@@ -532,6 +537,7 @@ impl Default for SearchConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigPatch {
+    pub quota_warning_percent: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<crate::config_patch::ProxyPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -570,6 +576,9 @@ pub struct ConfigPatch {
 
 impl ConfigPatch {
     pub fn apply_to(&self, config: &mut AppConfig) {
+        if let Some(value) = self.quota_warning_percent {
+            config.quota_warning_percent = value;
+        }
         if let Some(users) = &self.allowed_users {
             config.account_policy.allowed_users = users.clone();
         }

@@ -875,3 +875,66 @@ async fn user_discovery_is_admin_only_and_excludes_service_accounts() {
         assert_eq!(user.as_object().unwrap().len(), 3);
     }
 }
+
+#[tokio::test]
+async fn quota_api_measures_on_helper_and_validates_warning_threshold() {
+    let f = fixture(true);
+    assert_eq!(
+        call(&f.router, "GET", "/api/quota", None, None, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let (cookie, csrf) = login(&f.router).await;
+    fs::write(f.root.join("measured.txt"), b"helper measures").unwrap();
+    let response = call(
+        &f.router,
+        "GET",
+        "/api/quota?root_id=home",
+        Some(&cookie),
+        None,
+        "",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let usage = json(response).await;
+    assert!(usage["used_bytes"].as_u64().unwrap() >= 15);
+    assert_eq!(usage["source"], "helper");
+    assert_eq!(usage["warning_percent"], 80);
+    assert_eq!(
+        call(
+            &f.router,
+            "GET",
+            "/api/quota?root_id=outside",
+            Some(&cookie),
+            None,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let invalid = call(
+        &f.router,
+        "PATCH",
+        "/api/admin/config",
+        Some(&cookie),
+        Some(&csrf),
+        r#"{"quota_warning_percent":0}"#,
+    )
+    .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let valid = call(
+        &f.router,
+        "PATCH",
+        "/api/admin/config",
+        Some(&cookie),
+        Some(&csrf),
+        r#"{"quota_warning_percent":75}"#,
+    )
+    .await;
+    assert_eq!(valid.status(), StatusCode::OK);
+    let usage = json(call(&f.router, "GET", "/api/quota", Some(&cookie), None, "").await).await;
+    assert_eq!(usage["warning_percent"], 75);
+}

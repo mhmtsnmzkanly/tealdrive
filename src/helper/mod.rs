@@ -21,3 +21,4 @@ pub mod transaction;
 pub mod trash;
 pub mod types;
 pub mod upload;
+pub mod usage;

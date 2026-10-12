@@ -248,6 +248,7 @@ where
         .route("/favicon.svg", get(crate::ui::serve_favicon::<H>))
         .route("/favicon.ico", get(crate::ui::serve_favicon::<H>))
         .route("/static/*path", get(crate::ui::serve_static_asset::<H>))
+        .route("/api/quota", get(crate::fs::usage::usage_handler::<H>))
         .route("/api/health", get(health_check::<H>))
         .route("/api/login", post(login_handler::<H>))
         .route("/api/logout", post(logout_handler::<H>))

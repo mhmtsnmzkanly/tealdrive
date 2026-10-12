@@ -124,6 +124,25 @@ fn command(program: &str, args: &[&str]) -> Result<(), StoreError> {
         Err(StoreError::Forbidden)
     }
 }
+fn name_exists(name: &str) -> Result<bool, StoreError> {
+    let name = CString::new(name).map_err(|_| StoreError::InvalidInput)?;
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0u8; 65536];
+    if unsafe {
+        libc::getpwnam_r(
+            name.as_ptr(),
+            &mut pwd,
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        )
+    } != 0
+    {
+        return Err(StoreError::Forbidden);
+    }
+    Ok(!result.is_null())
+}
 fn free_id(uid: u32) -> Result<bool, StoreError> {
     let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
     let mut pass_result = std::ptr::null_mut();
@@ -218,7 +237,7 @@ fn allocate(store: &AccountStore, cfg: &AppConfig) -> Result<u32, StoreError> {
     }
     for offset in 0..1024u64.min(u64::from(max - min) + 1) {
         let uid = min + ((u64::from(start - min) + offset) % (u64::from(max - min) + 1)) as u32;
-        let retired:bool=store.connection.query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE uid=?1) OR EXISTS(SELECT 1 FROM security_state WHERE key=?2)",params![uid,format!("virtual_uid_retired:{uid}")],|r|r.get(0))?;
+        let retired:bool=store.connection.query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE uid=?1) OR EXISTS(SELECT 1 FROM security_state WHERE key=?2) OR EXISTS(SELECT 1 FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.uid')=?1 ELSE 0 END)",params![uid,format!("virtual_uid_retired:{uid}")],|r|r.get(0))?;
         if !retired && free_id(uid)? {
             let next = if uid == max { min } else { uid + 1 };
             store.connection.execute("INSERT INTO security_state(key,value) VALUES('virtual_uid_cursor',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[next.to_string()])?;
@@ -453,7 +472,7 @@ pub(crate) fn provision(
         }
         intent
     } else {
-        if store.find_username(name)?.is_some() || crate::helper::security::account(name).is_ok() {
+        if store.find_username(name)?.is_some() || name_exists(name)? {
             return Err(StoreError::Conflict);
         }
         let pending_name:bool=store.connection.query_row("SELECT EXISTS(SELECT 1 FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.name')=?1 AND json_extract(value,'$.account_id') IS NULL ELSE 0 END)",[name],|r|r.get(0))?;
@@ -522,6 +541,29 @@ pub(crate) fn provision(
         intent
     };
     let uid = intent.uid;
+    let home = ensure_os_identity(cfg, uid, quota)?;
+    let raw = serde_json::to_string(&intent).map_err(|_| StoreError::InvalidInput)?;
+    let authority = Authority::Account {
+        id: actor.id.clone(),
+        generation: actor.generation,
+    };
+    store.create_enrolled(
+        &authority,
+        NewAccount {
+            username: name.into(),
+            uid,
+            gid: uid,
+            home,
+            kind: AccountKind::Virtual,
+            role: Role::User,
+            owner_admin_id: Some(actor.id.clone()),
+            quota_bytes: Some(quota),
+        },
+        password,
+        Some((&request_key, &raw)),
+    )
+}
+fn ensure_os_identity(cfg: &AppConfig, uid: u32, quota: u64) -> Result<PathBuf, StoreError> {
     let os_name = os_name(uid);
     let uid_text = uid.to_string();
     let home = home(uid);
@@ -548,8 +590,7 @@ pub(crate) fn provision(
     } else if group.gr_gid != uid {
         return Err(StoreError::Forbidden);
     }
-    let identity = crate::helper::security::account(&os_name);
-    if identity.is_err() {
+    if !name_exists(&os_name)? {
         command(
             "/usr/sbin/useradd",
             &[
@@ -599,22 +640,113 @@ pub(crate) fn provision(
     if unsafe { libc::chown(home_c.as_ptr(), uid, uid) } != 0 {
         return Err(std::io::Error::last_os_error().into());
     }
-    let raw = serde_json::to_string(&intent).map_err(|_| StoreError::InvalidInput)?;
-    let authority = Authority::Account {
-        id: actor.id.clone(),
-        generation: actor.generation,
+    Ok(home)
+}
+/// Only an offline Root Wizard can create an unowned virtual administrator.
+pub(crate) fn create_admin(
+    store: &mut AccountStore,
+    cfg: &AppConfig,
+    name: &str,
+    budget: u64,
+    password: &str,
+    request: &str,
+) -> Result<Account, StoreError> {
+    validate_input(cfg, name, budget)?;
+    if !cfg.web_accounts.enabled || cfg.home_template.is_none() {
+        return Err(StoreError::Forbidden);
+    }
+    let _password_check = super::password::hash(password)?;
+    let _global = lock()?;
+    let request_key = key("__root__", request)?;
+    let saved: Option<String> = store
+        .connection
+        .query_row(
+            "SELECT value FROM security_state WHERE key=?1",
+            [&request_key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let intent = if let Some(raw) = saved {
+        if raw.len() > 8192 {
+            return Err(StoreError::InvalidInput);
+        }
+        let intent: Intent = serde_json::from_str(&raw).map_err(|_| StoreError::InvalidInput)?;
+        if intent.version != 1
+            || intent.owner != "__root__"
+            || intent.name != name
+            || intent.quota != budget
+        {
+            return Err(StoreError::Conflict);
+        }
+        if let Some(id) = &intent.account_id {
+            let target = store.get(id)?;
+            if target.kind != AccountKind::Virtual
+                || target.role != Role::Admin
+                || target.owner_admin_id.is_some()
+            {
+                return Err(StoreError::Forbidden);
+            }
+            return Ok(target);
+        }
+        intent
+    } else {
+        if store.find_username(name)?.is_some() || name_exists(name)? {
+            return Err(StoreError::Conflict);
+        }
+        let pending_name: bool = store.connection.query_row("SELECT EXISTS(SELECT 1 FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.name')=?1 AND json_extract(value,'$.account_id') IS NULL ELSE 0 END)", [name], |r| r.get(0))?;
+        if pending_name {
+            return Err(StoreError::Conflict);
+        }
+        let count: i64 = store.connection.query_row("SELECT (SELECT count(*) FROM accounts WHERE kind='virtual' AND status!='deleted')+(SELECT count(*) FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.account_id') IS NULL ELSE 0 END)", [], |r| r.get(0))?;
+        if count >= i64::from(cfg.virtual_accounts.max_accounts) {
+            return Err(StoreError::QuotaExceeded);
+        }
+        let uid = allocate(store, cfg)?;
+        let intent = Intent {
+            version: 1,
+            owner: "__root__".into(),
+            name: name.into(),
+            quota: budget,
+            uid,
+            account_id: None,
+        };
+        let tx = store
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let pool: i64 = tx.query_row("SELECT limit_bytes FROM quota_pool WHERE id=1", [], |r| {
+            r.get(0)
+        })?;
+        let allocated: i64 = tx.query_row(
+            "SELECT coalesce(sum(limit_bytes),0) FROM admin_budgets",
+            [],
+            |r| r.get(0),
+        )?;
+        if number(budget)? > pool - allocated - pending_reserved(&tx, "__root__", "")? {
+            return Err(StoreError::QuotaExceeded);
+        }
+        tx.execute(
+            "INSERT INTO security_state(key,value) VALUES(?1,?2)",
+            params![
+                request_key,
+                serde_json::to_string(&intent).map_err(|_| StoreError::InvalidInput)?
+            ],
+        )?;
+        tx.commit()?;
+        intent
     };
+    let home = ensure_os_identity(cfg, intent.uid, budget)?;
+    let raw = serde_json::to_string(&intent).map_err(|_| StoreError::InvalidInput)?;
     store.create_enrolled(
-        &authority,
+        &Authority::Root,
         NewAccount {
             username: name.into(),
-            uid,
-            gid: uid,
+            uid: intent.uid,
+            gid: intent.uid,
             home,
             kind: AccountKind::Virtual,
-            role: Role::User,
-            owner_admin_id: Some(actor.id.clone()),
-            quota_bytes: Some(quota),
+            role: Role::Admin,
+            owner_admin_id: None,
+            quota_bytes: None,
         },
         password,
         Some((&request_key, &raw)),
@@ -775,6 +907,310 @@ pub(crate) fn sync_limits(store: &mut AccountStore, cfg: &AppConfig) -> Result<(
     Ok(())
 }
 
+pub(crate) fn pending(store: &AccountStore) -> Result<Vec<serde_json::Value>, StoreError> {
+    let mut statement = store.connection.prepare("SELECT key,value FROM security_state WHERE key LIKE 'virtual_create_v1:%' ORDER BY key LIMIT 4096")?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        let (key, raw) = row?;
+        let intent: Intent = serde_json::from_str(&raw).map_err(|_| StoreError::InvalidInput)?;
+        if intent.version != 1 {
+            return Err(StoreError::InvalidInput);
+        }
+        if intent.account_id.is_none() {
+            result.push(serde_json::json!({"key":key,"intent":intent}));
+        }
+    }
+    Ok(result)
+}
+pub(crate) fn cancel_pending(
+    store: &mut AccountStore,
+    cfg: &AppConfig,
+    request_key: &str,
+) -> Result<(), StoreError> {
+    let _global = lock()?;
+    if !request_key.starts_with("virtual_create_v1:") {
+        return Err(StoreError::InvalidInput);
+    }
+    let raw: String = store.connection.query_row(
+        "SELECT value FROM security_state WHERE key=?1",
+        [request_key],
+        |r| r.get(0),
+    )?;
+    let intent: Intent = serde_json::from_str(&raw).map_err(|_| StoreError::InvalidInput)?;
+    if intent.version != 1
+        || intent.account_id.is_some()
+        || intent.uid < cfg.web_accounts.virtual_min_uid
+        || intent.uid > cfg.web_accounts.virtual_max_uid
+    {
+        return Err(StoreError::Forbidden);
+    }
+    // Existing OS state/data is not deleted by a cancellation. Finish using the same request key.
+    if !free_id(intent.uid)? || home(intent.uid).try_exists()? {
+        return Err(StoreError::Conflict);
+    }
+    let parent = if intent.owner == "__root__" {
+        None
+    } else {
+        let owner = store.get(&intent.owner)?;
+        own_reservation(store, cfg, &owner)?.map(|held| (owner, held))
+    };
+    let tx = store
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    tx.execute("DELETE FROM security_state WHERE key=?1", [request_key])?;
+    tx.execute(
+        "INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING",
+        params![
+            format!("virtual_uid_retired:{}", intent.uid),
+            now().to_string()
+        ],
+    )?;
+    tx.commit()?;
+    if let Some((owner, (root, _, _))) = parent {
+        native_set(
+            cfg,
+            &root,
+            owner.uid,
+            store
+                .effective_quota(&owner.id)?
+                .ok_or(StoreError::Forbidden)?,
+        )?;
+    }
+    Ok(())
+}
+fn no_nested_mounts(path: &Path) -> Result<(), StoreError> {
+    let info = std::fs::read_to_string("/proc/self/mountinfo")?;
+    for line in info.lines() {
+        let raw = line
+            .split_whitespace()
+            .nth(4)
+            .ok_or(StoreError::InvalidInput)?;
+        let decoded = raw
+            .replace("\\040", " ")
+            .replace("\\011", "\t")
+            .replace("\\012", "\n")
+            .replace("\\134", "\\");
+        if Path::new(&decoded).starts_with(path) {
+            return Err(StoreError::Forbidden);
+        }
+    }
+    Ok(())
+}
+/// A fresh executable drops all IDs before deleting any user-owned content.
+pub(crate) fn purge_worker(id: &str) -> Result<(), StoreError> {
+    if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
+        return Err(StoreError::Forbidden);
+    }
+    let cfg = crate::helper::security::trusted_config().map_err(|_| StoreError::Forbidden)?;
+    let store = AccountStore::open(Path::new(crate::layout::ACCOUNTS))?;
+    let target = store.get(id)?;
+    if target.kind != AccountKind::Virtual
+        || target.role != Role::User
+        || target.status != super::store::AccountStatus::Deleted
+    {
+        return Err(StoreError::Forbidden);
+    }
+    let root = root(&cfg, &target)?;
+    no_nested_mounts(&root.base_path)?;
+    drop(store);
+    // This worker does not need supplementary groups or any Root DB/key descriptor.
+    if unsafe { libc::setgroups(0, std::ptr::null()) } != 0
+        || unsafe { libc::setresgid(target.gid, target.gid, target.gid) } != 0
+        || unsafe { libc::setresuid(target.uid, target.uid, target.uid) } != 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    crate::helper::sandbox::confine(&root)?;
+    fn clear(path: &Path, device: u64, depth: usize) -> Result<(), StoreError> {
+        if depth > 128 {
+            return Err(StoreError::InvalidInput);
+        }
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.dev() != device {
+            return Err(StoreError::Forbidden);
+        }
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let child = entry.path();
+            let metadata = std::fs::symlink_metadata(&child)?;
+            if metadata.is_dir() {
+                clear(&child, device, depth + 1)?;
+                std::fs::remove_dir(child)?;
+            } else {
+                std::fs::remove_file(child)?;
+            }
+        }
+        Ok(())
+    }
+    clear(&target.home, std::fs::metadata(&target.home)?.dev(), 0)
+}
+pub(crate) fn purge_deleted(
+    store: &mut AccountStore,
+    cfg: &AppConfig,
+) -> Result<usize, StoreError> {
+    let _global = lock()?;
+    let deadline = now().saturating_sub(
+        cfg.virtual_accounts
+            .deleted_retention_hours
+            .saturating_mul(3600),
+    );
+    let ids: Vec<String> = {
+        let mut statement = store.connection.prepare("SELECT id FROM accounts WHERE kind='virtual' AND role='user' AND status='deleted' AND deleted_at<=?1 AND NOT EXISTS(SELECT 1 FROM security_state WHERE key='virtual_purged_v1:'||accounts.id) ORDER BY deleted_at LIMIT 100")?;
+        let rows = statement.query_map([number(deadline)?], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut completed = 0;
+    for id in ids {
+        let target = store.get(&id)?;
+        let owner = store.get(
+            target
+                .owner_admin_id
+                .as_deref()
+                .ok_or(StoreError::Forbidden)?,
+        )?;
+        let _parent = own_reservation(store, cfg, &owner)?;
+        let intent_key = format!("virtual_purge_intent_v1:{}", target.id);
+        let intent: Option<String> = store
+            .connection
+            .query_row(
+                "SELECT value FROM security_state WHERE key=?1",
+                [&intent_key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(raw) = &intent {
+            let value: serde_json::Value =
+                serde_json::from_str(raw).map_err(|_| StoreError::InvalidInput)?;
+            if value["version"] != 1
+                || value["id"] != target.id
+                || value["uid"] != target.uid
+                || value["home"] != target.home.to_str().ok_or(StoreError::InvalidInput)?
+            {
+                return Err(StoreError::Forbidden);
+            }
+        }
+        let home_exists = match std::fs::symlink_metadata(&target.home) {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && intent.is_some() => false,
+            _ => return Err(StoreError::Forbidden),
+        };
+        if home_exists {
+            let root = root(cfg, &target)?;
+            no_nested_mounts(&target.home)?;
+            let _held = crate::helper::quota::Reservation::acquire(&root).map_err(io_error)?;
+            if intent.is_none() {
+                let tx = store
+                    .connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2)", params![intent_key, serde_json::json!({"version":1,"id":target.id,"uid":target.uid,"home":target.home}).to_string()])?;
+                tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING", params![format!("virtual_uid_retired:{}", target.uid), now().to_string()])?;
+                tx.commit()?;
+            }
+            let executable = std::env::current_exe()?;
+            let metadata = std::fs::symlink_metadata(&executable)?;
+            if !metadata.is_file() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+                return Err(StoreError::UntrustedStore);
+            }
+            let mut child = Command::new(executable)
+                .args(["__purge-worker", &id])
+                .env_clear()
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let timeout = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                if let Some(status) = child.try_wait()? {
+                    if !status.success() {
+                        return Err(StoreError::Forbidden);
+                    }
+                    break;
+                }
+                if std::time::Instant::now() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(StoreError::Forbidden);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            std::fs::remove_dir(&target.home)?;
+        }
+        // Missing NSS/home is accepted only after a durable, verified purge intent.
+        let generated = os_name(target.uid);
+        if name_exists(&generated)? {
+            let identity =
+                crate::helper::security::account(&generated).map_err(|_| StoreError::Forbidden)?;
+            if identity.uid != target.uid
+                || identity.primary_gid != target.gid
+                || identity.home_dir.as_ref() != Some(&target.home)
+            {
+                return Err(StoreError::Forbidden);
+            }
+            command("/usr/sbin/userdel", &[&generated])?;
+        }
+        let name_c = CString::new(generated.as_str()).map_err(|_| StoreError::InvalidInput)?;
+        let mut group: libc::group = unsafe { std::mem::zeroed() };
+        let mut group_result = std::ptr::null_mut();
+        let mut buffer = vec![0u8; 65536];
+        if unsafe {
+            libc::getgrnam_r(
+                name_c.as_ptr(),
+                &mut group,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut group_result,
+            )
+        } != 0
+        {
+            return Err(StoreError::Forbidden);
+        }
+        if !group_result.is_null() {
+            if group.gr_gid != target.gid
+                || (!group.gr_mem.is_null() && !unsafe { *group.gr_mem }.is_null())
+            {
+                return Err(StoreError::Forbidden);
+            }
+            command("/usr/sbin/groupdel", &[&generated])?;
+        }
+        let tx = store
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING",
+            params![
+                format!("virtual_uid_retired:{}", target.uid),
+                now().to_string()
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO security_state(key,value) VALUES(?1,?2)",
+            params![
+                format!("virtual_purged_v1:{}", target.id),
+                serde_json::json!({"version":1,"purged_at":now(),"uid":target.uid}).to_string()
+            ],
+        )?;
+        tx.execute("UPDATE accounts SET quota_bytes=0,web_password_hash=NULL,generation=generation+1 WHERE id=?1", [&id])?;
+        tx.execute("DELETE FROM session_grants WHERE account_id=?1", [&id])?;
+        tx.commit()?;
+        if let Some((parent_root, _, _)) = &_parent {
+            native_set(
+                cfg,
+                parent_root,
+                owner.uid,
+                store
+                    .effective_quota(&owner.id)?
+                    .ok_or(StoreError::Forbidden)?,
+            )?;
+        }
+        completed += 1;
+    }
+    Ok(completed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,6 +1236,66 @@ mod tests {
             id: account.id.clone(),
             generation: account.generation,
         }
+    }
+    #[test]
+    fn root_admin_intent_reserves_pool_and_finalizes_budget_atomically() {
+        let mut store = AccountStore::memory();
+        store.set_pool(&Authority::Root, 1000).unwrap();
+        let intent = Intent {
+            version: 1,
+            owner: "__root__".into(),
+            name: "tenant".into(),
+            quota: 600,
+            uid: 200002,
+            account_id: None,
+        };
+        let key = key("__root__", &uuid::Uuid::new_v4().to_string()).unwrap();
+        let raw = serde_json::to_string(&intent).unwrap();
+        store
+            .connection
+            .execute(
+                "INSERT INTO security_state(key,value) VALUES(?1,?2)",
+                params![key, raw],
+            )
+            .unwrap();
+        assert!(matches!(
+            store.set_pool(&Authority::Root, 599),
+            Err(StoreError::QuotaExceeded)
+        ));
+        let other = admin(&mut store, "other", 200001);
+        assert!(matches!(
+            store.set_admin_budget(&Authority::Root, &other.id, 401),
+            Err(StoreError::QuotaExceeded)
+        ));
+        let tenant = store
+            .create_enrolled(
+                &Authority::Root,
+                NewAccount {
+                    username: "tenant".into(),
+                    uid: 200002,
+                    gid: 200002,
+                    home: "/home/tealdrive/virtual-homes/tdv_200002".into(),
+                    kind: AccountKind::Virtual,
+                    role: Role::Admin,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+                "root-provisioned-web-password",
+                Some((&key, &raw)),
+            )
+            .unwrap();
+        assert_eq!(store.effective_quota(&tenant.id).unwrap(), Some(600));
+        assert_eq!(
+            pending_reserved(&store.connection, "__root__", "").unwrap(),
+            0
+        );
+        store
+            .set_admin_budget(&Authority::Root, &other.id, 400)
+            .unwrap();
+        assert!(matches!(
+            store.set_pool(&Authority::Root, 999),
+            Err(StoreError::QuotaExceeded)
+        ));
     }
     #[test]
     fn pending_creation_reserves_budget_and_finalizes_without_double_charge() {

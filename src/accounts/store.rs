@@ -492,9 +492,42 @@ impl AccountStore {
         } else if new.owner_admin_id.is_some() || new.quota_bytes.is_some() {
             return Err(StoreError::InvalidInput);
         }
+        let root_budget = if new.kind == AccountKind::Virtual && new.role == Role::Admin {
+            if let Some((key, state)) = request_state {
+                let state: serde_json::Value =
+                    serde_json::from_str(state).map_err(|_| StoreError::InvalidInput)?;
+                if state["owner"] != "__root__" || !key.starts_with("virtual_create_v1:__root__:") {
+                    return Err(StoreError::Forbidden);
+                }
+                let budget = state["quota"].as_u64().ok_or(StoreError::InvalidInput)?;
+                let pool: i64 =
+                    tx.query_row("SELECT limit_bytes FROM quota_pool WHERE id=1", [], |r| {
+                        r.get(0)
+                    })?;
+                let allocated: i64 = tx.query_row(
+                    "SELECT coalesce(sum(limit_bytes),0) FROM admin_budgets",
+                    [],
+                    |r| r.get(0),
+                )?;
+                if number(budget)? > pool - allocated - pending_reserved(&tx, "__root__", key)? {
+                    return Err(StoreError::QuotaExceeded);
+                }
+                Some(budget)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let id = uuid::Uuid::new_v4().to_string();
         let time = now();
         tx.execute("INSERT INTO accounts(id,username,uid,gid,home,kind,role,owner_admin_id,quota_bytes,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![id,new.username,new.uid,new.gid,new.home.to_str().ok_or(StoreError::InvalidInput)?,if new.kind==AccountKind::Linux{"linux"}else{"virtual"},if new.role==Role::Admin{"admin"}else{"user"},new.owner_admin_id,new.quota_bytes.map(number).transpose()?,number(time)?])?;
+        if let Some(budget) = root_budget {
+            tx.execute(
+                "INSERT INTO admin_budgets(account_id,limit_bytes) VALUES(?1,?2)",
+                params![id, number(budget)?],
+            )?;
+        }
         if let Some(hash) = hash {
             tx.execute(
                 "UPDATE accounts SET web_password_hash=?1 WHERE id=?2",
@@ -547,6 +580,9 @@ impl AccountStore {
             [],
             |r| r.get(0),
         )?;
+        let allocated = allocated
+            .checked_add(pending_reserved(&tx, "__root__", "")?)
+            .ok_or(StoreError::QuotaExceeded)?;
         let bytes = number(bytes)?;
         if bytes < allocated {
             return Err(StoreError::QuotaExceeded);
@@ -605,7 +641,9 @@ impl AccountStore {
             .checked_add(pending_reserved(&tx, id, "")?)
             .ok_or(StoreError::QuotaExceeded)?;
         let bytes = number(bytes)?;
-        if bytes < children || bytes > pool - (allocated - current) {
+        if bytes < children
+            || bytes > pool - (allocated - current) - pending_reserved(&tx, "__root__", "")?
+        {
             return Err(StoreError::QuotaExceeded);
         }
         before_commit((bytes - children) as u64)?;

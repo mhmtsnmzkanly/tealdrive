@@ -392,6 +392,43 @@ pub fn run(args: Vec<String>) -> Result<()> {
             }
             print(&store()?.set_password(&Authority::Root, id, &password)?)
         }
+        ["pending", "list"] => {
+            root()?;
+            print(&crate::accounts::virtuals::pending(&store()?)?)
+        }
+        ["pending", "cancel", key] => {
+            root()?;
+            crate::accounts::virtuals::cancel_pending(&mut store()?, &config()?, key)?;
+            println!("Unstarted provisioning canceled; UID retired.");
+            Ok(())
+        }
+        ["__purge-worker", id] => {
+            root()?;
+            crate::accounts::virtuals::purge_worker(id)?;
+            Ok(())
+        }
+        ["gc"] => {
+            root()?;
+            print(
+                &serde_json::json!({"virtual_purged": crate::accounts::virtuals::purge_deleted(&mut store()?, &config()?)?}),
+            )
+        }
+        ["virtual", "admin", "create", name, budget, request] => {
+            root()?;
+            let password = secret("New virtual admin web password")?;
+            let confirmation = secret("Confirm web password")?;
+            if *password != *confirmation {
+                return Err("Passwords do not match".into());
+            }
+            print(&crate::accounts::virtuals::create_admin(
+                &mut store()?,
+                &config()?,
+                name,
+                bytes(budget)?,
+                &password,
+                request,
+            )?)
+        }
         ["storage", "sync"] => {
             root()?;
             crate::accounts::virtuals::sync_limits(&mut store()?, &config()?)?;
@@ -454,6 +491,12 @@ pub fn run(args: Vec<String>) -> Result<()> {
         }
         ["uninstall"] => {
             root()?;
+            if Path::new("/etc/systemd/system/tealdrive-gc.timer").exists() {
+                command(
+                    "/usr/bin/systemctl",
+                    &["disable", "--now", "tealdrive-gc.timer"],
+                )?;
+            }
             control(vec!["stop".into()])?;
             stopped()?;
             for name in BINARIES {
@@ -811,8 +854,26 @@ fn install(bundle: &Path, update: bool) -> Result<()> {
             0,
         )?;
     }
+    for (name, body) in [
+        (
+            "tealdrive-gc.service",
+            include_bytes!("../docs/deployment/tealdrive-gc.service").as_slice(),
+        ),
+        (
+            "tealdrive-gc.timer",
+            include_bytes!("../docs/deployment/tealdrive-gc.timer").as_slice(),
+        ),
+    ] {
+        atomic(
+            &Path::new("/etc/systemd/system").join(name),
+            body,
+            0o644,
+            0,
+            0,
+        )?;
+    }
     command("/usr/bin/systemctl", &["daemon-reload"])?;
-    println!("Installed {}. Server not auto-started. Default bind is loopback HTTP only. Configure TLS/proxy+origin before public exposure. Assign first admin with account approve then account admin. Configuration and user data were preserved.",manifest.version);
+    println!("Lifecycle timer is installed but not enabled automatically; enable after diagnose and recovery checks.\nInstalled {}. Server not auto-started. Default bind is loopback HTTP only. Configure TLS/proxy+origin before public exposure. Assign first admin with account approve then account admin. Configuration and user data were preserved.",manifest.version);
     Ok(())
 }
 fn repair() -> Result<()> {

@@ -64,13 +64,18 @@ impl CallerBinding {
         Ok(caller)
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionGrant {
     pub nonce: String,
     pub account_id: String,
     pub generation: u64,
     pub caller: CallerBinding,
     pub expires_at: u64,
+}
+impl std::fmt::Debug for SessionGrant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionGrant([REDACTED])")
+    }
 }
 #[derive(Clone, Serialize, Deserialize, zeroize::ZeroizeOnDrop)]
 pub struct EnrollmentProof {

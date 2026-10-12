@@ -86,6 +86,23 @@ impl HelperProcessClient {
             Err(_) => Err(AuthError::InvalidCredentials),
         }
     }
+    /// Root gateway commands; the helper selects its protected policy and DB itself.
+    pub fn account_command(
+        &self,
+        command: crate::helper::account_gateway::AccountCommand,
+    ) -> Result<
+        crate::helper::account_gateway::AccountReply,
+        crate::helper::account_gateway::GatewayFailure,
+    > {
+        use crate::helper::account_gateway::GatewayFailure;
+        let bytes = encode_invocation(&HelperInvocation::Account(command))
+            .map_err(|_| GatewayFailure::Unavailable)?;
+        let output = zeroize::Zeroizing::new(
+            self.communicate(bytes)
+                .map_err(|_| GatewayFailure::Unavailable)?,
+        );
+        rmp_serde::from_slice(&output).map_err(|_| GatewayFailure::Unavailable)?
+    }
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         let ticket = self
             .tickets

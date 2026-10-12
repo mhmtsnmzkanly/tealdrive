@@ -59,6 +59,7 @@ pub struct UserContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub web_accounts: crate::helper::account_gateway::WebAccountsConfig,
     pub access_policy: crate::policy::access::AccessPolicy,
     pub quota_warning_percent: u8,
     pub server: ServerConfig,
@@ -85,6 +86,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            web_accounts: crate::helper::account_gateway::WebAccountsConfig::default(),
             access_policy: crate::policy::access::AccessPolicy::default(),
             quota_warning_percent: 80,
             server: ServerConfig::default(),
@@ -156,6 +158,7 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
+        self.web_accounts.validate()?;
         self.access_policy.validate()?;
         if !(1..=100).contains(&self.quota_warning_percent) {
             return Err(TealDriveError::Validation);

@@ -495,6 +495,7 @@ pub(crate) mod tests_support {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum HelperInvocation {
+    Account(crate::helper::account_gateway::AccountCommand),
     Authenticate(crate::auth::account::AuthRequest),
     Operation {
         request: Box<HelperRequest>,
@@ -541,6 +542,18 @@ pub fn run_secure_helper<R: Read, W: Write>(
     let invocation: HelperInvocation =
         rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)?;
     match invocation {
+        HelperInvocation::Account(command) => {
+            let response = crate::helper::account_gateway::execute(command);
+            let bytes = zeroize::Zeroizing::new(encode_length_prefixed(
+                &response,
+                MAX_HELPER_RESPONSE_SIZE,
+                TealDriveError::HelperResponseTooLarge,
+            )?);
+            writer
+                .write_all(&bytes)
+                .map_err(|_| TealDriveError::HelperStdoutFailed)?;
+            Ok(())
+        }
         HelperInvocation::Authenticate(request) => {
             let response = HelperAuthentication {
                 result: crate::helper::security::authenticate(&request)

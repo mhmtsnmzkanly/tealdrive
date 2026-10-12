@@ -97,6 +97,9 @@ pub fn authenticate(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicke
         return issue(request);
     }
     let config = trusted_config().unwrap_or_default();
+    if config.web_accounts.enabled {
+        return Err(AuthError::AuthBackendUnavailable);
+    }
     let success = crate::auth::pam::authenticate_local(request, &config.account_policy)?;
     if success.uid != unsafe { libc::getuid() } || success.primary_gid != unsafe { libc::getgid() }
     {
@@ -119,6 +122,9 @@ pub fn authenticate(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicke
 }
 pub fn issue(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicket), AuthError> {
     let config = trusted_config().map_err(|_| AuthError::AuthBackendUnavailable)?;
+    if config.web_accounts.enabled {
+        return Err(AuthError::AuthBackendUnavailable);
+    }
     let success = crate::auth::pam::authenticate_local(request, &config.account_policy)?;
     let key = key().map_err(|_| AuthError::AuthBackendUnavailable)?;
     let mut ticket = IdentityTicket {
@@ -142,9 +148,9 @@ pub fn issue(request: &AuthRequest) -> Result<(AuthSuccess, IdentityTicket), Aut
 }
 pub fn verify(ticket: &IdentityTicket, user: &UserContext) -> io::Result<()> {
     let caller = crate::accounts::grants::CallerBinding::capture().map_err(io::Error::other)?;
-    if !trusted_config()?
-        .account_policy
-        .allows_login(&user.username)
+    let config = trusted_config()?;
+    if config.web_accounts.enabled
+        || !config.account_policy.allows_login(&user.username)
         || ticket.identity != *user
         || ticket.caller.as_ref() != Some(&caller)
         || ticket.caller_uid != unsafe { libc::getuid() }
@@ -182,6 +188,32 @@ pub fn account(username: &str) -> Result<AuthSuccess, AuthError> {
         shell: Some(string(pwd.pw_shell)),
         groups: Vec::new(),
     })
+}
+/// Resolve the OS principal by its protected numeric identity, never a client alias.
+pub fn account_by_uid(uid: u32) -> Result<AuthSuccess, AuthError> {
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result = std::ptr::null_mut();
+    let mut buffer = vec![0u8; 65536];
+    let code = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut pwd,
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if code != 0 || result.is_null() || pwd.pw_name.is_null() {
+        return Err(AuthError::InvalidCredentials);
+    }
+    let name = unsafe { CStr::from_ptr(pwd.pw_name) }
+        .to_str()
+        .map_err(|_| AuthError::InvalidCredentials)?;
+    let actual = account(name)?;
+    if actual.uid != uid {
+        return Err(AuthError::InvalidCredentials);
+    }
+    Ok(actual)
 }
 pub fn enter_identity(user: &UserContext) -> io::Result<()> {
     if user.uid == 0 {

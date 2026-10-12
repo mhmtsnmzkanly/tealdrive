@@ -81,3 +81,9 @@ DB schema1→2 explicit root migration; önce0600 online backup, sonra transacti
 ## D019 — Süreç bağı mevcut PAM biletinde de zorunlu
 
 Yeni root-issued PAM bileti MAC altında domain `tealdrive.identity-ticket.v2` ve kernel UID/PID/start-time/boot-ID içerir. Helper her çağrıda kendi gerçek UID'sini ve parent süreç kaydını tekrar okur; başka süreç aynı UID ile bileti kullanamaz. Caller alanı bulunmayan eski bilet elevated operation'da reddedilir. Server/helper birlikte güncellenmeli; servis yeniden başlayınca kullanıcı tekrar giriş yapar. Bu süreç bağı, henüz bağlanmamış DB generation/nonce revocation'ın yerine geçmez. Aynı server sürecini ele geçiren saldırgana karşı tek başına izolasyon sağlamaz.
+
+## D020 — Ayrı root account komut yüzeyi ve kapalı aktivasyon
+
+HelperInvocation::Account + typed account_command: web Login / PAM BeginEnrollment / one-use CompleteEnrollment / Validate / nonce Logout. Root config web_accounts seçer, caller server_uid kernelden doğrulanır; DB path sabit, JSON authority yok. Linux kayıt mevcut root/system/nologin filtrelerini zorunlu tutar; self-registration yalnız authenticated subject allowlist'ini PAM çağrısı için geçici genişletir, root dosyası yazılmaz. Root denied_users DB approval/self-registration üstünedir. Virtual adı UID ile NSS'ye bağlanır; UID/GID/home + nologin/range doğrulanır.
+
+Mode default disabled ve rollout tamamlanana kadar açılmaz. enabled=true eski PAM authentication ve eski PAM operation ticket'ını reddeder; backend hatasında sessiz PAM geri dönüşü yok. Operation grant/server/SDK/UI bağlantısı ayrı aşama. Linux kayıt ilk başta user rolü açar; admin rolünü Root yönetim aracı verir. SessionGrant Debug nonce'ı gizler; yeni web-password alanı Zeroizing serde tamponudur.

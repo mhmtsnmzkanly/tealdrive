@@ -33,7 +33,7 @@ zip = { version = "2.2", default-features = false, features = ["deflate"] }
 toml = "0.8"
 arc-swap = "1.9.2"
 notify = "8.2.0"
-zeroize = { version = "1.9.1", features = ["derive"] }
+zeroize = { version = "1.9.1", features = ["derive", "serde"] }
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "backup"] }
 argon2 = { version = "0.6.0", features = ["zeroize"] }
 hmac = "0.12.1"

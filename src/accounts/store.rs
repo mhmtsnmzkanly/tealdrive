@@ -615,7 +615,7 @@ impl AccountStore {
         Ok(account)
     }
     #[cfg(test)]
-    pub(super) fn memory() -> Self {
+    pub(crate) fn memory() -> Self {
         let mut store = Self {
             connection: Connection::open_in_memory().unwrap(),
         };

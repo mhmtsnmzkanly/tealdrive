@@ -153,3 +153,12 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 - Candidate 127.0.0.1:13101 üzerinde yeni server/helper birlikte kuruldu. `tests/live/sdk-access.cjs` gerçek Chromium/SDK/PAM/setuid zincirinde gizli path, hardlink, download, parent move ve izinli read kontrollerinin tamamı geçti.
 - Protected SQLite root testleri (ownership/isolation/concurrency/backup + v1→v2 migration): 2 geçti. Clippy all-targets `-D warnings` geçti (yeni acceptance test eklendikten sonra ayrıca tekrar kontrol edilir).
 - Caddy üzerinden yayınlanan mevcut servis ve kullanıcı dosyaları değiştirilmedi. Yeni DB ledger henüz canlı auth'a bağlanmadı.
+
+### Root account komut yüzeyi — 2026-10-12
+
+- Altı gateway testi: explicit mode/nonroot server UID, yalnız subject registration, registration-off/approved/root deny, service/root/nologin/virtual-range reddi, config validation, secret wire roundtrip/redacted Debug geçti.
+- Root ve explicit PAM fixture ile ignored `pam_enrollment_web_login_and_session_revocation` testi geçti: gerçek PAM ilk kanıtı; completion sırasında root deny; deny kaldırılınca ayrı Argon2id web parola; proof replay reddi; Linux parolası web login/reset olarak reddedilir; iki oturumdan bir logout diğerini korur; suspend ikinciyi iptal eder.
+- Bu test root process içinde ayrı in-memory SQLite ve gerçek PAM kullanır; server/WS/SDK enrollment uçtan uca kabulü veya fiziksel sanal UID oluşturma testi değildir.
+- Clippy all-targets `-D warnings` geçti. Tam suite ve Rust1.85 sonuçları aşağıda güncellenir.
+- Gateway sonrası tam suite: 540 birim testi geçti, gerçek PAM fixture testi varsayılan ignored (yukarıda explicit çalıştırılıp geçti); normal browser/SDK/WS/CLI entegrasyonları geçti.
+- `CARGO_TARGET_DIR=target/msrv cargo +1.85.0 check --locked --all-targets` geçti; MSRV korunuyor.

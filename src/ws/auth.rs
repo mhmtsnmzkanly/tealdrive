@@ -190,8 +190,7 @@ where
                         )
                         .await?;
                         drop(permit);
-                        return crate::ws::server::handle_socket_connection(socket, state, context)
-                            .await;
+                        return authenticated_socket(socket, state, context).await;
                     }
                 }
             }
@@ -258,7 +257,7 @@ where
                 )
                 .await?;
                 drop(permit);
-                return crate::ws::server::handle_socket_connection(socket, state, context).await;
+                return authenticated_socket(socket, state, context).await;
             }
             _ => {
                 send(
@@ -304,4 +303,24 @@ async fn authenticated_context<H>(
     context.protocol_ready = true;
     context.selected_protocol = Some(selected.clone());
     Some(context)
+}
+
+async fn authenticated_socket<H>(
+    socket: WebSocket,
+    state: WsServerState<H>,
+    context: crate::ws::connection::WsConnectionContext,
+) -> Result<(), crate::errors::TealDriveError>
+where
+    H: WsHelperBackend + 'static,
+{
+    let mut audit = crate::audit::context::current();
+    audit.request_id = None;
+    audit.session_id = Some(context.session_id);
+    audit.user = Some(context.user_context());
+    crate::audit::context::REQUEST
+        .scope(
+            audit,
+            crate::ws::server::handle_socket_connection(socket, state, context),
+        )
+        .await
 }

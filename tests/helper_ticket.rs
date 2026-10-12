@@ -36,10 +36,13 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
         let mut input = zeroize::Zeroizing::new(Vec::new());
         std::io::stdin().read_to_end(&mut input).unwrap();
         if phase == "replay" {
-            assert!(
-                !exchange(Command::new(helper), &input).status.success(),
-                "cross-process replay accepted"
-            );
+            let output = exchange(Command::new(helper), &input);
+            if output.status.success() {
+                let response =
+                    tealdrive::helper::ipc::read_helper_response(&mut output.stdout.as_slice())
+                        .unwrap();
+                assert!(!response.success, "cross-process replay accepted");
+            }
             return;
         }
         let (request, config, uid, gid): (AuthRequest, tealdrive::config::AppConfig, u32, u32) =
@@ -49,20 +52,50 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
         assert_eq!(unsafe { libc::setgroups(0, std::ptr::null()) }, 0);
         assert_eq!(unsafe { libc::setgid(gid) }, 0);
         assert_eq!(unsafe { libc::setuid(uid) }, 0);
-        let auth_bytes = zeroize::Zeroizing::new(
-            encode_invocation(&HelperInvocation::Authenticate(request)).unwrap(),
-        );
-        let auth_output = exchange(Command::new(&helper), &auth_bytes);
-        assert!(auth_output.status.success());
-        let auth = tealdrive::helper::ipc::read_authentication(&mut auth_output.stdout.as_slice())
-            .unwrap();
-        let (identity, ticket) = auth.result.expect("PAM fixture authentication failed");
-        let binding = ticket
-            .caller
-            .as_ref()
-            .expect("ticket must be process-bound");
-        assert_eq!(binding.uid, uid);
-        assert_eq!(binding.pid, std::process::id());
+        let (identity, ticket, grant) = if config.web_accounts.enabled {
+            use tealdrive::helper::account_gateway::{AccountCommand, AccountReply};
+            let client = tealdrive::helper::client::HelperProcessClient::new(
+                &helper,
+                std::time::Duration::from_secs(10),
+            );
+            let AccountReply::Authenticated { account, grant } = client
+                .account_command(AccountCommand::Login(request))
+                .unwrap()
+            else {
+                panic!("web login failed")
+            };
+            assert_eq!(grant.caller.uid, uid);
+            assert_eq!(grant.caller.pid, std::process::id());
+            (
+                tealdrive::auth::AuthSuccess {
+                    username: account.username,
+                    uid: account.uid,
+                    primary_gid: account.gid,
+                    home_dir: Some(account.home),
+                    shell: None,
+                    groups: vec![],
+                },
+                None,
+                Some(grant),
+            )
+        } else {
+            let auth_bytes = zeroize::Zeroizing::new(
+                encode_invocation(&HelperInvocation::Authenticate(request)).unwrap(),
+            );
+            let auth_output = exchange(Command::new(&helper), &auth_bytes);
+            assert!(auth_output.status.success());
+            let auth =
+                tealdrive::helper::ipc::read_authentication(&mut auth_output.stdout.as_slice())
+                    .unwrap();
+            let (identity, ticket) = auth.result.expect("PAM fixture authentication failed");
+            let binding = ticket
+                .caller
+                .as_ref()
+                .expect("ticket must be process-bound");
+            assert_eq!(binding.uid, uid);
+            assert_eq!(binding.pid, std::process::id());
+            (identity, Some(ticket), None)
+        };
         let root = &config.roots[0];
         let operation = HelperRequest {
             request_id: tealdrive::protocol::frame::RequestId::new(),
@@ -91,9 +124,9 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
         };
         let bytes = zeroize::Zeroizing::new(
             encode_invocation(&HelperInvocation::Operation {
-                grant: None,
+                grant,
                 request: Box::new(operation),
-                ticket: Some(ticket),
+                ticket,
                 policy: Some(Box::new(tealdrive::helper::policy::PolicySnapshot::new(
                     config,
                 ))),

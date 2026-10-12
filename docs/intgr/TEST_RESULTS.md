@@ -185,3 +185,11 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 
 Native testte204 cookie bridge başarıyla cookie bağladığı halde audit ConnectionClosed kaydediyordu. Status204/205/304 bodyless testinde guard end() çağrılmadan drop edildiğinde Success/0byte/no reason geçti; interrupted download ayrımı korundu. Web-mode root guard'ı exact NSS home olarak daraltıldı; child path home root'a relative olur, ayrı user-controlled parent-symlink sub-root sunulmaz.
 - Virtual account view testinde initial budget0, admin budget600-child200=own400, child200 doğrulandı. Helper snapshot DB effective quota üstüne çıkamaz; gerçek virtual UID provisioning/enforcement native kabulü ayrı PLAN 5'tedir. Session metadata configured root'ları exact home'a filtreler.
+
+### Son kabul / commit doğrulaması
+
+- Son tam suite: 543 unit passed, 1 opt-in PAM unit ignored (ayrıca önce explicit passed); normal entegrasyonlar passed.
+- Root acceptance ekleri: protected SQLite/backup/migration2 + split runtime1 passed.
+- `tests/helper_ticket.rs` artık legacy ticket ve web grant'ı destekler. Gerçek home-layout setuid helper + web password ile same-UID başka process replay reddi passed; meşru driver quota operation passed. Denial typed response veya nonzero-exit olabilir; success hiçbir durumda kabul edilmez.
+- Clippy `--all-targets -D warnings`, Rust1.85 `check --locked --all-targets`, fmt/diff ve SDK TS strict geçti.
+- Caddy https health200; `/srv/tealdrive-test/Web test.md`60byte korunuyor. Candidate localhost13101; canlı server PID449282 ve eski konfigürasyon değişmedi.

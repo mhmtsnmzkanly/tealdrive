@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="status" content="ok">
+  <title>TealDrive - Modern Two-Tier File Manager</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          <line x1="12" y1="11" x2="12" y2="17"></line>
+          <line x1="9" y1="14" x2="15" y2="14"></line>
+        </svg>
+        <span class="brand-title">TealDrive</span>
+        <span class="brand-badge">Privileged Two-Tier</span>
+      </div>
+
+      <div class="header-controls">
+        <div class="control-group">
+          <label for="rootSelect">Storage Root:</label>
+          <select id="rootSelect" class="form-select"></select>
+        </div>
+
+        <div id="userInfo" class="user-info hidden">
+          <span class="user-badge" id="userBadge">user</span>
+          <button id="settingsBtn" class="btn btn-secondary btn-sm" title="Server Settings">Settings</button>
+          <button id="logoutBtn" class="btn btn-secondary btn-sm" title="Sign Out">Sign Out</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Breadcrumb & Action Toolbar -->
+    <nav class="toolbar">
+      <div class="breadcrumb-container" id="breadcrumbs">
+        <span class="breadcrumb-item root" data-path="">Home</span>
+      </div>
+
+      <div class="action-buttons">
+        <button id="refreshBtn" class="btn btn-secondary" title="Refresh listing">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          Refresh
+        </button>
+        <button id="newFolderBtn" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+          New Folder
+        </button>
+        <button id="newFileBtn" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+          New File
+        </button>
+        <button id="uploadBtn" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          Upload
+        </button>
+        <button id="trashBtn" class="btn btn-secondary" title="View Trash Bin">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          Trash Bin
+        </button>
+        <div class="search-box" style="display:inline-flex;align-items:center;gap:4px;margin-left:0.5rem;">
+          <input type="text" id="searchInput" placeholder="Search files..." style="padding:4px 8px;font-size:0.85rem;border-radius:4px;border:1px solid var(--slate-700);background:var(--slate-800);color:var(--text-main);width:150px;">
+          <button id="searchClearBtn" class="btn btn-secondary btn-sm hidden" title="Clear Search">&times;</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content Area: File Table -->
+    <main class="content-container">
+      <div id="dropzoneOverlay" class="dropzone-overlay hidden">
+        <div class="dropzone-box">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <p>Drop files here to upload</p>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <table class="file-table" id="fileTable">
+          <thead>
+            <tr>
+              <th class="col-name">Name</th>
+              <th class="col-size">Size</th>
+              <th class="col-mode">Mode</th>
+              <th class="col-modified">Modified</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="fileTableBody">
+            <tr class="empty-row">
+              <td colspan="5">Loading directory contents...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- Upload Progress Banner -->
+    <div id="uploadProgressContainer" class="upload-progress-container hidden">
+      <div class="progress-info">
+        <span id="uploadFileName">Uploading file...</span>
+        <span id="uploadPercent">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div id="uploadProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Status Footer -->
+    <footer class="app-footer">
+      <div class="footer-status">
+        <span class="status-dot connected" id="wsStatusDot"></span>
+        <span id="wsStatusText">Connecting...</span>
+      </div>
+      <div class="footer-meta">
+        <span>TealDrive Safe Sandboxed Environment &copy; 2026</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Hidden File Input for Upload -->
+  <input type="file" id="fileInput" class="hidden">
+
+  <!-- MODALS -->
+
+  <!-- 1. Login Modal -->
+  <div id="loginModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="brand-brand">
+          <span class="brand-title">Sign in to TealDrive</span>
+        </div>
+      </div>
+      <form id="loginForm" class="modal-body">
+        <div id="loginError" class="alert-error hidden"></div>
+        <div class="form-group">
+          <label for="usernameInput">Username</label>
+          <input type="text" id="usernameInput" class="form-input" required autocomplete="username" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="passwordInput">Password</label>
+          <input type="password" id="passwordInput" class="form-input" required autocomplete="current-password">
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. Text Editor / Viewer Modal -->
+  <div id="editorModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3 id="editorTitle">Edit File</h3>
+        <button class="modal-close" id="editorCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body editor-body">
+        <textarea id="editorTextarea" class="code-editor" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span class="file-meta-hint" id="editorMetaHint"></span>
+        <div class="modal-actions">
+          <button id="editorCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button id="editorSaveBtn" class="btn btn-primary">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Prompt (New Folder / Rename) Modal -->
+  <div id="promptModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="promptTitle">Prompt</h3>
+        <button class="modal-close" id="promptCloseBtn">&times;</button>
+      </div>
+      <form id="promptForm" class="modal-body">
+        <div class="form-group">
+          <label id="promptLabel" for="promptInput">Name</label>
+          <input type="text" id="promptInput" class="form-input" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="promptCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. Permissions (Chmod) Modal -->
+  <div id="chmodModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>File Permissions</h3>
+        <button class="modal-close" id="chmodCloseBtn">&times;</button>
+      </div>
+      <form id="chmodForm" class="modal-body">
+        <p class="file-target-name" id="chmodTargetName"></p>
+        <p class="muted">Select permissions or enter an octal code. Both stay in sync.</p>
+        <table class="permission-grid">
+          <thead><tr><th scope="col">Who</th><th scope="col">Read</th><th scope="col">Write</th><th scope="col">Execute</th></tr></thead>
+          <tbody><tr><th scope="row">Owner</th><td><input type="checkbox" class="chmod-bit" data-bit="256" aria-label="Owner: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="128" aria-label="Owner: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="64" aria-label="Owner: Execute"></td></tr>
+<tr><th scope="row">Group</th><td><input type="checkbox" class="chmod-bit" data-bit="32" aria-label="Group: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="16" aria-label="Group: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="8" aria-label="Group: Execute"></td></tr>
+<tr><th scope="row">Others</th><td><input type="checkbox" class="chmod-bit" data-bit="4" aria-label="Others: Read"></td><td><input type="checkbox" class="chmod-bit" data-bit="2" aria-label="Others: Write"></td><td><input type="checkbox" class="chmod-bit" data-bit="1" aria-label="Others: Execute"></td></tr>
+</tbody>
+        </table>
+        <div class="form-group">
+          <label for="chmodOctalInput">Permission code</label>
+          <input type="text" id="chmodOctalInput" class="form-input" pattern="0?[0-7]{3}" maxlength="4" inputmode="numeric" autocomplete="off" aria-describedby="chmodPreview chmodError" required>
+          <p id="chmodPreview" class="permission-preview" aria-live="polite"></p>
+          <p id="chmodError" class="permission-error" role="status"></p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="chmodCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" id="chmodApplyBtn" class="btn btn-primary">Apply Permissions</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 5. Archive (Compress / Extract) Modal -->
+  <div id="archiveModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="archiveTitle">Create Archive</h3>
+        <button class="modal-close" id="archiveCloseBtn">&times;</button>
+      </div>
+      <form id="archiveForm" class="modal-body">
+        <div class="form-group">
+          <label for="archiveNameInput">Archive Name (e.g. bundle.zip or backup.tar.gz):</label>
+          <input type="text" id="archiveNameInput" class="form-input" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="archiveCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Compress</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 6. Trash Bin Modal -->
+  <div id="trashModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>Trash Bin</h3>
+        <button class="modal-close" id="trashCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">Items moved to trash can be restored or permanently removed.</p>
+        <div class="table-card">
+          <table class="file-table" id="trashTable">
+            <thead>
+              <tr>
+                <th>Original Name</th>
+                <th>Original Path</th>
+                <th>Deleted Time</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="trashTableBody">
+              <tr class="empty-row"><td colspan="4">Trash bin is empty.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="trashDoneBtn" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Lightbox Preview Modal -->
+  <div id="lightboxModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lightbox">
+      <div class="modal-header">
+        <h3 id="lightboxTitle">File Preview</h3>
+        <button class="modal-close" id="lightboxCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body lightbox-body">
+        <div id="lightboxContent" class="lightbox-content"></div>
+      </div>
+      <div class="modal-footer">
+        <a id="lightboxDownloadBtn" href="#" class="btn btn-secondary" target="_blank">Download</a>
+        <button type="button" id="lightboxDoneBtn" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Server Settings Modal -->
+  <div id="settingsModal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>Server Settings &amp; Dynamic Config</h3>
+        <button class="modal-close" id="settingsCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body settings-body">
+        <div class="settings-section">
+          <h4>Login access</h4>
+          <p id="cfgUsersStatus" role="status">Loading local users...</p>
+          <div id="cfgAllowedUsers" class="user-picker" role="group" aria-label="Allowed Linux users"></div>
+          <p>Only listed users can sign in. An empty list disables sign-in. New users must also be permitted by the server's system administrator.</p>
+        </div>
+        <div class="settings-section">
+          <h4>Feature Gates</h4>
+          <div class="settings-grid">
+            <label><input type="checkbox" id="cfgFeatEdit"> Allow File Editing</label>
+            <label><input type="checkbox" id="cfgFeatDelete"> Allow Permanent Deletion</label>
+            <label><input type="checkbox" id="cfgFeatChmod"> Allow Chmod Permissions</label>
+            <label><input type="checkbox" id="cfgFeatArchive"> Allow Archive Extraction</label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Client IP / Trusted proxies</h4>
+          <div class="settings-row"><label for="cfgTrustedProxies">Trusted proxy IPs / CIDRs (one per line):</label><textarea id="cfgTrustedProxies" class="form-input" rows="3"></textarea></div>
+          <div class="settings-row"><label for="cfgClientIpHeader">Client IP header:</label><select id="cfgClientIpHeader" class="form-input"><option value="XForwardedFor">X-Forwarded-For</option><option value="XRealIp">X-Real-IP</option><option value="CfConnectingIp">CF-Connecting-IP</option></select></div>
+          <p>Only connections from trusted proxies may supply this header. Leave the list empty for direct connections. Trust your immediate proxy, not every address.</p>
+          <h4>Audit Logs</h4>
+          <p id="cfgAuditHealth"></p>
+          <div class="settings-row"><label for="cfgAuditPath">Log file path:</label><input type="text" id="cfgAuditPath" class="form-input" placeholder="/var/lib/tealdrive-test/audit.jsonl"></div>
+          <div class="settings-row"><label for="cfgAuditMaxMB">Maximum file size (MiB):</label><input type="number" id="cfgAuditMaxMB" class="form-input" min="0.0009765625" max="1024" step="any"></div>
+          <div class="settings-row"><label for="cfgAuditArchives">Archives to keep:</label><input type="number" id="cfgAuditArchives" class="form-input" min="0" max="1000" step="1"></div>
+          <div class="settings-row"><label for="cfgAuditDays">Delete archives older than (days):</label><input type="number" id="cfgAuditDays" class="form-input" min="1" max="36500" step="1" placeholder="No age limit"></div>
+          <p class="muted">Archives use .1, .2, …; .1 is newest. Leave days empty for no age limit. Cleanup runs when logs are written. A new path must be writable by the service; existing logs stay at their old path.</p>
+        </div>
+
+        <div class="settings-section">
+          <h4>Retention &amp; Limits</h4>
+          <div class="settings-row">
+            <label for="cfgTrashRetention">Trash Retention (automatic cleanup unavailable):</label>
+            <input type="number" id="cfgTrashRetention" class="form-input" min="0" max="365" disabled>
+          </div>
+          <div class="settings-row">
+            <label for="cfgMaxUploadBytes">Max Upload (MB):</label>
+            <input type="number" id="cfgMaxUploadBytes" class="form-input" min="1" max="3">
+          </div>
+          <div class="settings-row">
+            <label for="cfgMaxEditTextBytes">Max Text Edit (KB):</label>
+            <input type="number" id="cfgMaxEditTextBytes" class="form-input" min="1" max="128">
+          </div>
+          <div class="settings-row">
+            <label for="cfgMaxPreviewBytes">Max Preview / Inline (MB):</label>
+            <input type="number" id="cfgMaxPreviewBytes" class="form-input" min="1" max="1024">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Rate Limiting &amp; Session</h4>
+          <div class="settings-row">
+            <label for="cfgRateLimitMaxFailures">Max Login Failures:</label>
+            <input type="number" id="cfgRateLimitMaxFailures" class="form-input" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <label for="cfgRateLimitLockoutSecs">Lockout Duration (Seconds):</label>
+            <input type="number" id="cfgRateLimitLockoutSecs" class="form-input" min="1" max="86400">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSessionIdleMins">Session Idle Timeout (Minutes):</label>
+            <input type="number" id="cfgSessionIdleMins" class="form-input" min="1" max="10080">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Helper Engine &amp; Search</h4>
+          <div class="settings-row">
+            <label for="cfgHelperTimeoutSecs">Helper Process Timeout (Seconds):</label>
+            <input type="number" id="cfgHelperTimeoutSecs" class="form-input" min="1" max="300">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSearchMaxDepth">Search Max Depth (Levels):</label>
+            <input type="number" id="cfgSearchMaxDepth" class="form-input" min="1" max="100">
+          </div>
+          <div class="settings-row">
+            <label for="cfgSearchMaxResults">Search Default Max Results:</label>
+            <input type="number" id="cfgSearchMaxResults" class="form-input" min="1" max="5000">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="cfgPersistDisk" checked> Persist changes to disk config file
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="cfgReloadBtn" class="btn btn-secondary">Reload from Disk</button>
+        <div class="modal-actions">
+          <button type="button" id="settingsCancelBtn" class="btn btn-secondary">Close</button>
+          <button type="button" id="cfgSaveBtn" class="btn btn-primary">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="shutdownModal" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="shutdownTitle" aria-describedby="shutdownMessage">
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="shutdownTitle">Server is shutting down</h2></div>
+      <div class="modal-body"><p id="shutdownMessage"></p></div>
+      <div class="modal-footer"><div class="modal-actions">
+        <button type="button" id="shutdownDismissBtn" class="btn btn-secondary">Dismiss</button>
+        <button type="button" id="shutdownRetryBtn" class="btn btn-primary">Check availability</button>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

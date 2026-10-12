@@ -11,3 +11,10 @@ Bu dosya yeni geliştirme testlerini tutar; tarihsel 528-test raporu docs/STATUS
 - sdk-api.js syntax: passed; kullanım taslağıdır, SDK implementasyonu değildir.
 - git diff --check: passed.
 - Canlı backend read-only health: ok. Tam PAM/browser suite bu belge değişimi için yeniden çalıştırılmadı.
+
+## 2026-10-12 — Gömülü UI kaynak ayrımı
+
+HTML/CSS/JS/SVG ayrı src/ui/static dosyalarına byte içeriği korunarak taşındı; assets.rs include_str üzerinden aynı sabitleri yayımlar.
+
+- cargo test --locked --test browser_contract --test browser_shutdown: 2 passed.
+- Binary içinde gömme korunuyor; dış asset dizini zorunlu değil.

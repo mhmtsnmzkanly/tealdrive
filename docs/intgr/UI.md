@@ -80,3 +80,7 @@ Default UI yolu custom JS runtime hatasında da açılabilir. CSP script inline/
 ## SDK gezinti/state güncellemesi
 
 2026-10-12 yeni server state, helper path doğrulaması, üç SDK alanı ve event/kalıcı bildirim sözleşmesi [STATE.md](STATE.md) altında. Bu hedef henüz uygulanmış değildir; ilgili kabul testleri orada tanımlanır.
+
+## Uygulandı — kaynak dosyaları
+
+HTML/CSS/JS/SVG src/ui/static altında ayrı dosyalardır; assets.rs include_str ile gömer. Browser contract ve shutdown testleri geçti (TEST_RESULTS). Auth/file-manager modül ayrımı ve SDK entegrasyonu sonraki işlerdir.

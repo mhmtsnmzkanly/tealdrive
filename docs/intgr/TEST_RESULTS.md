@@ -313,3 +313,8 @@ Rootvirtual testinde ilk deneme yanlış HTTP route'u `/api/admin/system/account
 `TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_UI_FILES_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti: browser UI yalnız tek/ws/auth socket; create directory/file, edit/read, upload, permissions selector, reload managed location, independent second SDK writer revision conflict ve unsaved text preservation, directory dışarıdan trash'e taşındığında refresh nearest-parent recovery. Test yalnız fixture UID/home'unda işlem yapar, cleanup primary policy/DB/home/logları geri alır.
 
 İlk UI test hatası hidden modal locator'ın visible beklemesiydi; corrected state=attached. Sonra read tamamlanmadan editor input açıldığı eski yarış ortaya çıktı; UI artık read sonrası açılır ve eski editor request generation'ı atılır. Normal cargo test563 unit passed/1 ignored ve integration grupları geçti. Browser permissions/shutdown mocks yeni public SDK event sözleşmesine taşındı; config inspect/persist/reload/CSRF ve native URL invalid-path/root testleri geçti. d.ts TypeScript strict geçti.
+
+
+## TR/EN UI kabulü — 12 Ekim 2026
+
+Shared SDK UI fixture `TEALDRIVE_UI_FILES_ACCEPTANCE=1` koşusuna TR/EN testi eklendi ve geçti: language selector, Turkish labels, policy dialog input sayısı dil değişikliğinde sabit, “Cancel” filename untranslated, reload language restore, aynı context'te logout→diğer admin login ile yeni dil namespace'i, storage'da PAM/web password yok. Normal test564 unit passed/1 ignored ve integrations geçti; catalog same-key/interpolation-name testi var. Root/PAM opt-in koşular ayrı kanıtlanır. Script/locale JSON embedded route/digest'e eklenmiştir. CLippy-Dwarnings/MSRV1.85 kontrolü geçti.

@@ -221,3 +221,8 @@ Root-created admin de ayrı nologin UID/GID; `__root__` intent pool bütçesini 
 ## D040 — Gömülü UI de public SDK müşterisidir
 
 UI'ye özel ikinci WebSocket/MessagePack pipeline kaldırıldı. Auth/files/admin aynı SDK bağlantısında; DOM adapter SDK'nın camelCase sonucunu mevcut DOM view alanlarına dönüştürür. Optional managed state aktif, per account/origin/generation storage; path helper validate olmadan güvenilmez. UI editor read tamamlanmadan input açmaz; geç listing cevabı view generation ile atılır; mutation opening root'unda kalır. Büyük native download ve media için secret olmayan URL convenience method'ları eklendi; backend authorization atlanmaz. Config inspect mode/read, reload ve persistfalse eklenirken settings.get/patch default davranışı korunur.
+
+
+## D041 — UI dili yetki/state değildir
+
+EN/TR sözlük anahtarları ve parametreleri aynı tutulur. Sadece data-i18n işaretli caption/attribute çevrilir; user filename/content untouched. Form label translation ayrı span üzerinde yapılır; child input'lar korunur. Dil tercihi origin+accountId tarayıcı namespace'inde en/tr değeridir; başka hesaba taşınmaz. Root config/DB'ye dil kaydı gerekmez. SDK kararlı hata kodunu sunar, UI onu çevirir. Unknown label English fallback; canonical protocol/options değerleri çevrilmez.

@@ -1,6 +1,6 @@
 # TealDrive UI geliştirme sözleşmesi
 
-> **Durum:** Auth/accounts/policy/virtual UI ve temel file manager ortak SDK ile uygulanmıştır. Custom paket ve TR/EN yüzeyi sonraki aşamadadır. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Auth/accounts/policy/virtual UI ve temel file manager ortak SDK ile uygulanmıştır. TR/EN ve kullanıcı bazlı dil tercihi uygulanmıştır; custom paket ayrı aşamadadır. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
@@ -107,3 +107,10 @@ System grubunda uygun yerel NSS adayları kayıtlı hesaplardan ayrılır; dropd
 **Suspend/Enable** confirmation içerir; cancel hiçbir mutation çağırmaz. Suspend aktif web bağlantılarını keser; dosyalar/OS hesabı korunur. Yeniden açma eski cookie/grant/proof'u canlandırmaz. Loading/error sırasında stale işlem kontrolleri temizlenir; aynı modal içindeki talepler epoch ile izlenir, close sonrası eski cevap render edilmez. Busy sırasında double-submit ve tab değiştirme kapalıdır. Escape/focus return, Tab focus containment ve mobil ayrı tablo düzeni uygulanmıştır. Failed refresh503 gerçek Chromium'da verify edilmiştir (browser intercept; backend outage kabulü sayılmaz).
 
 Başlangıç file-connection göstergesi **Not connected**: gerçek ProtocolReady alınmadan connected işareti gösterilmez. Native UI testleri login modal kapanışını ve gerçek file socket'i bekler; initial HTML sınıfına dayalı false-positive kaldırılmıştır. SDK/full file-manager dönüşümü ve TR/EN henüz ayrı PLAN işidir.
+
+
+## Dil ve kullanıcı tercihi
+
+Gömülü UI English/Türkçe seçicisi sunar. `src/ui/locales/en.json` ve `tr.json` aynı key/interpolation isimlerini kullanır; `static/i18n.js` yalnız işaretli UI metinlerini çevirir. Dosya adı, dosya içeriği ve input value çevrilmez. Form label caption ayrı span'dır; dil değişikliği input/checkbox child'larını kaldırmaz. Native download veya API kodları çevrilmiş UI metninden üretilmez.
+
+Tercih browser storage'da origin+accountId (legacy UID fallback) namespace'indedir; yalnız en/tr yazılır. Şifre, token veya içerik bu storage'a konmaz. Hesap değiştiğinde yeni namespace okunur; varsayılan browser language tr iseTR, diğer durumlardaEN. Storage erişimi yoksa tercih mevcut sayfada çalışır. Root/admin çalışma ayarını değiştirmez. SDK hata code/params çeviri anahtarıdır; UI sunumu SDK'nın içinde değildir.

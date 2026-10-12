@@ -10,14 +10,14 @@
     roots: [],
     currentRoot: null,
     currentPath: '',
-    ws: null,
     wsConnected: false,
     serverShuttingDown: false,
     shutdownPreviousFocus: null,
-    requestId: 1,
-    pendingRequests: new Map(),
     currentEditorFile: null,
+    editorReadGeneration: 0,
     chmodTarget: null,
+    chmodRootId: null,
+    listingGeneration: 0,
     chmodOriginalMode: 0,
     chmodIsDirectory: false,
     archiveSources: [],
@@ -132,100 +132,59 @@
     cfgPersistDisk: document.getElementById('cfgPersistDisk'),
   };
 
-  const {MsgPack,encodeFrame,decodeFrame,encodeChunk,uuidBytes,uuidKey}=TealDriveWire;
-  const MT=TdrvContract.messages;
-  // --- WebSocket Connection ---
-  function connectWebSocket() {
-    if (state.ws) {
-      try { state.ws.close(); } catch(e) {}
-    }
-
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${window.location.host}/ws`;
+  let filesModule = null;
+  async function connectWebSocket() {
     el.wsStatusDot.className = 'status-dot';
-    el.wsStatusText.textContent = 'Connecting to /ws...';
-
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    state.ws = ws;
-    state.serverShuttingDown = false;
-
-    ws.onopen = function() { if(state.ws===ws)el.wsStatusText.textContent='Negotiating protocol...'; };
-
-    ws.onmessage = function(ev) {
-      if (state.ws !== ws) return;
-      try { handleServerFrame(decodeFrame(ev.data)); } catch(error) {showToast(error.message,'error');ws.close();}
-    };
-
-    ws.onclose = function(ev) {
-      if (state.ws !== ws) return;
-      if (ev.code === 1001 && ev.reason === 'Server shutting down') showShutdownNotice();
-      state.wsConnected = false;
-      el.wsStatusDot.className = 'status-dot disconnected';
-      el.wsStatusText.textContent = state.serverShuttingDown ? 'Server stopped' : 'Disconnected';
-      if (state.serverShuttingDown) {
-        el.shutdownTitle.textContent = 'Server stopped';
-        el.shutdownMessage.textContent = 'The server connection has closed. Incomplete uploads must be retried. Keep a copy of any unsaved changes, then check availability and sign in again after the server restarts.';
+    el.wsStatusText.textContent = 'Connecting...';
+    try {
+      const client = await getAuthClient();
+      const info = client.getInfo();
+      state.protocolLimits = info.limits;
+      state.serverShuttingDown = false;
+      state.wsConnected = true;
+      await client.files.refreshState();
+      const location = client.files.getState();
+      state.currentRoot = location.rootId;
+      state.currentPath = (location.currentDirectory ?? '/').replace(/^\//,'');
+      el.rootSelect.value = state.currentRoot;
+      el.wsStatusDot.className = 'status-dot connected';
+      el.wsStatusText.textContent = 'Connected';
+      loadDirectory(state.currentPath);
+      client.files.quota.get().catch(()=>{});
+    } catch (error) { state.wsConnected=false; showToast(error.message,'error'); }
+  }
+  async function requestFile(action, payload) {
+    if (state.serverShuttingDown) throw Error('Server is shutting down. New actions are paused.');
+    const client = await getAuthClient();
+    filesModule ??= import('/static/files.js');
+    return (await filesModule).fileAction(client, action, payload);
+  }
+  function runFileAction(action,payload) {
+    const viewGeneration=['ListDirectory','SearchFiles'].includes(action)?++state.listingGeneration:null;
+    return requestFile(action,payload).then(result=>{
+      if(viewGeneration!==null && viewGeneration!==state.listingGeneration)return result;
+      if(action==='ListDirectory') renderDirectoryList(result);
+      else if(action==='ReadTextFile') openEditor(result);
+      else if(action==='SearchFiles') renderSearchResults(result);
+      else if(action==='ListTrash') renderTrashList(result);
+      else { showToast('Operation completed','success');loadDirectory(state.currentPath); }
+      return result;
+    }).catch(async error=>{
+      if(viewGeneration!==null && viewGeneration!==state.listingGeneration)return;
+      if(action==='ListDirectory' && ['NOT_FOUND','NOT_A_DIRECTORY'].includes(error.code)) {
+        try {
+          const client=await getAuthClient();
+          await client.files.refreshState();
+          const location=client.files.getState();
+          state.currentRoot=location.rootId;
+          state.currentPath=(location.currentDirectory??'/').replace(/^\//,'');
+          el.rootSelect.value=state.currentRoot;
+          loadDirectory(state.currentPath);
+          return;
+        } catch(failure) { showToast(failure.message,'error');return; }
       }
-      for(const pending of state.pendingRequests.values()){clearTimeout(pending.timer);pending.reject(new Error(state.serverShuttingDown ? "Server stopped. Retry incomplete operations after signing in again." : "Connection closed"));}
-      state.pendingRequests.clear();
-      if (!state.serverShuttingDown) setTimeout(checkSession, 3000);
-    };
-
-    ws.onerror = function() {
-      if (state.ws !== ws || state.serverShuttingDown) return;
-      state.wsConnected = false;
-      el.wsStatusDot.className = 'status-dot disconnected';
-      el.wsStatusText.textContent = 'Connection error';
-    };
-  }
-
-  function handleServerFrame(frame) {
-    const {messageType,payload,requestId}=frame;
-    const pending=state.pendingRequests.get(requestId);
-    const failed=[MT.Error,MT.OperationFailed,MT.PermissionDenied,MT.PolicyDenied,MT.ValidationError].includes(messageType);
-    if(pending){clearTimeout(pending.timer);state.pendingRequests.delete(requestId);
-      if(failed)pending.reject(new Error(payload.error?.safe_message||payload.safe_message||'Operation failed'));
-      else pending.resolve(payload);
-    }
-    switch(messageType){
-      case MT.ServerHello:
-        state.serverHello=payload;
-        state.ws.send(encodeFrame(MT.ClientHello,{
-          protocol_version:1,supported_encodings:['MessagePack','RawBinary'],supported_compressions:['None'],
-          max_frame_size:payload.max_frame_size,max_control_payload_size:payload.max_control_payload_size,max_chunk_size:payload.max_chunk_size,
-          feature_flags:payload.feature_flags
-        },crypto.randomUUID()));
-        break;
-      case MT.ProtocolReady:
-        state.protocolLimits=payload.limits;
-        if(state.serverShuttingDown)break;
-        state.wsConnected=true;
-        el.wsStatusDot.className='status-dot connected';el.wsStatusText.textContent='Connected';loadDirectory(state.currentPath);break;
-      case MT.ConnectionStatus:
-        if(payload.shutting_down)showShutdownNotice(payload.grace_period_seconds);
-        break;
-      case MT.DirectoryList:renderDirectoryList(payload);break;
-      case MT.SearchResults:renderSearchResults(payload);break;
-      case MT.TrashList:renderTrashList(payload);break;
-      case MT.TextFileContent:openEditor(payload);break;
-      case MT.OperationDone:if(!pending){showToast(payload.safe_message||'Operation succeeded','success');loadDirectory(state.currentPath);}break;
-      default:if(failed&&!pending)showToast(payload.error?.safe_message||payload.safe_message||'Server error','error');
-    }
-  }
-  function requestWs(messageType,payload,raw=false){
-    return new Promise((resolve,reject)=>{
-      if(state.serverShuttingDown){reject(new Error('Server is shutting down. New actions are paused.'));return;}
-      if(!state.wsConnected||!state.ws||state.ws.readyState!==WebSocket.OPEN){reject(new Error('Connection is not ready'));return;}
-      const id=crypto.randomUUID();const key=uuidKey(id);
-      const timer=setTimeout(()=>{state.pendingRequests.delete(key);reject(new Error('Operation timed out'));},60000);
-      state.pendingRequests.set(key,{resolve,reject,timer});
-      try{state.ws.send(encodeFrame(messageType,payload,id,raw));}
-      catch(error){clearTimeout(timer);state.pendingRequests.delete(key);reject(error);}
+      showToast(error.message,'error');
     });
-  }
-  function sendWsRequest(messageType,payload){
-    requestWs(messageType,payload).then(()=>{if([MT.SaveTextFile,MT.CreateFolder,MT.RenameFile,MT.MoveToTrash,MT.RestoreFromTrash,MT.DeletePermanently,MT.ChmodFile].includes(messageType)){showToast('Operation completed','success');loadDirectory(state.currentPath);}}).catch(error=>showToast(error.message,'error'));
   }
 
   function showShutdownNotice(graceSeconds = 30) {
@@ -270,9 +229,9 @@
     state.currentPath = path || '';
     renderBreadcrumbs();
     el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading files...</td></tr>';
-    sendWsRequest(MT.ListDirectory, {
+    runFileAction('ListDirectory', {
       root_id: state.currentRoot,
-      relative_path: state.currentPath,cursor,limit:state.protocolLimits.default_directory_page_size,include_hidden:false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
+      relative_path: state.currentPath,cursor,limit:state.protocolLimits.defaultDirectoryPageSize,include_hidden:state.roots.find(root=>root.root_id===state.currentRoot)?.hidden_files_allowed??false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
     });
   }
 
@@ -375,8 +334,9 @@
       const itemRelPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
 
       if (!item.is_dir) {
-        const dlBtn = createActionButton('Download', () => {
-          const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(itemRelPath)}`;
+        const dlBtn = createActionButton('Download', async () => {
+          const client = await getAuthClient();
+          const url = client.files.getDownloadUrl({rootId:state.currentRoot,path:itemRelPath});
           window.location.href = url;
         });
         actionGroup.appendChild(dlBtn);
@@ -466,8 +426,9 @@
       tdAct.appendChild(actionGroup);
 
       if (!item.is_dir) {
-        const dlBtn = createActionButton('Download', () => {
-          const url = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
+        const dlBtn = createActionButton('Download', async () => {
+          const client = await getAuthClient();
+          const url = client.files.getDownloadUrl({rootId:state.currentRoot,path:relPath});
           window.location.href = url;
         });
         actionGroup.appendChild(dlBtn);
@@ -527,10 +488,11 @@
     return isImageFile(filename) || isVideoFile(filename) || isAudioFile(filename) || isPdfFile(filename);
   }
 
-  function openLightbox(relPath) {
+  async function openLightbox(relPath) {
+    const client=await getAuthClient();
     el.lightboxTitle.textContent = relPath;
-    const url = `/api/preview?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
-    const dlUrl = `/api/download?root_id=${encodeURIComponent(state.currentRoot)}&path=${encodeURIComponent(relPath)}`;
+    const url = client.files.getPreviewUrl({rootId:state.currentRoot,path:relPath});
+    const dlUrl = client.files.getDownloadUrl({rootId:state.currentRoot,path:relPath});
     el.lightboxDownloadBtn.href = dlUrl;
 
     el.lightboxContent.innerHTML = '';
@@ -571,20 +533,20 @@
   }
 
   // --- File Editor ---
-  function viewOrEditFile(relPath) {
+  async function viewOrEditFile(relPath) {
     if (isMediaFile(relPath)) {
       openLightbox(relPath);
       return;
     }
-    state.currentEditorFile = relPath;
-    el.editorTitle.textContent = `Loading ${relPath}...`;
-    el.editorTextarea.value = '';
-    el.editorModal.classList.remove('hidden');
-    sendWsRequest(MT.ReadTextFile, {
-      root_id: state.currentRoot,
-      relative_path: relPath,
-      max_bytes: 128 * 1024,
-    });
+    const generation = ++state.editorReadGeneration;
+    const rootId = state.currentRoot;
+    try {
+      const payload = await requestFile('ReadTextFile',{root_id:rootId,relative_path:relPath});
+      if (generation !== state.editorReadGeneration) return;
+      state.currentEditorFile=relPath;
+      openEditor(payload);
+      el.editorModal.classList.remove('hidden');
+    } catch(error) { showToast(error.message,'error'); }
   }
 
   function openEditor(payload) {
@@ -594,7 +556,7 @@
     el.editorSaveBtn.onclick = async () => {
       el.editorSaveBtn.disabled=true;
       try {
-        await requestWs(MT.SaveTextFile, {
+        await requestFile('SaveTextFile', {
           root_id: payload.root_id,
           relative_path: payload.relative_path,
           content: el.editorTextarea.value,
@@ -613,7 +575,7 @@
   // --- File Operations ---
   function moveToTrash(relPath) {
     if (!confirm(`Move "${relPath}" to trash?`)) return;
-    sendWsRequest(MT.MoveToTrash, {
+    runFileAction('MoveToTrash', {
       root_id: state.currentRoot,
       relative_path: relPath,
     });
@@ -622,7 +584,7 @@
   function openTrashModal() {
     el.trashTableBody.innerHTML = '<tr class="empty-row"><td colspan="4">Loading trash...</td></tr>';
     el.trashModal.classList.remove('hidden');
-    sendWsRequest(MT.ListTrash, {
+    runFileAction('ListTrash', {
       root_id: state.currentRoot,
     });
   }
@@ -672,7 +634,7 @@
   }
 
   function restoreFromTrash(trashId) {
-    sendWsRequest(MT.RestoreFromTrash, {
+    runFileAction('RestoreFromTrash', {
       trash_id: trashId,
       target_root_id: state.currentRoot,
       target_relative_path: null,
@@ -682,7 +644,7 @@
 
   function deletePermanentlyFromTrash(trashId) {
     if (!confirm('Are you sure you want to permanently delete this item? This action cannot be undone.')) return;
-    sendWsRequest(MT.DeletePermanently, {
+    runFileAction('DeletePermanently', {
       root_id: state.currentRoot,
       relative_path: `.tealdrive-trash/files/${trashId}`,
     });
@@ -693,7 +655,7 @@
     openPrompt('Rename Item', 'New Name', oldName, (newName) => {
       if (!newName || newName === oldName) return;
       const targetRel = state.currentPath ? `${state.currentPath}/${newName}` : newName;
-      sendWsRequest(MT.RenameFile, {
+      runFileAction('RenameFile', {
         root_id: state.currentRoot,
         relative_path: relPath,
         new_name: newName,
@@ -729,6 +691,7 @@
     state.chmodOriginalMode=(currentMode??0o644)&0o7777;
     state.chmodIsDirectory=isDirectory;
     state.chmodTarget = relPath;
+    state.chmodRootId = state.currentRoot;
     el.chmodTargetName.textContent = relPath;
     const mode=(currentMode??0o644)&0o777;
     el.chmodOctalInput.value='0'+mode.toString(8).padStart(3,'0');
@@ -749,43 +712,34 @@
 
   // --- Upload Flow ---
   async function handleFileUpload(file) {
-    if(!file||state.uploading)return;
-    const limit=state.protocolLimits?.max_in_flight_upload||0;
-    if(file.size>limit){showToast(`File exceeds server upload limit (${formatBytes(limit)})`,'error');return;}
-    state.uploading=true;let transfer=null;
-    el.uploadProgressContainer.classList.remove('hidden');el.uploadFileName.textContent=file.name;
-    try{
-      const begin=await requestWs(MT.UploadBegin,{root_id:state.currentRoot,relative_path:state.currentPath,filename:file.name,total_size:file.size,
-        chunk_size:state.protocolLimits.max_chunk_size,sha256:null});transfer=begin.transfer_id;
-      let offset=0,index=0;
-      while(offset<file.size){
-        const bytes=new Uint8Array(await file.slice(offset,offset+begin.chunk_size).arrayBuffer());
-        await requestWs(MT.UploadChunk,encodeChunk(transfer,index++,offset,bytes),true);
-        offset+=bytes.length;const pct=Math.round(100*offset/file.size);el.uploadProgressBar.style.width=`${pct}%`;el.uploadPercent.textContent=`${pct}%`;
-      }
-      await requestWs(MT.UploadEnd,{transfer_id:transfer,total_size:file.size,sha256:null});transfer=null;
-      showToast('Upload completed','success');loadDirectory(state.currentPath);
-    }catch(error){showToast(error.message,'error');if(transfer&&state.wsConnected){try{await requestWs(MT.UploadAbort,{transfer_id:transfer,reason:'client error'});}catch{}}}
-    finally{state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value='';}
+    if (!file || state.uploading) return;
+    state.uploading = true;
+    el.uploadProgressContainer.classList.remove('hidden');
+    el.uploadFileName.textContent = file.name;
+    try {
+      const client = await getAuthClient();
+      await client.files.upload({rootId:state.currentRoot,directory:state.currentPath,file,onProgress:progress=>{
+        const percentage = progress.totalBytes ? Math.round(100*progress.transferredBytes/progress.totalBytes) : 100;
+        el.uploadProgressBar.style.width = `${percentage}%`;
+        el.uploadPercent.textContent = `${percentage}%`;
+      }});
+      showToast('Upload completed','success'); loadDirectory(state.currentPath);
+    } catch (error) { showToast(error.message,'error'); }
+    finally { state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value=''; }
   }
 
   // --- Session & HTTP Auth ---
   async function checkSession() {
     try {
-      const resp = await fetch('/api/session', { credentials: 'same-origin' });
-      if (resp.ok) {
-        const data = await resp.json();
-        if(data.authenticated===false){showLoginModal();return;}
-        state.session = data;
-        state.csrfToken = data.csrf_token || '';
-        state.roots = data.roots || [];
-        onSessionActive();
-      } else {
-        showLoginModal();
-      }
-    } catch(err) {
-      showLoginModal();
-    }
+      const client = await getAuthClient();
+      const session = await client.auth.getSession();
+      if (!session) { showLoginModal(); return; }
+      filesModule ??= import('/static/files.js');
+      state.session = (await filesModule).toViewModel(session);
+      state.csrfToken = state.session.csrf_token || '';
+      state.roots = state.session.roots || [];
+      onSessionActive();
+    } catch(error) { showLoginModal(); }
   }
 
   function showLoginModal() {
@@ -829,7 +783,23 @@
     if (!authClient) {
       authImport ??= import('/sdk/v1/tealdrive.js');
       const {createClient} = await authImport;
-      authClient ??= createClient({stateMode:'client'});
+      if (!authClient) {
+        authClient = createClient({stateMode:'managed'});
+        authClient.on('server.shutdown', notice => showShutdownNotice(notice.deadlineSeconds));
+        authClient.on('connection.changed', change => {
+          if (change.status !== 'disconnected') return;
+          state.wsConnected=false;
+          el.wsStatusDot.className='status-dot disconnected';
+          el.wsStatusText.textContent=state.serverShuttingDown?'Server stopped':'Disconnected';
+          if (!state.serverShuttingDown && state.session) setTimeout(checkSession,3000);
+        });
+        authClient.on('session.revoked', ()=>{state.session=null;showLoginModal();});
+        authClient.files.observeQuotaWarning(warning=>{
+          const banner = document.getElementById('quotaWarning');
+          banner.classList[warning.active?'remove':'add']('hidden');
+          banner.textContent = warning.active ? `Storage usage is ${Math.round(warning.quota?.usagePercent ?? 0)}%. Free space to keep uploads and edits available.${warning.status==='unknown'?' Current usage could not be refreshed.':''}` : '';
+        });
+      }
     }
     const info = await authClient.handshake();
     webPasswords = Boolean(info?.authentication?.webPassword);
@@ -920,8 +890,6 @@
       el.webPasswordGroup.classList.add('hidden');
       el.webPasswordConfirm.required = false;
       el.passwordInput.autocomplete = 'current-password';
-      authClient.disconnect();
-      authClient = null;
       await checkSession();
     } catch(err) {
       const messages = {PASSWORD_MISMATCH:'The web passwords do not match.',INVALID_ARGUMENT:'Enter a web password of at least 12 characters.',FEATURE_DISABLED:'Self-registration is not enabled on this server.',INVALID_CREDENTIALS:'Invalid credentials or account access is disabled.',ENROLLMENT_REQUIRED:'Start registration again.',SESSION_BIND_FAILED:'Session could not be established. Please sign in again.'};
@@ -939,14 +907,8 @@
   }
 
   async function performLogout() {
-    try {
-      const response = await fetch('/api/logout', {
-        method: 'POST', headers: { 'x-csrf-token': state.csrfToken }, credentials: 'same-origin'
-      });
-      if (!response.ok) throw new Error('Sign-out could not be completed. Please retry.');
-      authClient?.disconnect();
-      window.location.reload();
-    } catch(error) { showToast(error.message || 'Sign-out could not be completed. Please retry.', 'error'); }
+    try { const client=await getAuthClient(); await client.auth.logout(); window.location.reload(); }
+    catch(error) { showToast(error.message || 'Sign-out could not be completed. Please retry.','error'); }
   }
 
   // --- Utility Functions ---
@@ -1001,9 +963,8 @@
     userChoicesReady = false;
     el.cfgAllowedUsers.replaceChildren();
     el.cfgUsersStatus.textContent='Loading local users...';
-    const response = await fetch('/api/admin/users', {credentials:'same-origin',cache:'no-store'});
-    if(!response.ok)throw new Error('Cannot load local user choices');
-    const data=await response.json();
+    const client = await getAuthClient();
+    const data = await client.admin.systemUsers.list();
     const available=new Set(data.users.map(user=>user.username));
     function addChoice(user,existingOnly=false) {
       const label=document.createElement('label');label.className='user-choice';
@@ -1025,15 +986,12 @@
   let currentAdminConfigMode = "legacy";
   async function openSettingsModal() {
     try {
-      const resp = await fetch('/api/admin/config', { credentials: 'same-origin' });
-      if (!resp.ok) {
-        showToast('Failed to fetch server configuration', 'error');
-        return;
-      }
-      const data = await resp.json();
-      const cfg = data.config || data;
+      const client = await getAuthClient();
+      const snapshot = await client.admin.settings.inspect();
+      filesModule ??= import('/static/files.js');
+      const cfg = (await filesModule).toViewModel(snapshot.config);
       currentAdminConfig = cfg;
-      currentAdminConfigMode = resp.headers.get("x-tealdrive-config-mode") || "legacy";
+      currentAdminConfigMode = snapshot.mode;
       const split = currentAdminConfigMode === "split";
       el.cfgTrustedProxies.disabled = split;
       el.cfgClientIpHeader.disabled = split;
@@ -1128,43 +1086,21 @@
       delete patch.trash_retention_days;
       patch.session = {idle_timeout_seconds: patch.session.idle_timeout_seconds};
     }
-    const persist = el.cfgPersistDisk.checked ? '?save=true' : '';
     try {
-      const resp = await fetch('/api/admin/config' + persist, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrfToken },
-        body: JSON.stringify(patch),
-        credentials: 'same-origin'
-      });
-      if (resp.ok) {
-        showToast('Settings saved and hot-reloaded successfully!', 'success');
-        el.settingsModal.classList.add('hidden');
-      } else {
-        const err = await resp.json().catch(() => ({ error: 'Failed to update config' }));
-        showToast(err.error || 'Failed to update config', 'error');
-      }
-    } catch(e) {
-      showToast('Network error saving settings', 'error');
-    }
+      const client = await getAuthClient();
+      await client.admin.settings.patch({changes:patch,persist:el.cfgPersistDisk.checked});
+      showToast('Settings saved and hot-reloaded successfully!','success');
+      el.settingsModal.classList.add('hidden');
+    } catch(error) { showToast(error.message,'error'); }
   }
 
   async function reloadSettingsFromDisk() {
     try {
-      const resp = await fetch('/api/admin/config/reload', {
-        method: 'POST',
-        headers: {'X-CSRF-Token':state.csrfToken},
-        credentials: 'same-origin'
-      });
-      if (resp.ok) {
-        showToast('Config reloaded from disk!', 'success');
-        await openSettingsModal();
-      } else {
-        const err = await resp.json().catch(() => ({ error: 'Reload failed' }));
-        showToast(err.error || 'Failed to reload config', 'error');
-      }
-    } catch(e) {
-      showToast('Network error reloading config', 'error');
-    }
+      const client = await getAuthClient();
+      await client.admin.settings.reload();
+      showToast('Config reloaded from disk!','success');
+      await openSettingsModal();
+    } catch(error) { showToast(error.message,'error'); }
   }
 
   // --- Event Listeners Setup ---
@@ -1196,7 +1132,7 @@
     el.newFolderBtn.onclick = () => {
       openPrompt('Create New Folder', 'Folder Name', '', (name) => {
         if (!name) return;
-        sendWsRequest(MT.CreateFolder, {
+        runFileAction('CreateFolder', {
           root_id: state.currentRoot,
           parent_relative_path: state.currentPath,
           folder_name: name,
@@ -1208,7 +1144,7 @@
       openPrompt('Create New File', 'File Name (e.g. notes.txt)', '', (name) => {
         if (!name) return;
         const targetPath = state.currentPath ? `${state.currentPath}/${name}` : name;
-        sendWsRequest(MT.SaveTextFile, {
+        runFileAction('SaveTextFile', {
           root_id: state.currentRoot,
           relative_path: targetPath,
           content: '',
@@ -1252,7 +1188,7 @@
       if((mode&0o002)&&!(state.chmodOriginalMode&0o002)&&!window.confirm('Allow other users to write to this item?'))return;
       el.chmodApplyBtn.disabled=true;
       try {
-        await requestWs(MT.ChmodFile,{root_id:state.currentRoot,relative_path:state.chmodTarget,mode});
+        await requestFile('ChmodFile',{root_id:state.chmodRootId,relative_path:state.chmodTarget,mode});
         el.chmodModal.classList.add('hidden');
         showToast('Permissions updated','success');loadDirectory(state.currentPath);
       } catch(error) {el.chmodError.textContent=error.message;}
@@ -1324,7 +1260,7 @@
       }
       searchDebounceTimer = setTimeout(() => {
         el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Searching...</td></tr>';
-        sendWsRequest(MT.SearchFiles, {
+        runFileAction('SearchFiles', {
           root_id: state.currentRoot,
           base_path: state.currentPath || '',
           query: q,

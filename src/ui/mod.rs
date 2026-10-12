@@ -101,6 +101,7 @@ where
             crate::ui::assets::ACCOUNTS_JS,
             crate::ui::assets::POLICY_JS,
             crate::ui::assets::VIRTUAL_JS,
+            crate::ui::assets::FILES_JS,
             include_str!("protocol.js"),
             crate::protocol::JAVASCRIPT_CONTRACT,
         ] {
@@ -233,11 +234,13 @@ where
     match clean {
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
-        "accounts.js" | "policy.js" | "virtual.js" => {
+        "accounts.js" | "policy.js" | "virtual.js" | "files.js" => {
             let mut response = (if clean == "accounts.js" {
                 crate::ui::assets::ACCOUNTS_JS
             } else if clean == "policy.js" {
                 crate::ui::assets::POLICY_JS
+            } else if clean == "files.js" {
+                crate::ui::assets::FILES_JS
             } else {
                 crate::ui::assets::VIRTUAL_JS
             })
@@ -331,11 +334,12 @@ mod tests {
         assert!(STYLE_CSS.contains("--teal-500"));
         assert!(STYLE_CSS.contains("modal-lightbox"));
         assert!(STYLE_CSS.contains("settings-body"));
-        assert!(APP_JS.contains("TealDriveWire"));
+        assert!(APP_JS.contains("/sdk/v1/tealdrive.js"));
+        assert!(!APP_JS.contains("new WebSocket"));
         assert!(crate::protocol::JAVASCRIPT_CONTRACT.contains("ListDirectory"));
-        assert!(APP_JS.contains("/api/preview"));
+        assert!(APP_JS.contains("getPreviewUrl"));
         assert!(APP_JS.contains("openLightbox"));
-        assert!(APP_JS.contains("/api/admin/config"));
+        assert!(APP_JS.contains("client.admin.settings"));
         assert!(FAVICON_SVG.contains("<svg"));
     }
 }

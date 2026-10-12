@@ -139,6 +139,8 @@ def main():
         env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
         env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+        if os.environ.get('TEALDRIVE_UI_FILES_ACCEPTANCE') == '1':
+            run(['node', str(ROOT / 'tests/live/ui-files.cjs')], env=env, cwd=ROOT)
         if os.environ.get('TEALDRIVE_ROOT_VIRTUAL_ACCEPTANCE') == '1':
             if not virtual:
                 raise RuntimeError('Root virtual acceptance requires virtual fixture')

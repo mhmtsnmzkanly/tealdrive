@@ -14,12 +14,13 @@ globalThis.setTimeout = () => 1;
 globalThis.WebSocket = {OPEN:1};
 const init = '  // Initialize\n  setupEvents();\n  checkSession();';
 assert.ok(application.includes(init));
-const testedApplication = application.replace("import('/sdk/v1/tealdrive.js')", `Promise.resolve({createClient:()=>({handshake:async()=>{},disconnect(){},auth:{login:async(options)=>{const r=await fetch('/api/login',{body:JSON.stringify(options)});if(!r.ok)throw {code:'INVALID_CREDENTIALS'};}}})})`);
+const testedApplication = application.replace("import('/sdk/v1/tealdrive.js')", `Promise.resolve({createClient:()=>({handshake:async()=>{},disconnect(){},on(){},files:{observeQuotaWarning(){}},auth:{getSession:async()=>null,login:async(options)=>{const r=await fetch('/api/login',{body:JSON.stringify(options)});if(!r.ok)throw {code:'INVALID_CREDENTIALS'};}}})})`);
 vm.runInThisContext(testedApplication.replace(init,
-  'globalThis.ui={state,el,openEditor,openChmodModal,syncChmodFromCode,performLogin,setupEvents,inject(fn){requestWs=fn;loadDirectory=()=>{};}};'));
+  'globalThis.ui={state,el,openEditor,openChmodModal,syncChmodFromCode,performLogin,setupEvents,inject(fn){requestFile=fn;loadDirectory=()=>{};}};'));
 const {state,el,openChmodModal,syncChmodFromCode,performLogin,setupEvents}=ui;
 setupEvents();
 (async()=>{
+  state.currentRoot='opening-root';
   openChmodModal('folder',0o40755,true);
   el.chmodOctalInput.value='0700';syncChmodFromCode();
   assert.match(el.chmodWarning.textContent,/traversal/);
@@ -33,8 +34,9 @@ setupEvents();
   state.currentRoot='home';
   await el.chmodForm.onsubmit({preventDefault(){}});
   assert.equal(requests.length,1);
-  assert.equal(requests[0].type,TdrvContract.messages.ChmodFile);
+  assert.equal(requests[0].type,'ChmodFile');
   assert.equal(requests[0].payload.mode,0o666);
+  assert.equal(requests[0].payload.root_id,'opening-root');
   assert.equal(el.chmodModal.classList.contains('hidden'),true);
   openChmodModal('special',0o104755,false);
   assert.match(el.chmodWarning.textContent,/Special/);

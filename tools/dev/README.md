@@ -102,3 +102,6 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_LOCAL_W
 ```
 
 Local Wizard testi admin fixture'ın yalnız ikinci geçici hesabını self-revoke/PAM re-enroll eder; UID/rolü korur. TTY ECHO kapalı olduğu gönderim öncesi kontrol edilir; parola terminal çıktısında bulunmamalıdır. Installed Wizard/helper/server güncel olmalıdır. Test çıktısı secret terminal buffer'ını hata halinde de yazdırmaz. Namespace systemctl stub'ı gerçek servis kabulü değildir.
+
+
+Root-created virtual admin + native lifecycle/crash-resume kabulünü eklemek için aynı virtual/native koşuya `TEALDRIVE_ROOT_VIRTUAL_ACCEPTANCE=1 TEALDRIVE_LIFECYCLE_ACCEPTANCE=1` ekleyin. Root test yeni admin/child üretip kendi finally bloğunda temizler; retained deleted child timestamp'i yalnız fixture DB satırında değişir. Global gc testinden önce unrelated eligible account olmadığını doğrular; varsa test çalışmaz. Test sonu Rootpool/cursor/retired fixture UID markers geri alınır; üretim UID fence'leri korunur.

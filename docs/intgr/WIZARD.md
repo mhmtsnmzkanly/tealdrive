@@ -62,9 +62,29 @@ Bundle `manifest.json` schema_version=1, version ve dört sabit binary için SHA
 
 Test komutu `TEALDRIVE_WIZARD_ACCEPTANCE=1 python3 tools/dev/wizard-acceptance.py`: private mount namespace içinde home, systemd, PAM ve systemctl izole edilir; mevcut yayın ve kullanıcı dosyaları değişmez. Systemctl stub olduğu için bu test gerçek systemd start/stop kabulü sayılmaz. Gerçek PAM/local init ve lifecycle/native recovery ayrı kabul adımlarıdır.
 
+## Sanal admin ve yaşam döngüsü komutları
+
+```sh
+# Root havuzu önce atanır; request UUID tekrar denemede aynen kullanılır.
+sudo tealdrive-wizard virtual admin create tenant-one 60GiB REQUEST_UUID
+# Parola güvenli TTY prompt'undan; her admin ayrı nologin UID/GID/home.
+sudo tealdrive-wizard pending list
+sudo tealdrive-wizard pending cancel 'virtual_create_v1:OWNER:REQUEST_UUID'
+sudo tealdrive-wizard storage sync
+sudo tealdrive-wizard gc
+# Kurulum timer dosyalarını yazar, otomatik etkinleştirmez:
+sudo systemctl enable --now tealdrive-gc.timer
+```
+
+Root virtual admin oluşturma, pool rezervasyonunu kalıcı intent ile ayırır; metadata+ilk web parolası+admin budget aynı SQLite transaction'da yayınlanır. Tekrarda aynı request/name/budget aynı hesabı döndürür ve parolayı reset etmez. Sanal admin sistem kullanıcılarının/global Root ayarların yöneticisi değildir. Child reservation ve adminin kendi dosyaları aynı budget'tan düşer.
+
+`pending cancel` yalnız henüz OS UID/GID/home oluşmamış intent'i iptal eder; mevcut veri/kimliği silmez. UID retired olur. OS adımı başlamışsa aynı request key ile create yeniden denenir; native yanlış limit `storage sync` ile mevcut protected allocation'a döner. Native ölçüm/limit hatasında session/file işlemi fail-closed kalır.
+
+`gc` yalnız deleted **sanal User** hesaplarını, varsayılan36 saatten sonra en fazla100'lük batch'te temizler. Linux hesabı/home'u veya suspended hesap silinmez; sanal adminin otomatik silinmesi bu yüzeyde yoktur. Root directory reservation ve global provisioning lock altında yeni worker başlatır. Worker bütün UID/GID'leri düşürüp ek grupları temizler, Landlock ile tek home'a kapanır, sonra içeriği temizler. Symlink hedefi takip edilmez; nested mount reddedilir. Root yalnız boş generated home ve doğrulanmış tdv_UID hesabı/grubunu kaldırır. Purge intent kesinti sonrası tekrar ilerler, UID fence tekrar kullanımını engeller; retained DB tombstone quota0/passwordNULL olur. Her worker30 saniye sınırında; timer hourly, Root, oneshot ve explicit enable'dır. Genel trash/audit/undo cleanup bu gc komutunun henüz kapsamı değildir.
+
 ## Henüz uygulanmayan hedef yüzeyi
 
-Aşağıdaki eski tasarım örnekleri (`config set/edit`, remote admin login, virtual admin create, audit/undo CLI, tam lifecycle/migration) uygulanan komut listesinde bulunmadıkça kullanılamaz.
+Aşağıdaki eski tasarım örnekleri (`config set/edit`, remote admin login, audit/undo CLI, tam lifecycle/migration) uygulanan komut listesinde bulunmadıkça kullanılamaz.
 
 ## Reload ve kaynak
 

@@ -297,3 +297,12 @@ Normal package557 unit passed,1 explicit PAM ignored, normal integrations passed
 
 
 `TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti: public admin/UI/home testlerine ek gerçek UID own status/policy, Root account/service management reddi, self-revoke, gerçek PAM re-enrollment, TTY ECHO kapalı, parola çıktıda yok, UID/rol sabit. Fixture hesapları/home/DB/policy/logları finally temizlenir; primary helper policy byte-identical geri gelir. Son normal test sayısı562 passed/1 ignored.
+
+
+## Root sanal admin / native lifecycle kabulü — 12 Ekim 2026
+
+Normal test563 passed/1 ignored; Clippy-Dwarnings ve MSRV1.85 kontrolü geçti. Root pending pool rezervasyonu/atomic finalization unit testi eklendi.
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_VIRTUAL_ACCEPTANCE=1 TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE=1 TEALDRIVE_LIFECYCLE_ACCEPTANCE=1 TEALDRIVE_ROOT_VIRTUAL_ACCEPTANCE=1 TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti. Gerçek Root Wizard secure-TTY sanal admin create, independent nologin UID/GID, browser tenant authority (Linux yönetimi403), own file usage budget azaltım reddi ve idempotent retry; native kernel quota direct UID write reddi ve UI quota/delete;36 saat önce purge0, fixture timestamp sonrası UID-dropped/Landlock worker purge1, mode000 directory, outside symlink marker byte-preserved, native UID removal, budget release/passwordNULL/UID fence. Completion marker test fixture'da kaldırılarak OS removal sonrası restart recovery tekrar geçti. Own UID PAM revoke/re-enroll da aynı koşuda geçti. Yalnız bu run fixture metadata/UID/home/config/pool/cursor temizlendi; primary Root policy byte-identical, Caddy production untouched.
+
+Rootvirtual testinde ilk deneme yanlış HTTP route'u `/api/admin/system/accounts` kullandığı için başarısızdı; gerçek `/api/admin/users` ile403 doğrulandı. Yanlış route sonucu yetki açığı olarak raporlanmadı. Timer gerçek systemd etkinleştirme/boot kabulü final kurulum aşamasındadır.

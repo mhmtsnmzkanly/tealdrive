@@ -139,8 +139,57 @@ def main():
         env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
         env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+        if os.environ.get('TEALDRIVE_ROOT_VIRTUAL_ACCEPTANCE') == '1':
+            if not virtual:
+                raise RuntimeError('Root virtual acceptance requires virtual fixture')
+            run([sys.executable, str(ROOT / 'tools/dev/root-virtual-admin-acceptance.py'), str(manifest)], env=env, cwd=ROOT)
         if virtual:
             run(['node', str(ROOT / 'tests/live/virtual-management.cjs')], env=env, cwd=ROOT)
+        if os.environ.get('TEALDRIVE_LIFECYCLE_ACCEPTANCE') == '1':
+            if not virtual:
+                raise RuntimeError('Lifecycle acceptance requires virtual fixture')
+            with sqlite3.connect(DB) as state:
+                fixture_admin_id = state.execute('SELECT id FROM accounts WHERE username=?', (users[0]['username'],)).fetchone()[0]
+                target = state.execute("SELECT id,uid,home FROM accounts WHERE owner_admin_id=? AND status='deleted' ORDER BY username LIMIT 1", (fixture_admin_id,)).fetchone()
+                if not target:
+                    raise RuntimeError('Missing retained deleted fixture')
+                # Refuse a global GC test if it could touch any unrelated old account.
+                unexpected = state.execute("SELECT count(*) FROM accounts WHERE kind='virtual' AND status='deleted' AND deleted_at<=? AND owner_admin_id!=?", (int(time.time())-36*3600, fixture_admin_id)).fetchone()[0]
+                if unexpected:
+                    raise RuntimeError('Unrelated eligible account exists; refusing global GC fixture')
+            initial_gc = run(['/home/tealdrive/bin/tealdrive-wizard', 'gc'], capture_output=True, text=True)
+            if json.loads(initial_gc.stdout)['virtual_purged'] != 0:
+                raise RuntimeError('Retention window violated')
+            target_home = pathlib.Path(target[2])
+            marker = private_dir / 'outside-marker'
+            marker.write_text('outside preserved')
+            (target_home / 'outside-link').symlink_to(marker)
+            nested = target_home / 'mode-zero'
+            nested.mkdir()
+            os.chown(nested, target[1], target[1])
+            os.chmod(nested, 0)
+            with sqlite3.connect(DB) as state:
+                state.execute('UPDATE accounts SET deleted_at=? WHERE id=?', (int(time.time())-36*3600-1, target[0]))
+            result = run(['/home/tealdrive/bin/tealdrive-wizard', 'gc'], capture_output=True, text=True)
+            if json.loads(result.stdout)['virtual_purged'] != 1 or target_home.exists() or marker.read_text() != 'outside preserved':
+                raise RuntimeError('Purge scope/retention failure')
+            try:
+                pwd.getpwuid(target[1])
+                raise RuntimeError('Purged UID still exists')
+            except KeyError:
+                pass
+            with sqlite3.connect(DB) as state:
+                row = state.execute('SELECT quota_bytes,web_password_hash,status FROM accounts WHERE id=?', (target[0],)).fetchone()
+                if row != (0, None, 'deleted') or not state.execute("SELECT 1 FROM security_state WHERE key=?", ('virtual_uid_retired:'+str(target[1]),)).fetchone():
+                    raise RuntimeError('Purge metadata/fence failure')
+            # Simulate interruption after OS removal but before the committed completion marker.
+            with sqlite3.connect(DB) as state:
+                state.execute('DELETE FROM security_state WHERE key=?', ('virtual_purged_v1:'+target[0],))
+            resumed = run(['/home/tealdrive/bin/tealdrive-wizard', 'gc'], capture_output=True, text=True)
+            if json.loads(resumed.stdout)['virtual_purged'] != 1:
+                raise RuntimeError('Purge intent failed to recover after OS removal')
+            marker.unlink()
+            print(json.dumps(dict(purgeResume=True, retention36h=True, uidDroppedPurge=True, hiddenSymlinkOutsidePreserved=True, deletedQuotaReleased=True, retiredUidFence=True)))
         if os.environ.get('TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE') == '1':
             run([sys.executable, str(ROOT / 'tools/dev/local-wizard-acceptance.py'), str(manifest)], cwd=ROOT)
         audit_text = audit.read_text()
@@ -215,9 +264,11 @@ def main():
                             run(['/usr/sbin/groupdel', os_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     for child in children:
                         connection.execute('DELETE FROM session_grants WHERE account_id=?', (child[0],))
-                        for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:'):
+                        for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:', 'virtual_purged_v1:', 'virtual_purge_intent_v1:'):
                             connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
                         connection.execute('DELETE FROM accounts WHERE id=?', (child[0],))
+                    for uid in virtual_uids:
+                        connection.execute('DELETE FROM security_state WHERE key=?', ('virtual_uid_retired:' + str(uid),))
                     for key, _ in intents:
                         connection.execute('DELETE FROM security_state WHERE key=?', (key,))
                     connection.execute('DELETE FROM admin_budgets WHERE account_id=?', (row[0],))

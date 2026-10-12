@@ -87,6 +87,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             )?;
             store.set_password(&Authority::Root, &account.id, &user.password)?;
+            if user.role == Role::Admin
+                && std::env::var("TEALDRIVE_VIRTUAL_ACCEPTANCE").as_deref() == Ok("1")
+            {
+                let pool: i64 = store.pool_limit()? as i64;
+                store.set_pool(&Authority::Root, (pool as u64) + 16777216)?;
+                store.set_admin_budget(&Authority::Root, &account.id, 65536)?;
+            }
         }
     }
     if std::env::var("TEALDRIVE_HOME_ACCEPTANCE").as_deref() == Ok("1") {
@@ -98,6 +105,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg.sensitive_policy
             .warn_read_patterns
             .retain(|pattern| pattern != ".env" && pattern != ".env.*");
+    }
+    if std::env::var("TEALDRIVE_VIRTUAL_ACCEPTANCE").as_deref() == Ok("1") {
+        cfg.virtual_accounts.enabled = true;
+        cfg.virtual_accounts.allow_admin_delete = true;
+        cfg.virtual_accounts.max_inodes = 64;
+        if std::env::var("TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE").as_deref() == Ok("1") {
+            cfg.virtual_accounts.enforcement =
+                tealdrive::accounts::virtuals::Enforcement::UserQuota;
+        }
     }
     cfg.validate()?;
     std::fs::write(

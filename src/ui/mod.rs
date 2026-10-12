@@ -100,6 +100,7 @@ where
             APP_JS,
             crate::ui::assets::ACCOUNTS_JS,
             crate::ui::assets::POLICY_JS,
+            crate::ui::assets::VIRTUAL_JS,
             include_str!("protocol.js"),
             crate::protocol::JAVASCRIPT_CONTRACT,
         ] {
@@ -232,11 +233,13 @@ where
     match clean {
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
-        "accounts.js" | "policy.js" => {
+        "accounts.js" | "policy.js" | "virtual.js" => {
             let mut response = (if clean == "accounts.js" {
                 crate::ui::assets::ACCOUNTS_JS
-            } else {
+            } else if clean == "policy.js" {
                 crate::ui::assets::POLICY_JS
+            } else {
+                crate::ui::assets::VIRTUAL_JS
             })
             .into_response();
             apply_security_headers(

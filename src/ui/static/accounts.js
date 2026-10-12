@@ -10,7 +10,8 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     kind = "linux",
     busy = false,
     epoch = 0,
-    candidates = [];
+    candidates = [],
+    capabilities = null;
   const visible = () => !modal.classList.contains("hidden");
   const globalAdmin = () =>
     session?.accountKind === "linux" && session?.isAdmin;
@@ -38,11 +39,13 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     busy = value;
     modal.setAttribute("aria-busy", String(value));
     for (const button of modal.querySelectorAll("button"))
-      if (button.id !== "accountsCloseBtn") button.disabled = value;
+      if (button.id !== "accountsCloseBtn")
+        button.disabled = value || button.dataset.blocked === "true";
     select.disabled = value || !candidates.length;
     $("accountsApproveBtn").disabled = value || !select.value;
   }
   function configure(info) {
+    capabilities = info.authentication;
     systemTab.classList[globalAdmin() ? "remove" : "add"]("hidden");
     if (!globalAdmin()) kind = "virtual";
     systemTab.setAttribute("aria-pressed", String(kind === "linux"));
@@ -59,6 +62,15 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
         : globalAdmin()
           ? "Registered virtual users"
           : "Your virtual users";
+  }
+  async function virtualDialog(account) {
+    try {
+      const client = await getClient();
+      const { openVirtualDialog } = await import("/static/virtual.js");
+      await openVirtualDialog({ client, account, onSaved: refresh });
+    } catch (error) {
+      $("accountsError").textContent = message(error);
+    }
   }
   function status(account) {
     if (account.status === "active" && !account.passwordEnrolled)
@@ -152,6 +164,33 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
           }
         };
         actions.append(policy);
+        if (kind === "virtual") {
+          const quota = document.createElement("button");
+          quota.type = "button";
+          quota.className = "btn btn-secondary btn-sm";
+          quota.textContent = "Quota";
+          quota.onclick = () => virtualDialog(account);
+          actions.append(quota);
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "btn btn-danger btn-sm";
+          remove.textContent = "Delete";
+          remove.onclick = () =>
+            mutate(
+              async (client) =>
+                client.admin.virtualUsers.delete({
+                  accountId: account.id,
+                  expectedGeneration: account.generation,
+                }),
+              `Delete web access for ${account.username}? Data is retained for the Root-configured recovery period and then purged.`,
+              "Account deleted; data retained for recovery.",
+            );
+          actions.append(remove);
+          remove.dataset.blocked = String(!capabilities?.virtualDelete);
+          quota.dataset.blocked = String(!capabilities?.virtualAccounts);
+          remove.disabled = remove.dataset.blocked === "true";
+          quota.disabled = quota.dataset.blocked === "true";
+        }
       }
       row.append(actions);
       body.append(row);
@@ -169,7 +208,19 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       const client = await getClient();
       session = await client.auth.getSession();
       if (session?.role !== "admin") throw { code: "AUTH_REQUIRED" };
-      configure(client.getInfo());
+      const info = client.getInfo();
+      configure(info);
+      $("accountsVirtualArea").classList[
+        kind === "virtual" && info.authentication.virtualAccounts
+          ? "remove"
+          : "add"
+      ]("hidden");
+      if (kind === "virtual" && info.authentication.virtualAccounts) {
+        const budget = await client.admin.quota.getBudget();
+        if (ticket !== epoch || !visible()) return;
+        $("accountsBudget").textContent =
+          `Assigned ${formatBytes(budget.limitBytes)} · Reserved ${formatBytes(budget.reservedBytes)} · Available ${formatBytes(budget.remainingBytes)}`;
+      }
       const [accounts, eligible] =
         kind === "linux"
           ? await Promise.all([
@@ -256,6 +307,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       first?.focus();
     }
   });
+  $("accountsCreateVirtualBtn").onclick = () => virtualDialog(null);
   $("accountsCloseBtn").onclick = close;
   $("accountsRefreshBtn").onclick = () => {
     if (!busy) refresh();
@@ -299,7 +351,19 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       }
       kind = globalAdmin() ? "linux" : "virtual";
       modal.classList.remove("hidden");
-      configure(client.getInfo());
+      const info = client.getInfo();
+      configure(info);
+      $("accountsVirtualArea").classList[
+        kind === "virtual" && info.authentication.virtualAccounts
+          ? "remove"
+          : "add"
+      ]("hidden");
+      if (kind === "virtual" && info.authentication.virtualAccounts) {
+        const budget = await client.admin.quota.getBudget();
+        if (ticket !== epoch || !visible()) return;
+        $("accountsBudget").textContent =
+          `Assigned ${formatBytes(budget.limitBytes)} · Reserved ${formatBytes(budget.reservedBytes)} · Available ${formatBytes(budget.remainingBytes)}`;
+      }
       $("accountsCloseBtn").focus();
       await refresh();
     },

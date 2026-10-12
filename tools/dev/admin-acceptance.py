@@ -3,6 +3,7 @@
 Never resets existing account data or production service config. Requires installed current binaries.
 """
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -44,6 +45,18 @@ def main():
     with socket.socket() as check:
         check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         check.bind(('127.0.0.1', 13102))  # Refuse an occupied test port.
+    virtual = os.environ.get('TEALDRIVE_VIRTUAL_ACCEPTANCE') == '1'
+    native = os.environ.get('TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE') == '1'
+    if native and not virtual:
+        raise RuntimeError('Native acceptance requires virtual acceptance')
+    if virtual and os.environ.get('TEALDRIVE_HOME_ACCEPTANCE') != '1':
+        raise RuntimeError('Virtual acceptance requires explicit home template mode')
+    with sqlite3.connect(DB) as initial:
+        pool_original = initial.execute('SELECT limit_bytes FROM quota_pool WHERE id=1').fetchone()[0]
+        cursor_original = initial.execute("SELECT value FROM security_state WHERE key='virtual_uid_cursor'").fetchone()
+    virtual_parent = pathlib.Path('/home/tealdrive/virtual-homes')
+    parent_created = False
+    mounted = False
     suffix = secrets.token_hex(5)
     config_dir = pathlib.Path('/home/tealdrive/policy/.admin-acceptance-' + suffix)
     private_dir = pathlib.Path('/home/tealdrive/auth/.admin-acceptance-' + suffix)
@@ -61,6 +74,22 @@ def main():
     runtime = pathlib.Path('/home/tealdrive/config/.admin-acceptance-' + suffix + '.toml')
     manifest = private_dir / 'manifest.json'
     try:
+        if virtual:
+            if virtual_parent.exists():
+                if virtual_parent.is_symlink() or virtual_parent.stat().st_uid != 0 or any(virtual_parent.iterdir()):
+                    raise RuntimeError('Refusing to reuse nonempty/untrusted virtual home parent for fixture')
+            else:
+                virtual_parent.mkdir(mode=0o711)
+                parent_created = True
+            if native:
+                image = private_dir / 'pool.img'
+                with image.open('xb') as out:
+                    os.chmod(image, 0o600)
+                    out.truncate(128 * 1024 * 1024)
+                run(['/usr/sbin/mkfs.ext4', '-q', '-F', '-O', 'quota', '-E', 'quotatype=usrquota', str(image)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                run(['/usr/bin/mount', '-o', 'loop,nodev,nosuid,noexec,usrquota', str(image), str(virtual_parent)])
+                mounted = True
+                os.chmod(virtual_parent, 0o711)
         for label, role, bootstrap in [('a', 'admin', True), ('u', 'user', True), ('p', 'user', False)]:
             name = 'tdaccept' + label + suffix
             try:
@@ -109,6 +138,8 @@ def main():
         env['TEALDRIVE_ADMIN_FIXTURE_MANIFEST'] = str(manifest)
         env['TEALDRIVE_ADMIN_ACCEPTANCE_PHASE'] = phase
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
+        if virtual:
+            run(['node', str(ROOT / 'tests/live/virtual-management.cjs')], env=env, cwd=ROOT)
         audit_text = audit.read_text()
         if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
             raise RuntimeError('Fixture credentials appeared in audit')
@@ -147,12 +178,68 @@ def main():
             if row:
                 if row[1] != identity.pw_uid or row[2] != identity.pw_dir:
                     raise RuntimeError('Fixture DB identity changed; refusing cleanup')
+                if virtual:
+                    children = connection.execute("SELECT id,username,uid,home FROM accounts WHERE owner_admin_id=? AND kind='virtual'", (row[0],)).fetchall()
+                    intents = connection.execute("SELECT key,value FROM security_state WHERE key LIKE ?", ('virtual_create_v1:' + row[0] + ':%',)).fetchall()
+                    virtual_uids = {child[2] for child in children}
+                    for _, value in intents:
+                        intent = json.loads(value)
+                        if intent['owner'] != row[0]:
+                            raise RuntimeError('Fixture intent owner changed')
+                        virtual_uids.add(intent['uid'])
+                    for uid in virtual_uids:
+                        os_name = 'tdv_' + str(uid)
+                        home = virtual_parent / os_name
+                        try:
+                            os_identity = pwd.getpwnam(os_name)
+                        except KeyError:
+                            os_identity = None
+                        if os_identity is not None:
+                            if os_identity.pw_uid != uid or os_identity.pw_gid != uid or os_identity.pw_dir != str(home) or os_identity.pw_shell != '/usr/sbin/nologin':
+                                raise RuntimeError('Virtual fixture OS identity changed; refusing cleanup')
+                            run(['/usr/sbin/userdel', os_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if home.exists():
+                            if home.is_symlink() or home.stat().st_uid not in (0,uid):
+                                raise RuntimeError('Virtual fixture home changed; refusing cleanup')
+                            shutil.rmtree(home)
+                        try:
+                            group = grp.getgrnam(os_name)
+                        except KeyError:
+                            group = None
+                        if group:
+                            if group.gr_gid != uid or group.gr_mem:
+                                raise RuntimeError('Virtual fixture group changed; refusing cleanup')
+                            run(['/usr/sbin/groupdel', os_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    for child in children:
+                        connection.execute('DELETE FROM session_grants WHERE account_id=?', (child[0],))
+                        for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:'):
+                            connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
+                        connection.execute('DELETE FROM accounts WHERE id=?', (child[0],))
+                    for key, _ in intents:
+                        connection.execute('DELETE FROM security_state WHERE key=?', (key,))
+                    connection.execute('DELETE FROM admin_budgets WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
                 connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
             connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
+        if virtual:
+            current = connection.execute('SELECT limit_bytes FROM quota_pool WHERE id=1').fetchone()[0]
+            if current not in (pool_original, pool_original + 16777216):
+                raise RuntimeError('Pool changed externally; refusing rollback')
+            if current != pool_original:
+                connection.execute('UPDATE quota_pool SET limit_bytes=? WHERE id=1', (pool_original,))
+            if cursor_original is None:
+                connection.execute("DELETE FROM security_state WHERE key='virtual_uid_cursor'")
+            else:
+                connection.execute("UPDATE security_state SET value=? WHERE key='virtual_uid_cursor'", (cursor_original[0],))
         connection.commit()
         connection.close()
+        if mounted:
+            if any(entry.name != 'lost+found' for entry in virtual_parent.iterdir()):
+                raise RuntimeError('Unknown data appeared in native fixture; retaining mount and private image')
+            run(['/usr/bin/umount', str(virtual_parent)])
+        if parent_created:
+            virtual_parent.rmdir()
         for name, identity in identities.items():
             current = pwd.getpwnam(name)
             if current.pw_uid != identity.pw_uid or current.pw_dir != '/home/' + name:

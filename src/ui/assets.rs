@@ -7,3 +7,4 @@ pub const APP_JS: &str = include_str!("static/app.js");
 
 pub const ACCOUNTS_JS: &str = include_str!("static/accounts.js");
 pub const POLICY_JS: &str = include_str!("static/policy.js");
+pub const VIRTUAL_JS: &str = include_str!("static/virtual.js");

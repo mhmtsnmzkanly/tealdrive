@@ -213,3 +213,13 @@ Native testte204 cookie bridge başarıyla cookie bağladığı halde audit Conn
 - Tam paket 544 unit passed, 1 opt-in ignored; normal integration testleri passed. Clippy all-targets -D warnings passed.
 - Registered system account listesi ile NSS aday listesi farklı SDK method'larında; tamamlanmayan create/delete/quota capability kapalı tutuldu.
 - Başarılı admin suspend/enable için public endpoint → gerçek OS hesabı kabul testi henüz yok; önceki root suspend testi yeni public admin endpoint testi sayılmaz. Sanal provisioning/multi-UID testi ayrıca bekler.
+
+
+### Ortak development runner doğrulaması
+
+`tools/dev/check.sh live ui-credentials` ve `live ui-auth` yeni `tools/dev/node_modules` bağımlılığıyla passed; eski `/root/tdrv-ui-check` kaldırıldıktan sonra ui-auth yeniden passed. Gerçek gömülü UI üzerinden normal user için `/api/admin/accounts/system` ve `/api/admin/virtual/list`403 doğrulandı. Strict TypeScript d.ts ve Rust1.85 all-target check passed. Eski production Caddy HTTP200 korundu. Runner source `bash -n` passed; `npm ci` lock ile2 packages kurdu. Cleanup ayrıntıları `tools/dev/CLEANUP.md`.
+
+
+### Effective quota eşzamanlı snapshot düzeltmesi
+
+Admin budget ve child allocation artık tek SELECT snapshot'ında okunur. Mevcut `virtual_admin_uses_root_pool_and_own_quota_excludes_child_reservations` passed; root-only `accounts_store --ignored`2 test passed (private ownership/WAL, concurrency, backup/restart ve migration). Clippy all-targets -D warnings passed. OS/provisioning/usage kabulü değildir.

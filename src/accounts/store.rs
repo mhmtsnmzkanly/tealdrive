@@ -432,19 +432,12 @@ impl AccountStore {
         if target.role == Role::User {
             return Ok(target.quota_bytes);
         }
-        let budget: i64 = self
-            .connection
-            .query_row(
-                "SELECT limit_bytes FROM admin_budgets WHERE account_id=?1",
-                [id],
-                |r| r.get(0),
-            )
-            .optional()?
-            .unwrap_or(0);
-        let allocated: i64 = self.connection.query_row(
-            "SELECT coalesce(sum(quota_bytes),0) FROM accounts WHERE owner_admin_id=?1",
+        // One statement observes one SQLite snapshot: concurrent budget/allocation
+        // updates cannot combine an old budget with a newer child reservation.
+        let (budget, allocated): (i64, i64) = self.connection.query_row(
+            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0), coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0)",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         if allocated > budget {
             return Err(StoreError::QuotaExceeded);

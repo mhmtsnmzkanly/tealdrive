@@ -134,3 +134,8 @@ UI Account security formunda parola alanları gönderim/iptalde temizlenir. JS/H
 Registered account metadata listesi NSS aday listesinden ayrıdır: SDK `admin.systemUsers.list()` mevcut aday listesini korur, `accounts()` DB'ye kayıtlı Linux hesaplarını getirir. `allow/deny({accountId})` yalnız mevcut hesabın web girişini açar/askıya alır; yeni OS hesabı veya rol oluşturmaz. Başkasının parola hash'i ve grant'leri dönmez. Linux admin için DB admin rolü + root admin_users listesi birlikte gerekir; virtual admin Root listesinde adı bulunsa bile global yetki kazanmaz. Virtual admin yalnız kendi virtual children'ı yönetir. Endpoint Linux/virtual türünü helper'a sabit parametre olarak gönderir; başka türün ID'si reddedilir.
 
 Admin öz askıya alma ve başka admin hesabına müdahale bu ilk yönetim yüzeyinde kapalıdır; root Wizard ayrı olacak. Enable root deny/NSS uygunluğunu genişletemez. Account deletion/provisioning/setQuota tamamlanmadığı için virtual_accounts capability açılmadı; yalnız tamamlanmış list/enable/disable `authentication.account_management` ile açılır. Henüz kayıtlı olmayan Linux kullanıcıları öz PAM enrollment kullanır; admin onayıyla ilk kayıt Wizard/approval aşamasında ele alınacak.
+
+
+## D029 — Sanal admin effective quota snapshot'ı
+
+Admin budget ile child reservation toplamı tek SQLite SELECT içinde okunur. İki farklı sorgu concurrent yönetim işlemiyle farklı snapshot'ları birleştirip gereğinden büyük kalan kota gösterebilirdi. Tahsis işlemleri mevcut immediate transaction'larını korur; kullanım helper ölçümüdür. Bu düzeltme OS quota/provisioning tamamlandı anlamına gelmez.

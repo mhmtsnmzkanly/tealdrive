@@ -70,7 +70,7 @@ Approval phase Root deny'ı yalnız test operator'ı geçici uygulayıp geri al�
 TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
 ```
 
-Her phase sonunda aktör/hedef audit kaydı ve parola loglanmaması kontrol edilir. Driver kendi fixture log/config/runtime çıktılarını siler; üstteki sabit root-private lock dosyası reusable test koordinasyonu için kalır. Virtual gruba geçiş testi virtual OS hesap provisioning/tenant UID izolasyonu testi değildir. İlk admin ataması production Wizard ile henüz tamamlanmadı; test root-only bootstrap örneğini kullanır.
+Her phase sonunda aktör/hedef audit kaydı ve parola loglanmaması kontrol edilir. Driver kendi fixture log/config/runtime çıktılarını siler; üstteki sabit root-private lock dosyası reusable test koordinasyonu için kalır. Virtual gruba geçiş testi virtual OS hesap provisioning/tenant UID izolasyonu testi değildir. Root Wizard account approve/admin komutları eklendi; bu browser fixture test root-only bootstrap örneğini kullanır.
 
 
 Otomatik home kabulü aynı izole fixture ile çalışır (güncel helper/server binary ve example gerekir):
@@ -90,3 +90,15 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_POLICY_
 Temporary policy rows also cleaned; never changes a permanent user's policy/role/password.
 
 Virtual/real kernel quota acceptance adds `TEALDRIVE_VIRTUAL_ACCEPTANCE=1` and optionally `TEALDRIVE_NATIVE_QUOTA_ACCEPTANCE=1` to home/admin UI acceptance. Native mounts a private temporary128MiB ext4+usrquota image on empty /home/tealdrive/virtual-homes; never remounts host root FS. Requires Root mount/quota support and current compiled fixture. UID/GID/sysdata/pool/cursor rollback refuses externally changed identities/data.
+
+
+Wizard clean-install kabulü (Root; yalnız private mount namespace):
+
+```sh
+cargo build --locked --bins
+TEALDRIVE_WIZARD_ACCEPTANCE=1 tools/dev/check.sh wizard
+# Gerçek geçici UID/PAM/TTY ve yönetim reddi:
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+```
+
+Local Wizard testi admin fixture'ın yalnız ikinci geçici hesabını self-revoke/PAM re-enroll eder; UID/rolü korur. TTY ECHO kapalı olduğu gönderim öncesi kontrol edilir; parola terminal çıktısında bulunmamalıdır. Installed Wizard/helper/server güncel olmalıdır. Test çıktısı secret terminal buffer'ını hata halinde de yazdırmaz. Namespace systemctl stub'ı gerçek servis kabulü değildir.

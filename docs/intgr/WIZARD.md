@@ -1,12 +1,74 @@
 # TealDrive WIZARD geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Aşağıdaki “Uygulanan komutlar” gerçek CLI sözleşmesidir. Sonraki hedef örnekler tasarım notlarıdır; henüz uygulanmış sayılmaz.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
+## Uygulanan komutlar (12 Ekim 2026)
+
+Dört binary vardır: server, setuid helper, **setuid olmayan** wizard ve bağımsız `tealdrive-ctl`. Wizard kurulum/metadata yönetimini; ctl yalnız sabit `tealdrive.service` birimini yönetir. Caddy zorunlu değildir. Yerel başlangıç 127.0.0.1:13100 HTTP'dir; kamuya açma için proxy/TLS ve origin ayarları gerekir.
+
+```bash
+# Root tarafından onaylanan, root-owned ve yazmaya kapalı release dizini:
+sudo tealdrive-wizard install --bundle /root/tealdrive-release
+sudo tealdrive-wizard config validate
+sudo tealdrive-wizard config show
+sudo tealdrive-wizard config apply /root/approved-config.toml
+sudo tealdrive-wizard diagnose
+sudo tealdrive-wizard account approve alice
+sudo tealdrive-wizard account approve sftp-user --allow-nologin
+sudo tealdrive-wizard account list
+sudo tealdrive-wizard account admin ACCOUNT_ID
+sudo tealdrive-wizard account user ACCOUNT_ID
+sudo tealdrive-wizard account deny ACCOUNT_ID
+sudo tealdrive-wizard account allow ACCOUNT_ID
+sudo tealdrive-wizard account password ACCOUNT_ID
+sudo tealdrive-wizard pool set 100GiB
+sudo tealdrive-wizard budget set ADMIN_ID 60GiB
+sudo tealdrive-wizard storage sync
+sudo tealdrive-wizard policy root ACCOUNT_ID GENERATION /root/rules.json
+sudo tealdrive-wizard policy admin ACCOUNT_ID GENERATION /root/rules.json
+sudo tealdrive-wizard policy personal ACCOUNT_ID GENERATION /root/rules.json
+
+# Gerçek Linux kullanıcısının kendi hesabı; parola argv/env değil TTY:
+tealdrive-wizard init
+tealdrive-wizard status
+tealdrive-wizard policy get
+tealdrive-wizard policy personal GENERATION ./rules.json
+tealdrive-wizard revoke
+
+# Kurulumdan bağımsız servis kontrolü:
+sudo tealdrive-ctl start
+sudo tealdrive-ctl stop
+sudo tealdrive-ctl restart
+sudo tealdrive-ctl reload
+tealdrive-ctl status
+```
+
+`--allow-nologin` yalnız Root'un açık istisnasıdır; root, servis kimliği, yasak listesi ve UID aralığı denetimlerini kaldırmaz. Kayıt verisi NSS ile uyuşmuyorsa sessiz hesap benimseme yoktur. Rol değişimi mevcut biletlerin generation'ını iptal eder. Hesap ayarı değiştirmek server bind/origin/audit alanlarını helper konfigürasyonuyla ezmez. `storage sync` yalnız `user_quota` modunda, mevcut DB tahsislerini kernel limitlerine uygular; allocation değiştirmez. Bütçe azaltma child/pending reservation ve sanal adminin kendi kullanımını kontrol eder.
+
+```bash
+sudo tealdrive-ctl stop
+sudo tealdrive-wizard backup /root/new-backup-directory
+sudo tealdrive-wizard update --bundle /root/tealdrive-release
+# Update yedeğinin binaries alt dizini; DB geriye alınmaz:
+sudo tealdrive-wizard rollback --bundle /home/tealdrive/storage/update-backup-UUID/binaries
+sudo tealdrive-wizard restore /root/new-backup-directory
+sudo tealdrive-wizard repair
+sudo tealdrive-wizard uninstall
+```
+
+Bundle `manifest.json` schema_version=1, version ve dört sabit binary için SHA-256 içerir. ELF ve trusted ownership/mode/ancestor kontrolleri yapılır; checksum kaynağın imzası değildir, kaynağı Root onaylar. Güncelleme bütün dosyaları önce private olarak stage ve tekrar verify eder. Metadata/key backup Root700 dizindir; SQLite online backup WAL'i kapsar. **Kullanıcı içerikleri, native volume ve runtime preferences metadata backup'a dahil değildir; ayrı dosya sistemi yedeği gerekir.** Restore yalnız durmuş serviste, servis UID uyumuyla yapılır; restore edilmiş grants/proofs temizlenip bütün hesapların generation'ı artırılır. Binary rollback authentication DB'ye dokunmaz. Uninstall servisi başarıyla durdurmadan executable silmez; config, key, DB ve dosyalar korunur. Elle başlatılmış candidate de offline işlem öncesi durmalıdır.
+
+Test komutu `TEALDRIVE_WIZARD_ACCEPTANCE=1 python3 tools/dev/wizard-acceptance.py`: private mount namespace içinde home, systemd, PAM ve systemctl izole edilir; mevcut yayın ve kullanıcı dosyaları değişmez. Systemctl stub olduğu için bu test gerçek systemd start/stop kabulü sayılmaz. Gerçek PAM/local init ve lifecycle/native recovery ayrı kabul adımlarıdır.
+
+## Henüz uygulanmayan hedef yüzeyi
+
+Aşağıdaki eski tasarım örnekleri (`config set/edit`, remote admin login, virtual admin create, audit/undo CLI, tam lifecycle/migration) uygulanan komut listesinde bulunmadıkça kullanılamaz.
+
 ## Reload ve kaynak
 
-Wizard henüz yoktur; `Cargo.toml`, kurulum/migration ve helper yönetim protokolü birlikte hazırlanacak. Setuid olmayan CLI gerçek yerel UID veya remote admin session kullanır; serbest hedef kullanıcı parametresine güvenmez.
+Wizard çekirdeği uygulanmıştır; kapsamlı migration/lifecycle yüzeyi sıradaki aşamadır. Setuid olmayan CLI gerçek yerel UID veya remote admin session kullanır; serbest hedef kullanıcı parametresine güvenmez.
 
 ```bash
 sudo tealdrive-wizard config validate

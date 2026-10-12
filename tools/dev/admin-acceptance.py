@@ -2,6 +2,7 @@
 """Explicit root fixture: isolated server, unique real Linux users, restored helper policy.
 Never resets existing account data or production service config. Requires installed current binaries.
 """
+import sys
 import fcntl
 import grp
 import hashlib
@@ -140,6 +141,8 @@ def main():
         run(['node', str(ROOT / 'tests/live/admin-management.cjs')], env=env, cwd=ROOT)
         if virtual:
             run(['node', str(ROOT / 'tests/live/virtual-management.cjs')], env=env, cwd=ROOT)
+        if os.environ.get('TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE') == '1':
+            run([sys.executable, str(ROOT / 'tools/dev/local-wizard-acceptance.py'), str(manifest)], cwd=ROOT)
         audit_text = audit.read_text()
         if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
             raise RuntimeError('Fixture credentials appeared in audit')

@@ -287,3 +287,13 @@ Public SDK creates two distinct locked/nologin OS UID/GID identities, native hel
 Root actor/target audit and no credentials confirmed. Driver removes fresh virtual groups/users/home/policy/intents/sync/grants first, then its Linux fixtures; own admin budget/pool/cursor restored, temporary ext4 image unmounted/deleted. Original Caddy/data untouched. Native test first hit duplicate State/Actions Deleted locator; exact State cell fixed. Text save quota error exposed missing DiskFull translation; backend mapper fixed and regression unit added.
 
 Normal package557 unit passed,1 explicit PAM ignored, normal integrations passed. Store tests pending reservation/finalization without double charge, expected generation/owner before callback, callback failure transaction rollback, delete CAS passed. Trash quota refusal preserves source/no published metadata. MSRV1.85.0/Clippy all-targets -D warnings/fmt/strict SDK d.ts checks passed.
+
+
+## Wizard bağımsız kurulum kabulü — 12 Ekim 2026
+
+`cargo test --locked --quiet`: 562 unit passed, 1 ignored; normal integration grupları geçti. Root/PAM opt-in testler bu komutla çalışmış sayılmaz. `cargo clippy --locked --all-targets -- -D warnings`, MSRV1.85 ve build kontrolü yapıldı.
+
+`TEALDRIVE_WIZARD_ACCEPTANCE=1 python3 tools/dev/wizard-acceptance.py` geçti: namespace-isolated clean install, existing install rejection, helper4755/diğer755, DB/key600, Root/service approval rejection, update key/config preservation, separate binary rollback, metadata backup/restore, repair, checksum tamper rejection ve data-preserving uninstall. `/home/tealdrive`, `/etc/systemd/system`, `/etc/pam.d`, `/proc`, systemctl yalnız test namespace'inde bind edilir. Gerçek unit start/stop bu testin kapsamı değildir. PAM/local init ve native recovery ayrıca doğrulanacak.
+
+
+`TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti: public admin/UI/home testlerine ek gerçek UID own status/policy, Root account/service management reddi, self-revoke, gerçek PAM re-enrollment, TTY ECHO kapalı, parola çıktıda yok, UID/rol sabit. Fixture hesapları/home/DB/policy/logları finally temizlenir; primary helper policy byte-identical geri gelir. Son normal test sayısı562 passed/1 ignored.

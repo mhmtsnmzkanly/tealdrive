@@ -216,3 +216,8 @@ Kurulum ile servis kontrolü ayrı binary'lerde. Wizard hiçbir zaman setuid de�
 ## D039 — Root sanal admin rezervasyonu ve güvenli deleted purge
 
 Root-created admin de ayrı nologin UID/GID; `__root__` intent pool bütçesini OS oluşturma öncesinde ayırır. Pool/budget azaltımı bu pending tahsisi de korur; final metadata+password+budget tek transaction. Allocator unfinished intent UID'sini atlar; NSS backend hatasını “kullanıcı yok” saymaz. Cancel yalnız hiçbir OS/home state'i olmayan niyetlerde yapılır; başladığında aynı key ile resume. Deleted child purge36h, Rootglobal/directory locks, yeni executable worker→kalıcı UID/GID düşüşü→Landlock→contents removal; Root yalnız boş generated home/NSS kimliği kaldırır. Nested mount reddedilir. Intent ve retired UID fence OS silme öncesi kalıcıdır; OS zaten kalkmışsa yalnız doğrulanmış intent ile resume edilir. Tombstone quota0/passwordNULL, grant cleanup. Suspended/Linux/virtual-admin otomatik silinmez. Hourly timer explicit enable; genel audit/trash/undo retention ayrı aşamada tamamlanacak.
+
+
+## D040 — Gömülü UI de public SDK müşterisidir
+
+UI'ye özel ikinci WebSocket/MessagePack pipeline kaldırıldı. Auth/files/admin aynı SDK bağlantısında; DOM adapter SDK'nın camelCase sonucunu mevcut DOM view alanlarına dönüştürür. Optional managed state aktif, per account/origin/generation storage; path helper validate olmadan güvenilmez. UI editor read tamamlanmadan input açmaz; geç listing cevabı view generation ile atılır; mutation opening root'unda kalır. Büyük native download ve media için secret olmayan URL convenience method'ları eklendi; backend authorization atlanmaz. Config inspect mode/read, reload ve persistfalse eklenirken settings.get/patch default davranışı korunur.

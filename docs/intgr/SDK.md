@@ -186,3 +186,17 @@ const budget = await api.admin.quota.getBudget();
 ```
 
 UID/GID/home/role/shell never input; password consumed once, replay never resets it. SDK error.params.idempotencyKey supports network retry; SDK does not persist credentials. ExpectedGeneration or numeric-string expectedRevision (one only) accepts quota/delete. Quota errors QUOTA_EXCEEDED409; stale metadata CONFLICT409. Native physical measurements labeled allocated_bytes; application logical_bytes. Accounts changed event lets custom UI refresh; target sessions invalidate on quota/delete.
+
+
+## Native browser URL ve runtime settings sözleşmesi
+
+```js
+const url = api.files.getDownloadUrl({rootId:"home",path:"large.zip"});
+// <a href=url> ile browser disk indirmesi; secret query yok.
+const media = api.files.getPreviewUrl({rootId:"home",path:"photo.jpg"});
+const {config,mode} = await api.admin.settings.inspect();
+await api.admin.settings.patch({changes:{quota_warning_percent:80},persist:false});
+await api.admin.settings.reload();
+```
+
+URL üretmek dosyanın varlığını/iznini garanti etmez; request helper'a gider. `download()` hâlâ Response stream döndürür; büyük dosyayı gereksiz blob'a çevirmeniz gerekmez. Settings changes mevcut backend snake_case patch şemasındadır; persist varsayılantrue eski API uyumunu korur, false runtime-only. `inspect` camelCase config + split/legacy mode döndürür; Root kritik ayarı patch edilemez. RootSummary hiddenFilesAllowed optional eski sunucu uyumuyla eklenmiştir. WebSocket close1001/Server shutting down bilgisi SDK'da shutdown event'ine dönüşür; normal ağ kaybı shutdown sayılmaz.

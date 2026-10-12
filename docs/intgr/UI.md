@@ -1,8 +1,16 @@
 # TealDrive UI geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Auth/accounts/policy/virtual UI ve temel file manager ortak SDK ile uygulanmıştır. Custom paket ve TR/EN yüzeyi sonraki aşamadadır. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
+
+## Çalışan ortak SDK file manager
+
+`static/app.js` kendi WebSocket/binary codec'ini çalıştırmaz. `static/files.js` yalnız public SDK file method'ları ve DOM view-model dönüşümüdür. Login, file operations, upload progress/abort, logout, policy/accounts ve runtime settings aynı SDK auth socket'ini kullanır. Health availability probe bağımsız HTTP'dir. Native download/media için SDK token içermeyen same-origin URL üretir; asıl request helper tarafından yeniden authorize edilir.
+
+Managed state origin/account/generation namespace'inde yalnız root+currentDirectory tutar. Reload/connection restore helper ile tekrar validate edilir; silinen dizin en yakın geçerli üst dizine döner. Geç kalan eski listing/search cevabı yeni görünümü ezmez. Editor içerik geldiğinde açılır, metadata revision conflict'te unsaved text korunur; opening Root ve chmod target Root sonradan root-select değişse de sabittir. İzinli home dotfile discovery metadata ile açık; gizli Root policy öğeleri server/helper'da görünmez kalır.
+
+`quotaWarning` SDK observeQuotaWarning condition'ına bağlıdır: eşik default80/server value, alan açılana kadar görünür; ölçüm hatası bilinen uyarıyı silmez. Popup/UI yönetimi SDK'nın işi değildir.
 
 ## Kullanıcı notları ve durum
 

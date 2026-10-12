@@ -71,3 +71,12 @@ TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev
 ```
 
 Her phase sonunda aktör/hedef audit kaydı ve parola loglanmaması kontrol edilir. Driver kendi fixture log/config/runtime çıktılarını siler; üstteki sabit root-private lock dosyası reusable test koordinasyonu için kalır. Virtual gruba geçiş testi virtual OS hesap provisioning/tenant UID izolasyonu testi değildir. İlk admin ataması production Wizard ile henüz tamamlanmadı; test root-only bootstrap örneğini kullanır.
+
+
+Otomatik home kabulü aynı izole fixture ile çalışır (güncel helper/server binary ve example gerekir):
+
+```sh
+TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin
+```
+
+Root template static roots'u değiştirir; geçici hesapların home'u NSS'den gelir. Existing production Root policy restore edilir. `.env` açık/.ssh doğrudan kapalı, public HTTP download ve cross-home reddi ayrıca doğrulanır. Native config geçici olduğu için mevcut adayda eşzamanlı yeni enrollment çalıştırmayın.

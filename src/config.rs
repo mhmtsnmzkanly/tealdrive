@@ -68,6 +68,8 @@ pub struct AppConfig {
     pub session: SessionConfig,
     pub security: SecurityConfig,
     pub roots: Vec<AllowedRoot>,
+    /// Root-only opt-in; the path is replaced by the verified account home.
+    pub home_template: Option<AllowedRoot>,
     pub sensitive_policy: SensitivePolicyConfig,
     pub webroot_policy: WebRootPolicyConfig,
     pub account_policy: AccountPolicyConfig,
@@ -95,6 +97,7 @@ impl Default for AppConfig {
             session: SessionConfig::default(),
             security: SecurityConfig::default(),
             roots: vec![AllowedRoot::default()],
+            home_template: None,
             sensitive_policy: SensitivePolicyConfig::default(),
             webroot_policy: WebRootPolicyConfig::default(),
             account_policy: AccountPolicyConfig::default(),
@@ -162,6 +165,17 @@ impl AppConfig {
         self.access_policy.validate()?;
         if !(1..=100).contains(&self.quota_warning_percent) {
             return Err(TealDriveError::Validation);
+        }
+        if let Some(template) = &self.home_template {
+            if !self.web_accounts.enabled || !self.roots.is_empty() {
+                return Err(TealDriveError::Validation);
+            }
+            let mut materialized = self.clone();
+            materialized.home_template = None;
+            let mut root = template.clone();
+            root.base_path = PathBuf::from("/home/verified-account");
+            materialized.roots = vec![root];
+            return materialized.validate();
         }
         if self.roots.is_empty() {
             return Err(TealDriveError::Validation);

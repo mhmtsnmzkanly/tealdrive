@@ -49,6 +49,70 @@ let checkpoint = "startup";
       return session;
     });
     const oldCookies = await target.context().cookies();
+    if (process.env.TEALDRIVE_HOME_ACCEPTANCE === "1") {
+      checkpoint = "automatic home isolation";
+      await target.evaluate(async (otherUsername) => {
+        const session = await testApi.auth.getSession();
+        if (session.roots.length !== 1 || session.roots[0].rootId !== "home")
+          throw Error("Automatic home was not materialized");
+        const rootId = "home";
+        const environment = await testApi.files.readText({
+          rootId,
+          path: "/.env",
+        });
+        if (environment.content !== "home fixture bytes")
+          throw Error("Project dotfile unavailable");
+        for (const path of ["/.ssh", "/.ssh/fixture-key", "/absent-fixture"]) {
+          try {
+            await testApi.files.stat({ rootId, path });
+            throw Error("Hidden/missing metadata accessible");
+          } catch (error) {
+            if (error.code !== "NOT_FOUND") throw error;
+          }
+        }
+        for (const path of ["/.ssh/fixture-key", "/absent-fixture"]) {
+          try {
+            await testApi.files.readText({ rootId, path });
+            throw Error("Hidden/missing content accessible");
+          } catch (error) {
+            if (error.code !== "NOT_FOUND") throw error;
+          }
+        }
+        const query = new URLSearchParams({
+          root_id: rootId,
+          path: "fixture.txt",
+        });
+        const response = await fetch("/api/download?" + query);
+        if (!response.ok || (await response.text()) !== "fixture bytes")
+          throw Error("Automatic home HTTP download failed");
+        try {
+          await testApi.files.readText({
+            rootId,
+            path: "/../" + otherUsername + "/fixture.txt",
+          });
+          throw Error("Another user's home accessible");
+        } catch (error) {
+          if (
+            ![
+              "VALIDATION_ERROR",
+              "INVALID_PATH",
+              "PERMISSION_DENIED",
+              "NOT_FOUND",
+            ].includes(error.code)
+          )
+            throw error;
+        }
+      }, users[0].username);
+      console.log(
+        JSON.stringify({
+          automaticHome: true,
+          projectDotfile: true,
+          hiddenMetadataAndReadDenied: true,
+          httpDownload: true,
+          crossHomeRejected: true,
+        }),
+      );
+    }
     await admin.evaluate(
       async ({ id, username }) => {
         const accounts = await testApi.admin.systemUsers.accounts();

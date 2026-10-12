@@ -610,6 +610,11 @@ pub fn run_secure_helper<R: Read, W: Write>(
                             ),
                         );
                     };
+                    config = crate::policy::home::resolve(
+                        &config,
+                        &account,
+                        config.home_template.as_ref(),
+                    )?;
                     if account.username != user.username
                         || account.uid != user.uid
                         || account.gid != user.gid

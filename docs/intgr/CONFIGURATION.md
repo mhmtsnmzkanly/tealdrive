@@ -196,3 +196,36 @@ Tam config örneklerinde eski retention_days/30-gün taslakları bu son saat kar
 ## 24 saat açıklaması — kullanıcı düzeltmesi
 
 24 saat kullanıcı tercihi varsayılanı değil, server geri alma üst sınırının varsayılanıdır. Kullanıcı 1..server-max saat seçer; server-max root/admin yetki tavanı içinde yapılandırılır.
+
+
+## Uygulanan otomatik home modu
+
+Bu bölüm çalışan AppConfig şemasıdır. Root helper ve server config'ini birlikte açıkça geçirir; panel ConfigPatch ile `home_template` seçemez. `roots=[]` ve web hesap modu zorunludur. Statik köklerle template karıştırmak validation hatasıdır. Aşağıdaki parça tam config'in ilgili tablolarının yerine eklenir; UID kurulumdaki gerçek servis UID'sidir.
+
+```toml
+roots = []
+
+[web_accounts]
+enabled = true
+server_uid = 995
+self_registration = true
+
+[home_template]
+root_id = "home"
+base_path = "/home" # placeholder; hiçbir kullanıcı bu yola yönlendirilmez
+read_only = false
+uploads_allowed = true
+hidden_files_allowed = true
+is_web_root = false
+# quota_bytes = 1073741824 # isteğe bağlı Root tavanı
+
+[sensitive_policy]
+# Yeni profilde .env açık bırakılır. Legacy kurallar geçişte incelenir;
+# program mevcut deny/warn pattern'lerini kendiliğinden kaldırmaz.
+deny_edit_patterns = ["id_rsa", "id_ed25519", "*.pem", "*.key"]
+warn_read_patterns = ["*.pem", "*.key"]
+```
+
+Home protected account metadata ve güncel NSS kimliğiyle doğrulanır. İstek path/UID/home seçemez. Linux kullanıcılar Root seçimiyle kendi gerçek home'undan başlar; sanal hesap yalnız doğrulanmış OS kimliğiyle kullanılır, bu özellik sanal provisioning'i açmaz. Sistem ağaçları/application state reddedilir. `.ssh/.gnupg/.aws/.kube` ortak policy kontrolüyle görünmez ve doğrudan erişilemez; hidden_files_allowed bunları açmaz.
+
+Template server'da HTTP session/download/preview ve WS dosya config'ine, helper'da bağımsız Root config'ine uygulanır. Helper snapshot Root read-only/upload/quota/policy tavanını aşamaz. Sanal kotası eksikse sıfır, tahsis varsa Root tavanıyla minimumudur. Root/service config uyumsuzluğu dosya erişimini genişletmez; istek reddedilir. Kritik config/migration için otomatik rollback/Wizard işi halen bekliyor.

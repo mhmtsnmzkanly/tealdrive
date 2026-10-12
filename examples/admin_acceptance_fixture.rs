@@ -89,6 +89,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             store.set_password(&Authority::Root, &account.id, &user.password)?;
         }
     }
+    if std::env::var("TEALDRIVE_HOME_ACCEPTANCE").as_deref() == Ok("1") {
+        cfg.roots.clear();
+        cfg.home_template = Some(tealdrive::policy::home::default_template());
+        cfg.sensitive_policy
+            .deny_edit_patterns
+            .retain(|pattern| pattern != ".env" && pattern != ".env.*");
+        cfg.sensitive_policy
+            .warn_read_patterns
+            .retain(|pattern| pattern != ".env" && pattern != ".env.*");
+    }
     cfg.validate()?;
     std::fs::write(
         Path::new(&fixture.config_dir).join("helper.toml"),

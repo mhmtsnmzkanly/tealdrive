@@ -21,6 +21,7 @@ pub fn resolve(
         return Err(TealDriveError::PermissionDenied);
     }
     let mut effective = config.clone();
+    effective.home_template = None;
     effective
         .roots
         .retain(|root| root.base_path == account.home);
@@ -203,5 +204,48 @@ mod tests {
             let effective = resolve(&AppConfig::default(), &user, Some(&template)).unwrap();
             assert_eq!(effective.roots[0].quota_bytes, Some(expected));
         }
+    }
+
+    #[test]
+    fn automatic_mode_requires_explicit_root_migration_and_web_accounts() {
+        let mut config = AppConfig {
+            home_template: Some(default_template()),
+            ..AppConfig::default()
+        };
+        assert!(config.validate().is_err());
+        config.roots.clear();
+        assert!(config.validate().is_err());
+        config.web_accounts.enabled = true;
+        config.web_accounts.server_uid = Some(995);
+        config.validate().unwrap();
+        let effective = resolve(&config, &account(), config.home_template.as_ref()).unwrap();
+        assert_eq!(effective.roots[0].base_path, account().home);
+        assert!(effective.home_template.is_none());
+        let decoded: AppConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(decoded, config);
+        config.home_template.as_mut().unwrap().root_id = RootId::new("../bad");
+        assert!(config.validate().is_err());
+        assert!(serde_json::from_str::<crate::config::ConfigPatch>(
+            r#"{"home_template":{"root_id":"home"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn same_root_id_does_not_allow_another_account_snapshot() {
+        let config = AppConfig::default();
+        let ceiling = resolve(&config, &account(), Some(&default_template())).unwrap();
+        let mut other = account();
+        other.username = "bob".into();
+        other.uid = 1001;
+        other.gid = 1001;
+        other.home = "/home/bob".into();
+        let snapshot = crate::helper::policy::PolicySnapshot::new(
+            resolve(&config, &other, Some(&default_template())).unwrap(),
+        );
+        assert_eq!(
+            crate::helper::policy::restrict(&snapshot, &ceiling),
+            Err(TealDriveError::PermissionDenied)
+        );
     }
 }

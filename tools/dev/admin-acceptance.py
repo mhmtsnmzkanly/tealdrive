@@ -75,6 +75,14 @@ def main():
             content.write_text('fixture bytes')
             os.chown(content, identity.pw_uid, identity.pw_gid)
             os.chmod(content, 0o600)
+            if os.environ.get('TEALDRIVE_HOME_ACCEPTANCE') == '1':
+                for relative in ('.env', '.ssh/fixture-key'):
+                    item = pathlib.Path(identity.pw_dir) / relative
+                    item.parent.mkdir(exist_ok=True)
+                    item.write_text('home fixture bytes')
+                    os.chown(item.parent, identity.pw_uid, identity.pw_gid)
+                    os.chown(item, identity.pw_uid, identity.pw_gid)
+                    os.chmod(item, 0o600)
             password = secrets.token_urlsafe(24)
             linux_password = secrets.token_urlsafe(24)
             run(['/usr/sbin/chpasswd'], input=(name + ':' + linux_password + '\n').encode(), stdout=subprocess.DEVNULL)

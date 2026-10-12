@@ -835,6 +835,20 @@ pub(super) async fn handle_socket_connection<H>(
 where
     H: WsHelperBackend + 'static,
 {
+    let account = {
+        let session = state.session_store.lock().await.get_session(
+            &context.session_id,
+            InMemorySessionStore::now_epoch_seconds(),
+        );
+        match session {
+            crate::session::store::SessionLookupResult::Found(session) => {
+                crate::auth::api::validated_session_account(&state, &session)
+                    .await
+                    .map_err(|_| TealDriveError::PermissionDenied)?
+            }
+            _ => return Err(TealDriveError::PermissionDenied),
+        }
+    };
     let WsServerState {
         config,
         session_store,
@@ -924,6 +938,17 @@ where
 
                 let request_id = frame.header.request_id;
                 let current_config = config.load_full();
+                let current_config = match account.as_ref() {
+                    Some(account) => Arc::new(crate::policy::home::resolve(
+                        &current_config,
+                        account,
+                        current_config.home_template.as_ref(),
+                    )?),
+                    None if current_config.home_template.is_some() => {
+                        return Err(TealDriveError::PermissionDenied);
+                    }
+                    None => current_config,
+                };
                 let authorized = match session_store.lock().await.get_session(
                     &context.session_id,
                     InMemorySessionStore::now_epoch_seconds(),

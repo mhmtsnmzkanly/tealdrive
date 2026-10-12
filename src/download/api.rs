@@ -293,6 +293,22 @@ where
         gid: session.gid,
     };
 
+    let cfg = std::sync::Arc::new(
+        match crate::auth::api::validated_session_account(state, &session).await {
+            Ok(Some(account)) => {
+                match crate::policy::home::resolve(&cfg, &account, cfg.home_template.as_ref()) {
+                    Ok(config) => config,
+                    Err(_) => return StatusCode::FORBIDDEN.into_response(),
+                }
+            }
+            Ok(None) if cfg.home_template.is_none() => cfg.as_ref().clone(),
+            Err(crate::helper::account_gateway::GatewayFailure::Unavailable) => {
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+            _ => return StatusCode::UNAUTHORIZED.into_response(),
+        },
+    );
+
     let Some(root_name) = query.resolved_root_id() else {
         return (StatusCode::BAD_REQUEST, r#"{"error":"missing_root_id"}"#).into_response();
     };

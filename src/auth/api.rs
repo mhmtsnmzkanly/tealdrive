@@ -395,7 +395,16 @@ where
     let cookie_val = cookie_config.build_set_cookie_value(&session.session_id);
     let csrf_token = session.csrf_token.clone();
 
-    let roots = cfg
+    let mut login_config = cfg.as_ref().clone();
+    if let Some(template) = &cfg.home_template {
+        let Some(home) = auth_success.home_dir.as_ref() else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        let mut root = template.clone();
+        root.base_path = home.clone();
+        login_config.roots = vec![root];
+    }
+    let roots = login_config
         .allowed_roots()
         .iter()
         .filter(|root| {
@@ -542,6 +551,18 @@ where
                     state.session_store.lock().await.revoke_session(&session_id);
                     return StatusCode::UNAUTHORIZED.into_response();
                 }
+            };
+            let cfg = match account.as_ref() {
+                Some(account) => {
+                    match crate::policy::home::resolve(&cfg, account, cfg.home_template.as_ref()) {
+                        Ok(config) => config,
+                        Err(_) => return StatusCode::FORBIDDEN.into_response(),
+                    }
+                }
+                None if cfg.home_template.is_some() => {
+                    return StatusCode::FORBIDDEN.into_response();
+                }
+                None => cfg.as_ref().clone(),
             };
             let is_admin = cfg.account_policy.is_admin(&session.username)
                 && account.as_ref().is_none_or(|account| {

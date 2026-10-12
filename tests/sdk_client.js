@@ -169,6 +169,8 @@ globalThis.crypto = webcrypto;
   }
   let quota = { limit_bytes: 100, used_bytes: 80 };
   let downloadStatus = 200;
+  let policyGeneration = 1,
+    personalRules = [];
   const fetch = async (url, options) => {
     if (url === "/api/session")
       return {
@@ -200,6 +202,47 @@ globalThis.crypto = webcrypto;
           id: "approved-id",
           role: "user",
           password_enrolled: false,
+        }),
+      };
+    }
+    if (url === "/api/account/policy") {
+      if (options.method === "POST") {
+        assert.ok(options.headers["x-csrf-token"]);
+        const body = JSON.parse(options.body);
+        assert.equal(body.expectedGeneration, policyGeneration);
+        personalRules = body.rules;
+        policyGeneration++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "policy-subject",
+            generation: policyGeneration,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          account: { id: "policy-subject", generation: policyGeneration },
+          deny_system_components: [".ssh"],
+          rules: {
+            root_rules: [{ path: ".ssh", recursive: true, deny: ["discover"] }],
+            admin_rules: [],
+            personal_rules: personalRules,
+          },
+        }),
+      };
+    }
+    if (url === "/api/admin/virtual/policy?accountId=child") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          account: { id: "child", generation: 1 },
+          deny_system_components: [".ssh"],
+          rules: { root_rules: [], admin_rules: [], personal_rules: [] },
         }),
       };
     }
@@ -434,6 +477,44 @@ globalThis.crypto = webcrypto;
   });
   assert.equal(approved.passwordEnrolled, false);
   assert.equal(approved.role, "user");
+  await assert.rejects(
+    enrolling.files.policy.get(),
+    (e) => e.code === "FEATURE_DISABLED",
+  );
+  hello.authentication.policy_management = true;
+  enrolling.disconnect();
+  await enrolling.handshake();
+  assert.equal(enrolling.getInfo().authentication.policyManagement, true);
+  await assert.rejects(
+    enrolling.files.policy.set({
+      expectedGeneration: 1,
+      rules: [{ path: "../secret", deny: ["discover"] }],
+    }),
+    (e) => e.code === "INVALID_PATH",
+  );
+  const policy = await enrolling.files.policy.get();
+  assert.equal(policy.rules.rootRules[0].ruleId, "root_0");
+  assert.equal(policy.revision, "1");
+  await assert.rejects(
+    enrolling.files.policy.removeRule({
+      ruleId: "root_0",
+      expectedRevision: "1",
+    }),
+    (e) => e.code === "NOT_FOUND",
+  );
+  await enrolling.files.policy.addRule({
+    path: "private",
+    recursive: true,
+    deny: ["discover"],
+  });
+  assert.equal(personalRules[0].path, "private");
+  assert.equal(personalRules[0].root_id, null);
+  session.account_kind = "virtual";
+  await enrolling.auth.getSession();
+  const childPolicy = await enrolling.admin.policy.get({ accountId: "child" });
+  assert.equal(childPolicy.account.id, "child");
+  session.account_kind = "linux";
+  await enrolling.auth.getSession();
   await enrolling.auth.changePassword({
     currentPassword: "right",
     newPassword: "replacement-web-password",

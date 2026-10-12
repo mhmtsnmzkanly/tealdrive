@@ -133,6 +133,7 @@ export interface ServerInfo {
     selfRevoke: boolean;
     accountManagement: boolean;
     linuxApproval: boolean;
+    policyManagement: boolean;
     enrollment: boolean;
     selfRegistration: boolean;
   }>;
@@ -291,18 +292,76 @@ export interface FilesAPI {
       expectedState: string;
     }): Promise<OperationResult>;
   };
-  policy: {
-    get(): Promise<unknown>;
-    addRule(options: {
-      path: string;
-      recursive: boolean;
-      deny: string[];
-    }): Promise<unknown>;
-    removeRule(options: {
-      ruleId: string;
-      expectedRevision: string;
-    }): Promise<unknown>;
-  };
+  policy: PersonalPolicyAPI;
+}
+/** Discover denial also denies direct access and looks like a missing path. */
+export type PolicyAccess =
+  | "discover"
+  | "read"
+  | "write"
+  | "chmod"
+  | "delete"
+  | "move";
+export interface PolicyRule {
+  path: string;
+  rootId?: string | null;
+  recursive?: boolean;
+  deny: readonly PolicyAccess[];
+  /** Revision-bound index token returned by get(); never a standalone stable identity. */
+  ruleId?: string;
+}
+export interface PolicyView {
+  account: Readonly<AccountMetadata>;
+  revision: string;
+  rules: Readonly<{
+    rootRules: readonly PolicyRule[];
+    adminRules: readonly PolicyRule[];
+    personalRules: readonly PolicyRule[];
+  }>;
+  denySystemComponents: readonly string[];
+}
+export interface PersonalPolicyAPI {
+  get(): Promise<PolicyView>;
+  /** Replaces only the personal layer. Success invalidates all old sessions,
+   * including this client. Root/admin restrictions remain. */
+  set(options: {
+    expectedGeneration: number;
+    rules: readonly PolicyRule[];
+  }): Promise<AccountMetadata>;
+  /** Reads the current policy then commits once with generation compare-and-swap.
+   * No automatic retry on a concurrent edit. */
+  addRule(
+    options: PolicyRule & { expectedRevision?: string },
+  ): Promise<AccountMetadata>;
+  removeRule(options: {
+    ruleId: string;
+    expectedRevision: string;
+  }): Promise<AccountMetadata>;
+}
+export interface AdminPolicyAPI {
+  get(options: {
+    accountId: string;
+    kind?: "linux" | "virtual";
+  }): Promise<PolicyView>;
+  set(options: {
+    accountId: string;
+    kind?: "linux" | "virtual";
+    expectedGeneration: number;
+    rules: readonly PolicyRule[];
+  }): Promise<AccountMetadata>;
+  addRule(
+    options: PolicyRule & {
+      accountId: string;
+      kind?: "linux" | "virtual";
+      expectedRevision?: string;
+    },
+  ): Promise<AccountMetadata>;
+  removeRule(options: {
+    accountId: string;
+    kind?: "linux" | "virtual";
+    ruleId: string;
+    expectedRevision: string;
+  }): Promise<AccountMetadata>;
 }
 export interface UserCandidate {
   username: string;
@@ -322,6 +381,12 @@ export interface AdminAPI {
     list(): Promise<UserCandidates>;
     /** Registered system web accounts, distinct from eligible NSS login candidates. */
     accounts(): Promise<readonly AccountMetadata[]>;
+    getPolicy(options: { accountId: string }): Promise<PolicyView>;
+    setPolicy(options: {
+      accountId: string;
+      expectedGeneration: number;
+      rules: readonly PolicyRule[];
+    }): Promise<AccountMetadata>;
     /** Approve an existing eligible Linux identity for first PAM enrollment. Does not
      * create an OS user, choose UID/home/role, set a password or modify root config.
      * Existing accounts conflict; use allow/deny instead. Root deny remains superior.
@@ -332,6 +397,12 @@ export interface AdminAPI {
     deny(options: { accountId: string }): Promise<AccountMetadata>;
   };
   virtualUsers: {
+    getPolicy(options: { accountId: string }): Promise<PolicyView>;
+    setPolicy(options: {
+      accountId: string;
+      expectedGeneration: number;
+      rules: readonly PolicyRule[];
+    }): Promise<AccountMetadata>;
     list(options?: {
       limit?: number;
       cursor?: string | null;
@@ -350,11 +421,7 @@ export interface AdminAPI {
     enable(options: { accountId: string }): Promise<AccountMetadata>;
     delete(options: { accountId: string }): Promise<void>;
   };
-  policy: {
-    get(options: { accountId: string }): Promise<unknown>;
-    addRule(options: Record<string, unknown>): Promise<unknown>;
-    removeRule(options: Record<string, unknown>): Promise<unknown>;
-  };
+  policy: AdminPolicyAPI;
   quota: { getBudget(): Promise<unknown> };
 }
 export interface ClientOptions {

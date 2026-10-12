@@ -444,16 +444,16 @@ export const examples = {
    */
   policyAdd: (API) => API.files.policy.addRule({ path: "private", recursive: true, deny: ["discover", "read", "write"] }),
 
-  // API.files.policy.removeRule({ ruleId: "personal_rule", expectedRevision: "policy_revision" }); — Kendi kuralını kaldırır; üst katman yasakları geçerli kalır.
+  // API.files.policy.removeRule({ ruleId: "personal_0", expectedRevision: "current_generation" }); — Kendi kuralını kaldırır; üst katman yasakları geçerli kalır.
   /**
    * Kendi kuralını kaldırır; üst katman yasakları geçerli kalır.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.files.policy.removeRule({ ruleId: "personal_rule", expectedRevision: "policy_revision" });
+   * @example API.files.policy.removeRule({ ruleId: "personal_0", expectedRevision: "current_generation" });
    * @description SDK yöntemi parametreleri: options: { ruleId: string, expectedRevision: string }.
    * @returns {Promise<{ revision: string }>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, PERMISSION_DENIED, REVISION_CONFLICT, AUDIT_UNAVAILABLE.
    */
-  policyRemove: (API) => API.files.policy.removeRule({ ruleId: "personal_rule", expectedRevision: "policy_revision" }),
+  policyRemove: async (API) => { const policy = await API.files.policy.get(); return API.files.policy.removeRule({ ruleId: policy.rules.personalRules[0].ruleId, expectedRevision: policy.revision }); },
 
   // API.files.quota.get(); — Kota DB kayıtlarından, gerçek kullanım helper ölçümünden gelir; eşik örneğin yüzde 80.
   /**
@@ -614,16 +614,16 @@ export const examples = {
    */
   adminPolicyAdd: (API) => API.admin.policy.addRule({ accountId: "acct_customer", path: "production", recursive: true, deny: ["chmod", "delete", "move"] }),
 
-  // API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: "admin_rule", expectedRevision: "policy_revision" }); — Yönetmeye yetkili olduğu admin kuralını kaldırır; root/kullanıcı kurallarını kaldırmaz.
+  // API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: "admin_0", expectedRevision: "current_generation" }); — Yönetmeye yetkili olduğu admin kuralını kaldırır; root/kullanıcı kurallarını kaldırmaz.
   /**
    * Yönetmeye yetkili olduğu admin kuralını kaldırır; root/kullanıcı kurallarını kaldırmaz.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: "admin_rule", expectedRevision: "policy_revision" });
+   * @example API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: "admin_0", expectedRevision: "current_generation" });
    * @description SDK yöntemi parametreleri: options: { accountId: string, ruleId: string, expectedRevision: string }.
    * @returns {Promise<{ revision: string }>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, ADMIN_REQUIRED, PERMISSION_DENIED, REVISION_CONFLICT, AUDIT_UNAVAILABLE.
    */
-  adminPolicyRemove: (API) => API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: "admin_rule", expectedRevision: "policy_revision" }),
+  adminPolicyRemove: async (API) => { const policy = await API.admin.policy.get({ accountId: "acct_customer" }); return API.admin.policy.removeRule({ accountId: "acct_customer", ruleId: policy.rules.adminRules[0].ruleId, expectedRevision: policy.revision }); },
 
   // API.admin.quota.getBudget(); — Root atanmış bütçe, alt hesap tahsisleri ve helper kullanım özetini döndürür.
   /**

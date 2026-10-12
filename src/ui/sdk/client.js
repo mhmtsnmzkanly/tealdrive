@@ -286,14 +286,7 @@ export class TealDriveClient {
         apply: async (o) =>
           this._featureHttp("undo", "/api/undo", "POST", o, true),
       }),
-      policy: Object.freeze({
-        get: async () =>
-          this._featureHttp("user_policy", "/api/policy", "GET", {}, true),
-        addRule: async (o) =>
-          this._featureHttp("user_policy", "/api/policy", "POST", o, true),
-        removeRule: async (o) =>
-          this._featureHttp("user_policy", "/api/policy", "DELETE", o, true),
-      }),
+      policy: this._policyAPI(),
     });
     this.admin = Object.freeze({
       settings: Object.freeze({
@@ -301,6 +294,8 @@ export class TealDriveClient {
         patch: async (o) => this._settings(o),
       }),
       systemUsers: Object.freeze({
+        getPolicy: async (o) => this._getPolicy({ ...o, kind: "linux" }),
+        setPolicy: async (o) => this._setPolicy({ ...o, kind: "linux" }),
         list: async () => this._http("/api/admin/users", "GET", {}, true),
         accounts: async () =>
           this._managementHttp("/api/admin/accounts/system", "GET", {}),
@@ -325,47 +320,39 @@ export class TealDriveClient {
       }),
       virtualUsers: Object.freeze(
         Object.fromEntries(
-          ["list", "create", "setQuota", "disable", "enable", "delete"].map(
-            (method) => [
-              method,
-              async (o) =>
-                ["list", "disable", "enable"].includes(method)
-                  ? this._managementHttp(
-                      `/api/admin/virtual/${method}`,
-                      method === "list" ? "GET" : "POST",
-                      o,
-                    )
-                  : this._featureHttp(
-                      "virtual_accounts",
-                      `/api/admin/virtual/${method}`,
-                      method === "list" ? "GET" : "POST",
-                      o,
-                      true,
-                    ),
-            ],
-          ),
+          [
+            "list",
+            "create",
+            "setQuota",
+            "disable",
+            "enable",
+            "delete",
+            "getPolicy",
+            "setPolicy",
+          ].map((method) => [
+            method,
+            async (o) =>
+              method === "getPolicy"
+                ? this._getPolicy({ ...o, kind: "virtual" })
+                : method === "setPolicy"
+                  ? this._setPolicy({ ...o, kind: "virtual" })
+                  : ["list", "disable", "enable"].includes(method)
+                    ? this._managementHttp(
+                        `/api/admin/virtual/${method}`,
+                        method === "list" ? "GET" : "POST",
+                        o,
+                      )
+                    : this._featureHttp(
+                        "virtual_accounts",
+                        `/api/admin/virtual/${method}`,
+                        method === "list" ? "GET" : "POST",
+                        o,
+                        true,
+                      ),
+          ]),
         ),
       ),
-      policy: Object.freeze({
-        get: async (o) =>
-          this._featureHttp("user_policy", "/api/admin/policy", "GET", o, true),
-        addRule: async (o) =>
-          this._featureHttp(
-            "user_policy",
-            "/api/admin/policy",
-            "POST",
-            o,
-            true,
-          ),
-        removeRule: async (o) =>
-          this._featureHttp(
-            "user_policy",
-            "/api/admin/policy",
-            "DELETE",
-            o,
-            true,
-          ),
-      }),
+      policy: this._policyAPI("admin"),
       quota: Object.freeze({
         getBudget: async () =>
           this._featureHttp(
@@ -501,6 +488,7 @@ export class TealDriveClient {
         self_revoke: false,
         account_management: false,
         linux_approval: false,
+        policy_management: false,
         enrollment: false,
         self_registration: false,
         ...this._hello.authentication,
@@ -718,6 +706,160 @@ export class TealDriveClient {
       response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) throw httpError(response, data);
     return publicValue(data);
+  }
+  _policyAPI(scope) {
+    return Object.freeze({
+      get: async (o = {}) => this._getPolicy(this._policyScope(o, scope)),
+      set: async (o) => this._setPolicy(this._policyScope(o, scope)),
+      addRule: async (o) => this._editPolicy(o, scope, false),
+      removeRule: async (o) => this._editPolicy(o, scope, true),
+    });
+  }
+  _policyScope(o, scope) {
+    if (scope === "admin")
+      return {
+        ...o,
+        kind:
+          o?.kind ??
+          (this._session?.accountKind === "virtual" ? "virtual" : "linux"),
+      };
+    return o;
+  }
+  _policyTarget(o) {
+    this._require(true);
+    if (!this._hello?.authentication?.policy_management)
+      fail("FEATURE_DISABLED");
+    if (o.accountId === undefined) {
+      if (o.kind !== undefined) fail("INVALID_ARGUMENT");
+      return "/api/account/policy";
+    }
+    if (
+      typeof o.accountId !== "string" ||
+      !o.accountId.length ||
+      o.accountId.length > 128 ||
+      !["linux", "virtual"].includes(o.kind)
+    )
+      fail("INVALID_ARGUMENT");
+    return `/api/admin/${o.kind === "linux" ? "system" : "virtual"}/policy`;
+  }
+  async _getPolicy(o = {}) {
+    object(o, ["accountId", "kind"]);
+    const view = await this._http(
+      this._policyTarget(o),
+      "GET",
+      o.accountId === undefined ? {} : { accountId: o.accountId },
+    );
+    view.revision = String(view.account.generation);
+    for (const layer of ["root", "admin", "personal"]) {
+      view.rules[layer + "Rules"] = view.rules[layer + "Rules"].map(
+        (rule, index) => ({ ...rule, ruleId: layer + "_" + index }),
+      );
+    }
+    return freeze(view);
+  }
+  _policyRules(rules) {
+    if (!Array.isArray(rules) || rules.length > 512) fail("INVALID_ARGUMENT");
+    return rules.map((rule) => {
+      object(rule, ["path", "rootId", "recursive", "deny", "ruleId"]);
+      if (
+        !Array.isArray(rule.deny) ||
+        !rule.deny.length ||
+        rule.deny.length > 6 ||
+        rule.deny.some(
+          (permission) =>
+            !["discover", "read", "write", "chmod", "delete", "move"].includes(
+              permission,
+            ),
+        ) ||
+        (rule.recursive !== undefined && typeof rule.recursive !== "boolean") ||
+        (rule.rootId !== undefined &&
+          rule.rootId !== null &&
+          (typeof rule.rootId !== "string" ||
+            !/^[a-zA-Z0-9_-]+$/.test(rule.rootId)))
+      )
+        fail("INVALID_ARGUMENT");
+      return {
+        path: path(rule.path),
+        root_id: rule.rootId ?? null,
+        recursive: rule.recursive ?? false,
+        deny: rule.deny,
+      };
+    });
+  }
+  async _setPolicy(o) {
+    object(o, ["accountId", "kind", "expectedGeneration", "rules"]);
+    const url = this._policyTarget(o);
+    const body = {
+      expectedGeneration: integer(
+        o.expectedGeneration,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "expectedGeneration",
+      ),
+      rules: this._policyRules(o.rules),
+      ...(o.accountId === undefined ? {} : { accountId: o.accountId }),
+    };
+    const updated = await this._http(url, "POST", body);
+    this._emit("policy.changed", {
+      accountId: updated.id,
+      generation: updated.generation,
+    });
+    if (updated.id === this._session?.accountId) this._clearSession();
+    return freeze(updated);
+  }
+  async _editPolicy(o, scope, remove) {
+    object(
+      o,
+      remove
+        ? ["accountId", "kind", "ruleId", "expectedRevision"]
+        : [
+            "accountId",
+            "kind",
+            "path",
+            "rootId",
+            "recursive",
+            "deny",
+            "expectedRevision",
+          ],
+    );
+    const target = this._policyScope(
+      o.accountId === undefined
+        ? {}
+        : {
+            accountId: o.accountId,
+            ...(o.kind === undefined ? {} : { kind: o.kind }),
+          },
+      scope,
+    );
+    if (scope === "admin" && o.accountId === undefined)
+      fail("INVALID_ARGUMENT");
+    const view = await this._getPolicy(target);
+    if (
+      (remove && o.expectedRevision === undefined) ||
+      (o.expectedRevision !== undefined && o.expectedRevision !== view.revision)
+    )
+      fail("CONFLICT");
+    const layer = scope === "admin" ? "admin" : "personal";
+    let rules = view.rules[layer + "Rules"];
+    if (remove) {
+      if (!rules.some((r) => r.ruleId === o.ruleId)) fail("NOT_FOUND");
+      rules = rules.filter((r) => r.ruleId !== o.ruleId);
+    } else {
+      rules = [
+        ...rules,
+        {
+          path: o.path,
+          ...(o.rootId === undefined ? {} : { rootId: o.rootId }),
+          recursive: o.recursive ?? false,
+          deny: o.deny,
+        },
+      ];
+    }
+    return this._setPolicy({
+      ...target,
+      expectedGeneration: view.account.generation,
+      rules,
+    });
   }
   _managementHttp(url, method, body = {}) {
     this._require(true);

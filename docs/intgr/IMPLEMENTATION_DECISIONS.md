@@ -71,3 +71,9 @@ Projedeki Rust1.85 alt sınırı gerçek toolchain ile test edildi. Yeni crypto 
 ## D017 — Helper bilet MAC'i ve anahtar belleği
 
 Elle yazılmış HMAC SHA256 ve karşılaştırma yerine RustCrypto hmac0.12.1 kullanıldı; mevcut sha2/digest0.10 ile uyumlu, wire MAC değişmez. verify_slice sabit süreli kütüphane doğrulaması; raw key Vec Zeroizing ile tutulur. SHA/HMAC kütüphanesi iç kopyalarına dair mutlak memory erasure garantisi verilmez. RFC4231 ve kimlik/expiry tamper vektörleri korunur. Ek application crypto protokolü eklenmedi.
+
+## D018 — Kalıcı grant/enrollment ve explicit migration
+
+Cookie ayrı; helper yetkisi persistent nonce ledger + account generation. Kernel caller UID/parent PID/start-time ve boot-ID kayıt bağlamı; process restart/reboot replay sınırı. Logout bir nonce, hesap suspend/revoke/PW change bütün eski generation'ları iptal eder. Grant default hard bound64/account8192global, enrollment1024; expired/revoked reclaim. Enrollment token SHA256-only storage, max300s, one-use, identity snapshot; Linux parola/hash tutulmaz. Kayıtlı aktif web hesabı PAM ile sessiz reset edilemez; own Linux self-revoke re-init yolunu açık bırakır, administrative deny kapatır. Gateway Root eligibility kontrolü completion'da yeniden yapılacak.
+
+DB schema1→2 explicit root migration; önce0600 online backup, sonra transaction. Eski daha zayıf pending proof'lar taşınmaz; generation+1; roles/UID/home/PW/budget korunur. Yeni ledger henüz server/helper auth uçlarına bağlanmadı; completion iddiası yalnız primitives içindir.

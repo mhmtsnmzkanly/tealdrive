@@ -105,3 +105,11 @@ Bu depo tek başına yeni auth modelinin tamamlandığı anlamına gelmez. Prote
 ## Merkezi yol seçimi uygulandı
 
 Standart yollar src/layout.rs içindedir. Helper root config/key çifti /home/tealdrive/policy altında; yalnızca primary config yoksa eski /etc çiftine geçilir. Corrupt/symlink/unreadable primary fallback değildir. Server default lookup merkezi server.toml'ı da içerir; helper binary default merkezi bin'i tercih eder. Bu yol seçimi mevcut servisi/dosyaları otomatik taşımaz. Wizard izinli migration/install ayrıca yapılacak.
+
+## Schema2: kayıt kanıtı ve oturum ledger'i
+
+Session grants accountID/generation + gerçek caller UID/parent PID/start-time/boot-ID ile bağlı, süreli ve iptal edilebilir. Root helper bu alanları kernel'den çözer; request JSON rol/PID iddiası seçemez. Logout tek grant, suspend/revoke/password-change account generation üzerinden tüm grant'leri geçersiz kılar. 64 hesap başına, 8192 toplam grant ve 1024 bekleyen enrollment temel hard sınırları; expired/revoked kayıtlar yeniden kullanılamaz ve kapasiteden temizlenir.
+
+Enrollment raw token DB'de değil SHA256 özetiyle tutulur, max300s, tek kullanımlık ve caller/NSS snapshot'a bağlı. Linux parola veya Linux parola hash'i saklanmaz. Existing enrolled hesapta sessiz PAM reset yasak; kendi Linux self-revoke sonrası re-init mümkün, administrative deny/suspend/revoke bunu kapatır. Tamamlama sırasında OS kimliği ve root eligibility gateway'de yeniden çözülecek.
+
+Schema1 startup tarafından otomatik yükseltilmez. Explicit root migration private online backup alır, transaction içinde schema2'ye geçer, pending eski proof'ları iptal eder ve account generation artırır. UID/home/role/password/budget korunur. Schema2 normal open sonrası gateway hazır olana kadar bu primitive'ler network auth capability açmaz.

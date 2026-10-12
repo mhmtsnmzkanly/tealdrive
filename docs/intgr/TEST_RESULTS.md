@@ -137,3 +137,10 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 
 - helper::security::tests: 2 passed; RFC4231 HMAC output aynı, UID/expiry değişmiş ticket reddi.
 - Clippy all targets: passed; root helper key buffer artık Zeroizing.
+
+## 2026-10-12 — Grant/enrollment ve schema migration
+
+- accounts::grants::tests: 6 passed. Single-nonce logout/other session alive, all-session suspend, UID/PID/start/boot/expiry/tamper/PW-generation denial, hashed one-time enrollment, identity change/replay/expired token denial, administrative deny between steps, own vs administrative revoke recovery, bounded grant reclaim, real kernel caller capture.
+- accounts:: tüm 11 test passed.
+- cargo test --test accounts_store -- --ignored: 2 root tests passed; existing privacy/concurrency/backup + explicit schema1 migration preserves roles/password/home/budget, old proof cancellation, pre-migration private backup, generation bump, idempotence.
+- Clippy all targets passed (grant primitives); normal auth uçları henüz yeni modele geçirilmedi.

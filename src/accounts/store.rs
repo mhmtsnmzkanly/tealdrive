@@ -70,6 +70,7 @@ pub struct Account {
     pub created_at: u64,
     pub updated_at: u64,
     pub deleted_at: Option<u64>,
+    pub deny_enrollment: bool,
 }
 #[derive(Debug, Clone)]
 pub struct NewAccount {
@@ -89,12 +90,12 @@ pub enum Authority {
     Account { id: String, generation: u64 },
 }
 pub struct AccountStore {
-    connection: Connection,
+    pub(super) connection: Connection,
 }
-fn now() -> u64 {
+pub(super) fn now() -> u64 {
     crate::session::store::InMemorySessionStore::now_epoch_seconds()
 }
-fn number(value: u64) -> Result<i64, StoreError> {
+pub(super) fn number(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::InvalidInput)
 }
 fn root_parent(path: &Path) -> Result<(), StoreError> {
@@ -160,10 +161,11 @@ fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         created_at: row_u64(row, 14)?,
         updated_at: row_u64(row, 15)?,
         deleted_at: row_optional_u64(row, 16)?,
+        deny_enrollment: row.get(17)?,
     })
 }
-const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at";
-fn account(connection: &Connection, id: &str) -> Result<Account, StoreError> {
+const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment";
+pub(super) fn account(connection: &Connection, id: &str) -> Result<Account, StoreError> {
     connection
         .query_row(
             &format!("SELECT {COLUMNS} FROM accounts WHERE id=?1"),
@@ -219,6 +221,30 @@ impl AccountStore {
         Ok(store)
     }
     pub fn open(path: &Path) -> Result<Self, StoreError> {
+        Self::open_version(path, false)
+    }
+    /// Explicit root migration; normal startup never silently upgrades an account database.
+    pub fn migrate(path: &Path) -> Result<Self, StoreError> {
+        let mut store = Self::open_version(path, true)?;
+        let version: i64 = store
+            .connection
+            .pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version == 1 {
+            let name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or(StoreError::UntrustedStore)?;
+            let backup = path.with_file_name(format!("{name}.v1-{}.backup", uuid::Uuid::new_v4()));
+            store.backup(&Authority::Root, &backup)?;
+            let tx = store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            tx.execute_batch(include_str!("migrations/002.sql"))?;
+            tx.commit()?;
+        }
+        Ok(store)
+    }
+    fn open_version(path: &Path, allow_previous: bool) -> Result<Self, StoreError> {
         if unsafe { libc::geteuid() } != 0 {
             return Err(StoreError::UntrustedStore);
         }
@@ -246,7 +272,7 @@ impl AccountStore {
         let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let application: i64 =
             connection.pragma_query_value(None, "application_id", |r| r.get(0))?;
-        if version != 1 || application != 1413763670 {
+        if (version != 2 && !(allow_previous && version == 1)) || application != 1413763670 {
             return Err(StoreError::UnsupportedSchema);
         }
         Ok(Self { connection })
@@ -555,13 +581,17 @@ impl AccountStore {
         if target.status == AccountStatus::Deleted {
             return Err(StoreError::Conflict);
         }
+        let self_revoke = matches!(actor,Authority::Account{id,..} if id==&target.id)
+            && target.kind == AccountKind::Linux
+            && status == AccountStatus::Revoked;
+        let deny_enrollment = status != AccountStatus::Active && !self_revoke;
         let (state, login) = match status {
             AccountStatus::Active => ("active", true),
             AccountStatus::Suspended => ("suspended", false),
             AccountStatus::Revoked => ("revoked", false),
             AccountStatus::Deleted => ("deleted", false),
         };
-        tx.execute("UPDATE accounts SET status=?1,login_enabled=?2,generation=generation+1,updated_at=?3,deleted_at=?4 WHERE id=?5",params![state,login,number(now())?,if status==AccountStatus::Deleted{Some(number(now())?)}else{None},id])?;
+        tx.execute("UPDATE accounts SET status=?1,login_enabled=?2,generation=generation+1,updated_at=?3,deleted_at=?4,deny_enrollment=?6 WHERE id=?5",params![state,login,number(now())?,if status==AccountStatus::Deleted{Some(number(now())?)}else{None},id,deny_enrollment])?;
         let result = account(&tx, id)?;
         tx.commit()?;
         Ok(result)
@@ -585,7 +615,7 @@ impl AccountStore {
         Ok(account)
     }
     #[cfg(test)]
-    fn memory() -> Self {
+    pub(super) fn memory() -> Self {
         let mut store = Self {
             connection: Connection::open_in_memory().unwrap(),
         };

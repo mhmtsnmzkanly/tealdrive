@@ -162,6 +162,31 @@ where
     response
 }
 
+/// SDK runtime cannot be replaced by a custom UI package.
+pub async fn serve_sdk_types() -> Response {
+    let mut response = include_str!("sdk/client.d.ts").into_response();
+    apply_security_headers(response.headers_mut(), "text/plain; charset=utf-8");
+    response
+}
+
+pub async fn serve_sdk() -> Response {
+    let mut response = format!(
+        "{}\n{}\n{}",
+        crate::protocol::JAVASCRIPT_CONTRACT,
+        include_str!("protocol.js"),
+        include_str!("sdk/client.js")
+    )
+    .into_response();
+    apply_security_headers(
+        response.headers_mut(),
+        "application/javascript; charset=utf-8",
+    );
+    response
+        .headers_mut()
+        .insert("cache-control", HeaderValue::from_static("no-cache"));
+    response
+}
+
 pub async fn serve_favicon<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,

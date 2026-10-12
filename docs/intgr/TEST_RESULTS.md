@@ -71,3 +71,12 @@ FilterMode optional extensions eklenmesi eski MessagePack alanlarını korur. Se
 - quota_api_measures_on_helper_and_validates_warning_threshold: passed; anonymous401, valid helper result/no-store, unknown root404, warning0 rejected, warning75 reflected.
 - SDK transport/state/filter/quota/transfer testi: passed.
 - Clippy all targets: passed.
+
+## 2026-10-12 — SDK v1 çekirdeği ve tip sözleşmesi
+
+- sdk_transport_state_filters_quota_and_transfers: passed. Rust-generated contract + gerçek codec kullanarak handshake/auth gate, wrong/right login, list filter/sort/extensions, traversal/unknown option, observer unsubscribe, warning entered/clear dedup, abort/timeout cleanup, raw-chunk ACK/progress, missing path, kullanıcı storage izolasyonu, out-of-order navigation ve deleted-current-dir fallback.
+- WS auth ve browser contract: passed.
+- npx --package typescript tsc --noEmit --strict --lib es2022,dom src/ui/sdk/client.d.ts: passed; tool dev-only, üründe dış dependency yok.
+- node module syntax: passed.
+- Clippy all targets: passed.
+- Çekirdek entegre edildi; virtual/enrollment/policy/audit-history/undo backendleri henüz bu aşamada bitmiş değildir. SDK doc destek tablosunda ayrılır.

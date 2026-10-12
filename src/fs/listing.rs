@@ -241,6 +241,7 @@ mod tests {
             include_hidden,
             sort: SortMode::NameAsc,
             filter: FilterMode {
+                extensions: None,
                 query: None,
                 file_kind: None,
                 filter: Some(FileFilter::All),

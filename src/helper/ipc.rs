@@ -445,6 +445,7 @@ pub(crate) mod tests_support {
                 include_hidden: false,
                 sort: SortMode::NameAsc,
                 filter: FilterMode {
+                    extensions: None,
                     query: None,
                     file_kind: None,
                     filter: Some(FileFilter::All),

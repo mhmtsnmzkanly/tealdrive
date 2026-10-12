@@ -49,3 +49,11 @@ AuthRequest/LoginPayload drop sırasında zeroize; PAM password CString yerine z
 - ws::handshake::tests: 7 passed.
 - Gerçek ephemeral TCP WS: kötü Origin reddi, login öncesi list reddi, binary hello, yanlış parola, aynı WS'de doğru parola, HttpOnly bind ve replay reddi; audit içinde parola/bind token yok.
 - Legacy /ws korunur; SDK /ws/auth ayrı sınırlı pre-auth durum makinesi.
+
+## 2026-10-12 — Listeleme extension filtresi
+
+FilterMode optional extensions eklenmesi eski MessagePack alanlarını korur. Server/helper filter boyut/extension syntax denetler; helper pagination öncesi filtreler.
+
+- extension_filter_precedes_pagination_and_handles_case: passed; gerçek dosyalarla case-insensitive PDF, folder exclusion, iki sayfa, total count, traversal-benzeri extension reddi.
+- listing:: kapsamı: 14 mevcut test passed.
+- SDK/WS/browser contract testleri: 3 passed.

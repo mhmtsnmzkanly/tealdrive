@@ -40,6 +40,14 @@ pub fn list_directory_with_roots(
         .list_options
         .clone()
         .unwrap_or_else(|| default_list_options(request));
+    if !options.filter.is_valid() {
+        return helper_error(
+            request,
+            ErrorKind::ValidationError,
+            "Invalid directory filter.",
+            "invalid_filter",
+        );
+    }
     let limit = options.limit.min(request.limits.max_directory_page_size);
 
     let resolution = match resolve_existing_path(root, &request.relative_path, false) {
@@ -236,6 +244,17 @@ fn matches_filter(
     is_hidden: bool,
     is_symlink: bool,
 ) -> bool {
+    if let Some(extensions) = &filter.extensions {
+        if !extensions.is_empty()
+            && (file_type != FileKind::File
+                || !extensions.iter().any(|extension| {
+                    name.to_ascii_lowercase()
+                        .ends_with(&format!(".{}", extension.to_ascii_lowercase()))
+                }))
+        {
+            return false;
+        }
+    }
     if let Some(query) = &filter.query {
         if !name
             .to_ascii_lowercase()
@@ -312,6 +331,7 @@ fn default_list_options(
         include_hidden: false,
         sort: SortMode::NameAsc,
         filter: FilterMode {
+            extensions: None,
             query: None,
             file_kind: None,
             filter: Some(FileFilter::All),
@@ -525,6 +545,46 @@ mod tests {
             is_web_root: false,
             quota_bytes: None,
         }
+    }
+
+    #[test]
+    fn extension_filter_precedes_pagination_and_handles_case() {
+        let base = temp_root();
+        for file in ["a.PDF", "b.txt", "c.zip", "d.pdf"] {
+            fs::write(base.join(file), b"data").unwrap();
+        }
+        fs::create_dir(base.join("folder.pdf")).unwrap();
+        let roots = [root(base.clone())];
+        let mut request = sample_request(HelperCommand::ListDirectory);
+        request.relative_path = RelativePath::new("");
+        request.list_options = Some(crate::helper::types::HelperListDirectoryOptions {
+            cursor: None,
+            limit: 1,
+            include_hidden: false,
+            sort: SortMode::NameAsc,
+            filter: FilterMode {
+                extensions: Some(vec!["pdf".into()]),
+                ..Default::default()
+            },
+        });
+        let first = list_directory_with_roots(&request, &roots, &SensitivePolicyConfig::default());
+        let HelperResponsePayload::DirectoryList(first) = first.payload else {
+            panic!("list");
+        };
+        assert_eq!(first.entries[0].name, "a.PDF");
+        assert_eq!(first.total_estimate, Some(2));
+        request.list_options.as_mut().unwrap().cursor = first.next_cursor;
+        let second = list_directory_with_roots(&request, &roots, &SensitivePolicyConfig::default());
+        let HelperResponsePayload::DirectoryList(second) = second.payload else {
+            panic!("list");
+        };
+        assert_eq!(second.entries[0].name, "d.pdf");
+        assert!(!second.has_more);
+        request.list_options.as_mut().unwrap().filter.extensions = Some(vec!["../pdf".into()]);
+        assert!(
+            !list_directory_with_roots(&request, &roots, &SensitivePolicyConfig::default()).success
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

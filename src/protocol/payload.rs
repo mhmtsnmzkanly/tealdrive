@@ -80,7 +80,8 @@ pub struct ListDirectoryRequest {
 
 impl ListDirectoryRequest {
     pub fn validate(&self, limits: &Limits) -> Result<(), TealDriveError> {
-        if self.limit > limits.max_directory_page_size {
+        if self.limit == 0 || self.limit > limits.max_directory_page_size || !self.filter.is_valid()
+        {
             return Err(TealDriveError::Validation);
         }
         Ok(())

@@ -64,9 +64,29 @@ pub enum SortMode {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilterMode {
+    #[serde(default)]
+    pub extensions: Option<Vec<String>>,
     pub query: Option<String>,
     pub file_kind: Option<FileKind>,
     pub filter: Option<FileFilter>,
+}
+
+impl FilterMode {
+    pub fn is_valid(&self) -> bool {
+        self.query
+            .as_ref()
+            .is_none_or(|q| q.len() <= 1024 && !q.contains('\0'))
+            && self.extensions.as_ref().is_none_or(|extensions| {
+                extensions.len() <= 64
+                    && extensions.iter().all(|extension| {
+                        !extension.is_empty()
+                            && extension.len() <= 32
+                            && extension.split('.').all(|part| {
+                                !part.is_empty() && part.bytes().all(|c| c.is_ascii_alphanumeric())
+                            })
+                    })
+            })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

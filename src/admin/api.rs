@@ -76,7 +76,16 @@ where
     }
 
     let config = state.config.load_full();
-    Json((*config).clone()).into_response()
+    let mut response = Json((*config).clone()).into_response();
+    response.headers_mut().insert(
+        "x-tealdrive-config-mode",
+        axum::http::HeaderValue::from_static(if state.config.runtime_settings_path().is_some() {
+            "split"
+        } else {
+            "legacy"
+        }),
+    );
+    response
 }
 
 pub async fn patch_config_handler<H>(
@@ -172,19 +181,25 @@ where
                 AuditStatus::Failed,
             ));
             (
-                if err == crate::errors::TealDriveError::Validation {
+                if err == crate::errors::TealDriveError::PermissionDenied {
+                    StatusCode::FORBIDDEN
+                } else if err == crate::errors::TealDriveError::Validation {
                     StatusCode::BAD_REQUEST
                 } else {
                     StatusCode::INTERNAL_SERVER_ERROR
                 },
                 Json(AdminErrorResponse {
-                    error: if err == crate::errors::TealDriveError::Validation {
+                    error: if err == crate::errors::TealDriveError::PermissionDenied {
+                        "Root-controlled configuration or ceiling cannot be changed from the panel."
+                    } else if err == crate::errors::TealDriveError::Validation {
                         "Invalid configuration."
                     } else {
                         "Configuration could not be applied or persisted. Check the log path and file permissions."
                     }
                     .to_owned(),
-                    code: if err == crate::errors::TealDriveError::Validation {
+                    code: if err == crate::errors::TealDriveError::PermissionDenied {
+                        "root_policy_denied"
+                    } else if err == crate::errors::TealDriveError::Validation {
                         "invalid_config"
                     } else {
                         "config_save_failed"

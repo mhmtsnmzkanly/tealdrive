@@ -1222,14 +1222,18 @@ pub fn spawn_config_watcher<H: 'static>(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
-    let watched_name = config_path.file_name().map(|name| name.to_owned());
+    let mut watched_paths = vec![config_path.clone()];
+    if let Some(path) = state.config.runtime_settings_path() {
+        watched_paths.push(path.to_path_buf());
+    }
+    let matched_paths = watched_paths.clone();
     let watcher_res =
         notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 if !event
                     .paths
                     .iter()
-                    .any(|path| path.file_name() == watched_name.as_deref())
+                    .any(|path| matched_paths.iter().any(|watched| path == watched))
                 {
                     return;
                 }
@@ -1256,19 +1260,23 @@ pub fn spawn_config_watcher<H: 'static>(
     };
 
     use notify::Watcher;
-    if let Err(err) = watcher.watch(
-        config_path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(std::path::Path::new(".")),
-        notify::RecursiveMode::NonRecursive,
-    ) {
-        eprintln!(
-            "Failed to watch config path {}: {}",
-            config_path.display(),
-            err
-        );
-        return None;
+    let parents: std::collections::HashSet<_> = watched_paths
+        .iter()
+        .map(|path| {
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(std::path::Path::new("."))
+        })
+        .collect();
+    for parent in parents {
+        if let Err(err) = watcher.watch(parent, notify::RecursiveMode::NonRecursive) {
+            eprintln!(
+                "Failed to watch config directory {}: {}",
+                parent.display(),
+                err
+            );
+            return None;
+        }
     }
 
     tokio::spawn(async move {

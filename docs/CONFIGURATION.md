@@ -252,3 +252,54 @@ remove-only entries. Saving other settings preserves them unless explicitly
 unchecked; after removal they cannot be reselected through the picker. A failed
 user discovery blocks settings saving rather than overwriting permissions with
 an empty list.
+
+## Root configuration and panel settings separation
+
+Use split mode for new installations:
+
+```sh
+tealdrive-server --config /home/tealdrive/policy/server.toml \
+  --runtime-config /home/tealdrive/config/settings.toml \
+  --helper-bin /home/tealdrive/bin/tealdrive-helper
+```
+
+The first file is a complete `AppConfig` owned by root. Its parents must be root-owned,
+not symlinks and not group/world writable. The service needs read access, but cannot
+write this file or its parent. The runtime settings file is an optional partial
+configuration in a service-owned directory; an absent file means no overrides.
+Explicit invalid, oversized (>64 KiB), nonregular or final symlink settings fail loading.
+An empty file is a valid empty overlay. CLI bind/static overrides are rejected in split mode.
+
+```toml
+# /home/tealdrive/config/settings.toml
+quota_warning_percent = 80
+
+[features]
+save_text_file = true # only if permitted by root config and helper ceiling
+
+[audit]
+retention_hours = 504
+max_file_bytes = 10485760
+max_archives = 5
+
+[session]
+idle_timeout_seconds = 1800
+```
+
+Allowed overrides: quota warning, features, transfer/list/edit limits, audit size/count/age,
+session idle/absolute timeouts, helper timeout, search limits and stricter login limiting.
+Features and numeric limits cannot exceed root values. Root chooses the audit directory;
+panel may change the filename within that exact directory. Retention cannot exceed a
+root age ceiling or be disabled when root requires one. Panel cannot change accounts/admins,
+roots, sensitive policies, cookie security/name, proxy trust, Origin/protocol or UI source.
+Those fields are rejected even when their requested values equal current values.
+
+`save=true` atomically persists only the runtime overlay (0600); root config is unchanged.
+Both files are watched; SIGHUP and admin reload merge and validate them as one snapshot.
+Invalid reload keeps current settings. A changed listening address requires restart and
+is rejected by live reload. A tightened root ceiling conflicting with saved overrides
+requires adjusting the overrides before reload. `--check-config` validates both files.
+GET config includes `X-Tealdrive-Config-Mode: split`; the bundled UI disables critical
+controls and submits only permitted settings. Legacy single-file mode remains available
+for migration and retains its previous administrative surface; it is not the new
+root/runtime protection model.

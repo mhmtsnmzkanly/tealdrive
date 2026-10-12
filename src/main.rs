@@ -12,6 +12,7 @@ use tealdrive::ws::server::{run_server, WsServerState};
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ServerArgs {
     pub config_path: Option<PathBuf>,
+    pub runtime_config_path: Option<PathBuf>,
     pub bind_addr: Option<String>,
     pub static_dir: Option<PathBuf>,
     pub helper_bin: Option<PathBuf>,
@@ -31,6 +32,12 @@ impl ServerArgs {
                         .next()
                         .ok_or_else(|| "--config requires a path argument".to_owned())?;
                     parsed.config_path = Some(PathBuf::from(val));
+                }
+                "--runtime-config" => {
+                    parsed.runtime_config_path =
+                        Some(PathBuf::from(iter.next().ok_or_else(|| {
+                            "--runtime-config requires a path".to_owned()
+                        })?));
                 }
                 "-b" | "--bind" => {
                     let val = iter
@@ -77,6 +84,7 @@ impl ServerArgs {
                    --static-dir <PATH>   Path to static frontend assets directory\n\
                    --assets-dir <PATH>   Alias for --static-dir\n\
                    --helper-bin <PATH>   Path to tealdrive-helper binary\n\
+                   --runtime-config <PATH>  Service-writable settings beneath root config\n\
                    --check-config        Validate configuration file and exit\n\
                -v, --version             Print version information\n\
                -h, --help                Print this help message",
@@ -114,6 +122,10 @@ async fn main() {
 async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     let config_path = AppConfig::resolve_config_path(args.config_path.as_deref());
     let mut config = AppConfig::load_or_default(config_path.as_deref())?;
+    if args.runtime_config_path.is_some() && (args.bind_addr.is_some() || args.static_dir.is_some())
+    {
+        return Err(TealDriveError::Validation);
+    }
 
     if let Some(bind_override) = args.bind_addr {
         config.server.bind_addr = bind_override;
@@ -125,6 +137,10 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     config.validate()?;
 
     if args.check_config {
+        if let Some(runtime_path) = args.runtime_config_path {
+            tealdrive::config::DynamicConfig::new(config, config_path)
+                .with_runtime_settings(runtime_path)?;
+        }
         println!("Configuration is valid.");
         return Ok(());
     }
@@ -152,7 +168,7 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
         config.rate_limit.max_login_failures,
         config.rate_limit.lockout_duration_seconds,
     );
-    let state = WsServerState::with_authenticator_and_path(
+    let mut state = WsServerState::with_authenticator_and_path(
         config,
         config_path,
         session_store,
@@ -165,6 +181,10 @@ async fn run(args: ServerArgs) -> Result<(), TealDriveError> {
     )
     .with_timeout_updater(move |d| helper_client_clone.set_timeout(d));
 
+    if let Some(runtime_path) = args.runtime_config_path {
+        state.config = state.config.clone().with_runtime_settings(runtime_path)?;
+        state.sync_runtime_config(&state.config.load_full()).await;
+    }
     let _watcher = tealdrive::ws::server::spawn_config_watcher(&state);
 
     #[cfg(unix)]

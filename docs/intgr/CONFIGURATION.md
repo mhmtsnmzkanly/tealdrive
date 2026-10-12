@@ -1,6 +1,8 @@
 # TealDrive CONFIGURATION geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Root/server dosyası + sınırlı çalışma ayarı overlay'i uygulandı. Çalışan şema ve komutlar [mevcut config belgesinde](../CONFIGURATION.md#root-configuration-and-panel-settings-separation). Aşağıdaki schema_version/auth/TLS/UI örnekleri henüz hedef şemadır; çalışan parser'a doğrudan verilemez.
+
+Split mod: `--config /home/tealdrive/policy/server.toml --runtime-config /home/tealdrive/config/settings.toml`. Root dosyası tam AppConfig, çalışma dosyası sınırlı ConfigPatch. Kaydetme root dosyasını değiştirmez; iki dosya izlenir. Log adı root'un belirlediği dizin içinde seçilebilir. Helper ve hesap politikalarının yeni şemaya taşınması sonraki aşamadır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 

@@ -664,6 +664,7 @@ pub struct DynamicConfig {
     config_path: Option<PathBuf>,
     mutation: Arc<std::sync::Mutex<()>>,
     audit_sink: Option<Arc<crate::audit::sink::JsonlAuditSink>>,
+    runtime_settings: Option<crate::runtime_settings::RuntimeSettings>,
 }
 
 impl DynamicConfig {
@@ -673,7 +674,54 @@ impl DynamicConfig {
             config_path: path,
             mutation: Arc::new(std::sync::Mutex::new(())),
             audit_sink: None,
+            runtime_settings: None,
         }
+    }
+
+    pub fn with_runtime_settings(mut self, path: PathBuf) -> Result<Self, TealDriveError> {
+        let root_path = self
+            .config_path
+            .as_ref()
+            .ok_or(TealDriveError::Validation)?;
+        if !root_path.is_absolute() || root_path == &path {
+            return Err(TealDriveError::Validation);
+        }
+        let ceiling = Self::read_root_config(root_path)?;
+        if *self.load_full() != ceiling {
+            return Err(TealDriveError::Validation);
+        }
+        let settings = crate::runtime_settings::RuntimeSettings::new(path, ceiling.clone())?;
+        let effective = settings.read(&ceiling)?;
+        self.runtime_settings = Some(settings);
+        self.store(effective)?;
+        Ok(self)
+    }
+    fn read_root_config(path: &Path) -> Result<AppConfig, TealDriveError> {
+        let bytes = crate::helper::security::trusted_read(path, false)
+            .map_err(|_| TealDriveError::PermissionDenied)?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| TealDriveError::Validation)?;
+        let config: AppConfig = if path.extension().is_some_and(|e| e == "json") {
+            serde_json::from_str(text).map_err(|_| TealDriveError::Validation)?
+        } else {
+            toml::from_str(text).map_err(|_| TealDriveError::Validation)?
+        };
+        config.validate()?;
+        Ok(config)
+    }
+    pub fn runtime_settings_path(&self) -> Option<&Path> {
+        self.runtime_settings.as_ref().map(|s| s.path.as_path())
+    }
+    fn validate_runtime(&self, config: &AppConfig) -> Result<(), TealDriveError> {
+        if let Some(settings) = &self.runtime_settings {
+            // Re-read root policy so a revoked privilege is not resurrected by a later PATCH.
+            let ceiling = Self::read_root_config(
+                self.config_path
+                    .as_ref()
+                    .ok_or(TealDriveError::Validation)?,
+            )?;
+            settings.validate(config, &ceiling)?;
+        }
+        Ok(())
     }
 
     pub fn with_audit_sink(mut self, sink: Arc<crate::audit::sink::JsonlAuditSink>) -> Self {
@@ -689,12 +737,10 @@ impl DynamicConfig {
                 config.audit.path = Some(sink.path());
             }
         }
-        if config
-            .audit
-            .path
-            .as_ref()
-            .is_some_and(|path| self.config_path.as_ref() == Some(path))
-        {
+        if config.audit.path.as_ref().is_some_and(|path| {
+            self.config_path.as_ref() == Some(path)
+                || self.runtime_settings_path() == Some(path.as_path())
+        }) {
             return Err(TealDriveError::Validation);
         }
         self.audit_sink
@@ -727,6 +773,7 @@ impl DynamicConfig {
     pub fn store(&self, mut new_config: AppConfig) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         new_config.validate()?;
+        self.validate_runtime(&new_config)?;
         let prepared = self.prepare_audit(&mut new_config)?;
         let arc = Arc::new(new_config);
         self.commit_audit(prepared);
@@ -737,7 +784,20 @@ impl DynamicConfig {
     pub fn reload(&self) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
         let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
-        let mut loaded = AppConfig::from_file(path)?;
+        let mut loaded = if let Some(settings) = &self.runtime_settings {
+            let ceiling = Self::read_root_config(path)?;
+            settings.read(&ceiling)?
+        } else {
+            AppConfig::from_file(path)?
+        };
+        if self.runtime_settings.is_some()
+            && loaded.server.bind_addr != self.load().server.bind_addr
+        {
+            eprintln!(
+                "Listen address changes require a service restart; current configuration retained."
+            );
+            return Err(TealDriveError::Validation);
+        }
         let prepared = self.prepare_audit(&mut loaded)?;
         let loaded = Arc::new(loaded);
         self.commit_audit(prepared);
@@ -754,9 +814,13 @@ impl DynamicConfig {
         save: bool,
     ) -> Result<Arc<AppConfig>, TealDriveError> {
         let _lock = self.mutation.lock().map_err(|_| TealDriveError::Internal)?;
+        if self.runtime_settings.is_some() {
+            crate::runtime_settings::RuntimeSettings::check_patch(&patch)?;
+        }
         let mut config = (*self.load_full()).clone();
         patch.apply_to(&mut config);
         config.validate()?;
+        self.validate_runtime(&config)?;
         let prepared = self.prepare_audit(&mut config)?;
         if save {
             self.persist(&config)?;
@@ -773,11 +837,36 @@ impl DynamicConfig {
     fn persist(&self, config: &AppConfig) -> Result<(), TealDriveError> {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let path = self.config_path.as_ref().ok_or(TealDriveError::NotFound)?;
+        self.validate_runtime(config)?;
+        let path = self
+            .runtime_settings_path()
+            .or(self.config_path())
+            .ok_or(TealDriveError::NotFound)?;
+        let mut projected = self
+            .runtime_settings
+            .as_ref()
+            .map(|_| crate::runtime_settings::RuntimeSettings::project(config));
+        if let Some(patch) = &mut projected {
+            if let Some(audit) = &mut patch.audit {
+                if audit.retention_hours == Some(None) {
+                    audit.retention_hours = Some(Some(0));
+                }
+            }
+        }
+        let value = projected
+            .as_ref()
+            .map(serde_json::to_value)
+            .unwrap_or_else(|| serde_json::to_value(config))
+            .map_err(|_| TealDriveError::Internal)?;
         let content = if path.extension().and_then(|p| p.to_str()) == Some("json") {
-            serde_json::to_string_pretty(config).map_err(|_| TealDriveError::Internal)?
+            serde_json::to_string_pretty(&value).map_err(|_| TealDriveError::Internal)?
         } else {
-            toml::to_string_pretty(config).map_err(|_| TealDriveError::Internal)?
+            if let Some(patch) = &projected {
+                toml::to_string_pretty(patch)
+            } else {
+                toml::to_string_pretty(config)
+            }
+            .map_err(|_| TealDriveError::Internal)?
         };
         let parent = path
             .parent()

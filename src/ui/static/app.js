@@ -926,6 +926,7 @@
     userChoicesReady=true;
   }
 
+  let currentAdminConfigMode = "legacy";
   async function openSettingsModal() {
     try {
       const resp = await fetch('/api/admin/config', { credentials: 'same-origin' });
@@ -936,6 +937,10 @@
       const data = await resp.json();
       const cfg = data.config || data;
       currentAdminConfig = cfg;
+      currentAdminConfigMode = resp.headers.get("x-tealdrive-config-mode") || "legacy";
+      const split = currentAdminConfigMode === "split";
+      el.cfgTrustedProxies.disabled = split;
+      el.cfgClientIpHeader.disabled = split;
       if (cfg && cfg.features) {
         el.cfgFeatEdit.checked = !!cfg.features.save_text_file;
         el.cfgFeatDelete.checked = !!cfg.features.delete_permanently;
@@ -943,6 +948,10 @@
         el.cfgFeatArchive.checked = !!cfg.features.extract_archive;
       }
       await loadUserChoices(cfg.account_policy?.allowed_users||[]);
+      if (split) {
+        for (const input of el.cfgAllowedUsers.querySelectorAll("input")) input.disabled = true;
+        el.cfgUsersStatus.textContent = "Root policy controls eligible users. Account grants use account management.";
+      }
       el.cfgTrustedProxies.value=(cfg.proxy?.trusted_proxies||[]).join('\n');
       el.cfgClientIpHeader.value=cfg.proxy?.client_ip_header||'XForwardedFor';
       el.cfgAuditPath.value=cfg.audit?.path||'';
@@ -1017,6 +1026,12 @@
         default_max_results: parseInt(el.cfgSearchMaxResults.value, 10) || 100,
       }
     };
+    if (currentAdminConfigMode === "split") {
+      delete patch.allowed_users;
+      delete patch.proxy;
+      delete patch.trash_retention_days;
+      patch.session = {idle_timeout_seconds: patch.session.idle_timeout_seconds};
+    }
     const persist = el.cfgPersistDisk.checked ? '?save=true' : '';
     try {
       const resp = await fetch('/api/admin/config' + persist, {

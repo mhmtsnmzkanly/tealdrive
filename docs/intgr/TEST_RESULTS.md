@@ -94,3 +94,10 @@ Canlı eski servis değiştirilmeden loopback aday13101, ayrı audit/config ve r
 
 - audit::sink::tests: 9 passed. 1 saat sınırında 2 saatlik archive silinir, 30 dakikalık archive korunur; gün uyumluluğu, 504 saat default, nullable PATCH/TOML restart roundtrip, üst sınır ve concurrent rotation doğrulandı.
 - SDK/browser permission regression sonuçları bu değişikliğin commit'i öncesinde doğrulandı.
+
+## 2026-10-12 — Root/runtime config ayrımı
+
+- runtime_settings::tests: 2 passed; projected TOML roundtrip, feature/limit/cookie/admin/retention/path genişletme reddi, eksik/empty/unknown/symlink settings.
+- cargo test --test runtime_settings -- --ignored: root gerektiren gerçek dosya testi passed; root dosyası byte-identical, runtime0600, restart roundtrip, forbidden PATCH disk/state değiştirmiyor, bozuk reload mevcut admin/state'i koruyor, root admin değişikliği yükleniyor, bind değişikliği restart gerektiriyor, disabled retention TOML'de 0 ile kalıcı.
+- Mevcut config unit: 6 passed; SDK/browser permission/WS auth regression: 3 passed.
+- cargo clippy --locked --all-targets -- -D warnings: passed.

@@ -14,6 +14,7 @@ use std::{
 #[serde(default, deny_unknown_fields)]
 pub struct LifecycleConfig {
     pub trash_cleanup_enabled: bool,
+    pub staging_cleanup_enabled: bool,
     pub trash_retention_hours: u64,
     pub staging_retention_hours: u64,
     pub max_cleanup_per_run: u16,
@@ -22,6 +23,7 @@ impl Default for LifecycleConfig {
     fn default() -> Self {
         Self {
             trash_cleanup_enabled: true,
+            staging_cleanup_enabled: true,
             trash_retention_hours: 504,
             staging_retention_hours: 24,
             max_cleanup_per_run: 100,
@@ -43,6 +45,69 @@ impl LifecycleConfig {
 pub struct CleanupResult {
     pub trash_cleaned: usize,
     pub trash_skipped: usize,
+}
+pub(crate) fn staging_record(
+    store: &AccountStore,
+    account_id: &str,
+    operation_id: &str,
+) -> Result<OperationRecord, StoreError> {
+    uuid::Uuid::parse_str(account_id).map_err(|_| StoreError::InvalidInput)?;
+    uuid::Uuid::parse_str(operation_id).map_err(|_| StoreError::InvalidInput)?;
+    let raw: String = store.connection.query_row(
+        "SELECT value FROM security_state WHERE key=?1",
+        [format!("staging_expiry_v1:{account_id}:{operation_id}")],
+        |r| r.get(0),
+    )?;
+    let record: OperationRecord =
+        serde_json::from_str(&raw).map_err(|_| StoreError::InvalidInput)?;
+    if record.version != 1 || record.account_id != account_id || record.id != operation_id {
+        return Err(StoreError::InvalidInput);
+    }
+    Ok(record)
+}
+pub(crate) fn stage_target(
+    record: &OperationRecord,
+) -> Result<(RelativePath, RelativePath), StoreError> {
+    let path = record
+        .staging_path
+        .as_ref()
+        .ok_or(StoreError::InvalidInput)?;
+    let destination = if ["write", "upload"].contains(&record.action.as_str()) {
+        &record.source_path
+    } else {
+        record
+            .target_path
+            .as_ref()
+            .ok_or(StoreError::InvalidInput)?
+    };
+    let parent = destination
+        .0
+        .rsplit_once('/')
+        .map_or("", |(parent, _)| parent);
+    let stem = format!(
+        "{}.tdrv-transaction-{}",
+        if parent.is_empty() {
+            String::new()
+        } else {
+            format!("{parent}/")
+        },
+        record.id
+    );
+    if ![
+        stem.clone(),
+        format!("{stem}.zip"),
+        format!("{stem}.tar.gz"),
+    ]
+    .contains(&path.0)
+    {
+        return Err(StoreError::InvalidInput);
+    }
+    if !["write", "upload", "copy", "archive", "extract"].contains(&record.action.as_str())
+        || record.status == "success"
+    {
+        return Err(StoreError::Forbidden);
+    }
+    Ok((path.clone(), destination.clone()))
 }
 pub(crate) fn record(
     store: &AccountStore,
@@ -314,6 +379,55 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+    #[test]
+    fn staging_token_survives_unknown_result_and_rejects_unrelated_paths() {
+        let mut store = AccountStore::memory();
+        let actor = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "alice".into(),
+                    uid: 1000,
+                    gid: 1000,
+                    home: "/home/alice".into(),
+                    kind: AccountKind::Linux,
+                    role: Role::User,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+            )
+            .unwrap();
+        let cfg = JournalConfig {
+            enabled: true,
+            retention_hours: 1,
+            undo_max_hours: 1,
+            ..Default::default()
+        };
+        let mut request =
+            crate::helper::ipc::tests_support::sample_request(HelperCommand::WriteFile);
+        request.username = actor.username.clone();
+        request.uid = actor.uid;
+        request.gid = actor.gid;
+        let pending = store.begin_operation(&actor, &request, &cfg, 1000).unwrap();
+        assert!(stage_target(&pending).unwrap().0 .0.ends_with(&pending.id));
+        store.finish_operation(&pending, None, &cfg, 1001).unwrap();
+        store.gc_operations(&cfg, 4601).unwrap();
+        let token = staging_record(&store, &actor.id, &pending.id).unwrap();
+        assert_eq!(token.status, "unknown");
+        let mut forged = token.clone();
+        forged.staging_path = Some(crate::config::RelativePath::new("ordinary-user-file"));
+        assert!(stage_target(&forged).is_err());
+        let pending = store.begin_operation(&actor, &request, &cfg, 5000).unwrap();
+        store
+            .finish_operation(
+                &pending,
+                Some(&HelperResponse::operation_done(&request, "done")),
+                &cfg,
+                5001,
+            )
+            .unwrap();
+        assert!(staging_record(&store, &actor.id, &pending.id).is_err());
     }
     #[test]
     fn lifecycle_hours_and_work_bounds_validate_independently_from_audit_ttl() {

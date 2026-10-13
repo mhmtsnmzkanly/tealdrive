@@ -150,6 +150,8 @@ pub struct OperationRecord {
     pub staging_path: Option<crate::config::RelativePath>,
     #[serde(default)]
     pub trash_gc_status: Option<String>,
+    #[serde(default)]
+    pub staging_gc_status: Option<String>,
 }
 fn prefix(id: &str) -> String {
     format!("operation_v1:{id}:")
@@ -318,6 +320,7 @@ impl AccountStore {
             undo_error_code: None,
             staging_path,
             trash_gc_status: None,
+            staging_gc_status: None,
         };
         let data = encode(&record, config)?;
         // Reserve bounded after-state metadata before the filesystem mutation begins.
@@ -371,15 +374,20 @@ impl AccountStore {
             "INSERT INTO security_state(key,value) VALUES(?1,?2)",
             params![key(&record), data],
         )?;
-        if record.action == "trash" {
+        if record.action == "trash" || record.staging_path.is_some() {
+            let namespace = if record.action == "trash" {
+                "trash_expiry_v1"
+            } else {
+                "staging_expiry_v1"
+            };
             let count: i64 = tx.query_row(
                 "SELECT count(*) FROM security_state WHERE key GLOB ?1",
-                [format!("trash_expiry_v1:{}:*", actor.id)],
+                [format!("{namespace}:{}:*", actor.id)],
                 |r| r.get(0),
             )?;
             let global: i64 = tx.query_row(
-                "SELECT count(*) FROM security_state WHERE key GLOB 'trash_expiry_v1:*'",
-                [],
+                "SELECT count(*) FROM security_state WHERE key GLOB ?1",
+                [format!("{namespace}:*")],
                 |r| r.get(0),
             )?;
             if count >= i64::from(config.max_entries_per_account)
@@ -390,7 +398,7 @@ impl AccountStore {
             tx.execute(
                 "INSERT INTO security_state(key,value) VALUES(?1,?2)",
                 params![
-                    format!("trash_expiry_v1:{}:{}", actor.id, record.id),
+                    format!("{namespace}:{}:{}", actor.id, record.id),
                     encode(&record, config)?
                 ],
             )?;
@@ -462,6 +470,17 @@ impl AccountStore {
         if current.action == "trash" {
             let token = format!("trash_expiry_v1:{}:{}", current.account_id, current.id);
             if current.status == "failed" {
+                tx.execute("DELETE FROM security_state WHERE key=?1", [token])?;
+            } else {
+                tx.execute(
+                    "UPDATE security_state SET value=?1 WHERE key=?2",
+                    params![encode(&current, config)?, token],
+                )?;
+            }
+        }
+        if current.staging_path.is_some() {
+            let token = format!("staging_expiry_v1:{}:{}", current.account_id, current.id);
+            if current.status == "success" {
                 tx.execute("DELETE FROM security_state WHERE key=?1", [token])?;
             } else {
                 tx.execute(

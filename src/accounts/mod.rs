@@ -13,5 +13,6 @@ pub mod journal;
 
 pub mod ledger;
 pub mod lifecycle;
+pub mod staging;
 pub mod subids;
 pub mod undo;

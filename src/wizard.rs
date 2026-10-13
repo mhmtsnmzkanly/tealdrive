@@ -428,18 +428,24 @@ pub fn run(args: Vec<String>) -> Result<()> {
             crate::accounts::lifecycle::worker(account_id, operation_id)?;
             Ok(())
         }
+        ["__staging-expiry-worker", account_id, operation_id, as_of] => {
+            root()?;
+            crate::accounts::staging::worker(account_id, operation_id, as_of.parse()?)?;
+            Ok(())
+        }
         ["gc"] => {
             root()?;
             let cfg = config()?;
             let mut store = store()?;
             let purged = crate::accounts::virtuals::purge_deleted(&mut store, &cfg)?;
             let cleanup = crate::accounts::lifecycle::cleanup(&store, &cfg)?;
+            let staged = crate::accounts::staging::cleanup(&store, &cfg)?;
             let expired = store.gc_operations(
                 &cfg.journal,
                 crate::session::store::InMemorySessionStore::now_epoch_seconds(),
             )?;
             print(
-                &serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired,"trash_cleaned":cleanup.trash_cleaned,"trash_skipped":cleanup.trash_skipped}),
+                &serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired,"trash_cleaned":cleanup.trash_cleaned,"trash_skipped":cleanup.trash_skipped,"staging_cleaned":staged.staging_cleaned,"staging_skipped":staged.staging_skipped}),
             )
         }
         ["virtual", "admin", "create", name, budget, request] => {

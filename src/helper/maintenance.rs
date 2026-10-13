@@ -12,6 +12,72 @@ struct Node {
     path: RelativePath,
     state: FileState,
 }
+pub(crate) fn expire_staging(
+    config: &AppConfig,
+    actor: &Account,
+    root: &AllowedRoot,
+    operation: &OperationRecord,
+    path: &RelativePath,
+    destination: &RelativePath,
+    cutoff: u64,
+) -> Result<(), StoreError> {
+    if unsafe { libc::geteuid() } == 0 || unsafe { libc::getuid() } != actor.uid {
+        return Err(StoreError::Forbidden);
+    }
+    let request = super::types::HelperRequest {
+        request_id: operation.request_id,
+        username: actor.username.clone(),
+        uid: actor.uid,
+        gid: actor.gid,
+        command: super::types::HelperCommand::DeletePermanently,
+        root_id: root.root_id.clone(),
+        relative_path: destination.clone(),
+        target_relative_path: None,
+        policy_context: super::types::HelperPolicyContext {
+            read_only_root: root.read_only,
+            is_web_root: root.is_web_root,
+        },
+        limits: super::types::HelperLimits {
+            max_directory_page_size: config.limits.max_directory_page_size,
+            max_text_edit_size: config.limits.max_text_edit_size,
+            max_chunk_size: config.limits.max_chunk_size,
+            max_download_helper_bytes: config.limits.max_chunk_size,
+        },
+        list_options: None,
+        write_options: None,
+        chmod_mode: None,
+        archive_source_paths: None,
+        search_options: None,
+    };
+    super::policy::authorize(&request, config).map_err(|_| StoreError::Forbidden)?;
+    super::access::with_context(&request, config, || {
+        super::access::with_alias(path.clone(), destination.clone(), || {
+            let mut nodes = Vec::new();
+            let device = FileState::metadata(&std::fs::metadata(&root.base_path)?).device;
+            match manifest(root, path, &mut nodes, 0, actor.uid, &device) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound && nodes.is_empty() => {
+                    return Ok(())
+                }
+                Err(error) => return Err(error.into()),
+                Ok(()) => {}
+            }
+            if nodes.iter().any(|node| {
+                node.state.mtime_seconds < 0
+                    || node.state.ctime_seconds < 0
+                    || node.state.mtime_seconds as u64 > cutoff
+                    || node.state.ctime_seconds as u64 > cutoff
+            }) {
+                return Err(StoreError::Conflict);
+            }
+            let parent = destination
+                .0
+                .rsplit_once('/')
+                .map_or("", |(parent, _)| parent);
+            remove_nodes(root, nodes, &RelativePath::new(parent))?;
+            Ok(())
+        })
+    })
+}
 fn manifest(
     root: &AllowedRoot,
     path: &RelativePath,
@@ -73,11 +139,10 @@ fn remove_nodes(
         } {
             return Err(io::Error::other("maintenance target changed"));
         }
-        let (parent, name) = node
-            .path
-            .0
-            .rsplit_once('/')
-            .ok_or_else(|| io::Error::other("private target required"))?;
+        let (parent, name) = node.path.0.rsplit_once('/').unwrap_or(("", &node.path.0));
+        if name.is_empty() {
+            return Err(io::Error::other("private target required"));
+        }
         let open = || {
             super::sandbox::open(
                 root,

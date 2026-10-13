@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import time
 import urllib.request
+import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HELPER_CONFIG = pathlib.Path('/home/tealdrive/policy/helper.toml')
@@ -313,6 +314,39 @@ def main():
                 if label.startswith('gc-changed-') and (not target.is_file() or target.read_bytes()!=b'changed expiry fixture'):
                     raise RuntimeError('Changed trash was deleted or altered')
             print(json.dumps(dict(trashRetention504h=True,userIdentityTrashCleanup=True,changedTrashPreserved=True)))
+            # Root-only private worker accepts an explicit test clock; host time is unchanged.
+            as_of=int(time.time())+24*3600+5
+            with sqlite3.connect(DB) as state:
+                actor=state.execute('SELECT id,home,uid,gid,generation FROM accounts WHERE username=?',(users[1]['username'],)).fetchone()
+                if not actor or actor[1]!='/home/'+users[1]['username']:
+                    raise RuntimeError('Staging fixture outside own fresh account')
+                baseline=next(r for r in records if r['accountId']==actor[0] and r['action']=='write')
+                staged=[]
+                for changed in (False,True):
+                    record=dict(baseline)
+                    record.update(id=str(uuid.uuid4()),requestId=str(uuid.uuid4()),generation=actor[4],createdAt=int(time.time()),updatedAt=int(time.time()),action='write',sourcePath='gc-staging-destination-'+suffix,targetPath=None,status='unknown',before=None,after=None,oldMode=None,newMode=None,undoStatus=None,stagingGcStatus=None,logReserveBytes=0,logStorage='systemBudget')
+                    record['stagingPath']='.tdrv-transaction-'+record['id']
+                    target=pathlib.Path(actor[1])/record['stagingPath']
+                    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+                    try:
+                        os.write(fd,b'private staging fixture');os.fchown(fd,actor[2],actor[3])
+                    finally:
+                        os.close(fd)
+                    if changed:
+                        os.utime(target,(as_of+3600,as_of+3600))
+                    data=json.dumps(record)
+                    state.execute('INSERT INTO security_state(key,value) VALUES(?,?)',('operation_v1:'+actor[0]+':'+str(record['createdAt']).zfill(20)+':'+record['id'],data))
+                    state.execute('INSERT INTO security_state(key,value) VALUES(?,?)',('staging_expiry_v1:'+actor[0]+':'+record['id'],data))
+                    staged.append((changed,record['id'],target))
+            for changed,operation_id,target in staged:
+                outcome=subprocess.run(['/home/tealdrive/bin/tealdrive-wizard','__staging-expiry-worker',actor[0],operation_id,str(as_of)],capture_output=True,text=True)
+                if changed:
+                    if outcome.returncode==0 or not target.is_file() or target.read_bytes()!=b'private staging fixture':
+                        raise RuntimeError('Recently changed staging was removed')
+                elif outcome.returncode!=0 or target.exists():
+                    raise RuntimeError('Old exact staging token was not cleaned: '+outcome.stderr[:256])
+            print(json.dumps(dict(stagingRetention24h=True,exactStagingToken=True,recentStagingPreserved=True,hostClockUnchanged=True)))
+
 
         audit_text = audit.read_text()
         if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
@@ -391,6 +425,7 @@ def main():
                             connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
                         connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+child[0]+':%',))
                         connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('trash_expiry_v1:'+child[0]+':%',))
+                        connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('staging_expiry_v1:'+child[0]+':%',))
                         connection.execute('DELETE FROM accounts WHERE id=?', (child[0],))
                     for uid in virtual_uids:
                         connection.execute('DELETE FROM security_state WHERE key=?', ('virtual_uid_retired:' + str(uid),))
@@ -402,6 +437,7 @@ def main():
                 connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
                 connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+row[0]+':%',))
                 connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('trash_expiry_v1:'+row[0]+':%',))
+                connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('staging_expiry_v1:'+row[0]+':%',))
                 connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
             connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
         if virtual:

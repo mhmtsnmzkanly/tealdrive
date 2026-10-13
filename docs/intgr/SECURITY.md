@@ -34,3 +34,7 @@ Son kullanıcı açıklaması kod düzeyinde helper config filtresidir; OS düze
 Anahtarı aynı doğrulanmamış bağlantıdan almak MITM kimlik doğrulaması değildir; saldırgan anahtarı değiştirebilir. HTTPS/WSS ve doğrulanmış sunucu kimliği temel olur. Ek mesaj şifrelemesi isteği ayrı tasarım işidir: Uç noktalar, kimlik doğrulama/anahtar güveni, nonce/sıra/replay/downgrade/rotation açıkça tanımlanmadan güvenlik garantisi verilmez.
 
 Mevcut loglar sırları zaten kaydetmemelidir; şifreli payload'ı loglamak gereksinim değildir. Browser-server encryption TLS proxy loglarının payload görmesini azaltabilir, decrypt sonrası server/helper loglarını veya ele geçirilmiş UI'yi otomatik korumaz. Amaç TLS sonlandırıcı/arayolun plaintext görmemesi ise decrypt ucunun helper mı server mı olduğu ayrı karar gerekir.
+
+## Subordinate kimlik çakışması
+
+Virtual UID/GID allocator `/etc/subuid` ve `/etc/subgid` içindeki başka hesaplara verilen eşlemeleri atlar. Configured safe ranges yalnız numeric UID0 owner için rezerve edilir; service/tenant hesabına range delegation yapılmaz. Virtual hesapların kendi subordinate mapping'i oluşturulmaz. Bu dosyalar `/etc/passwd`, PAM ve systemd gibi zorunlu OS entegrasyonudur; uygulama verileri Home layout'tadır. Subid NSS provider files/default olmalıdır; external provider için güvenli geniş fallback yok. Root operator sonradan delegated aralıkları virtual UID/GID'lerle çakıştırmamalıdır.

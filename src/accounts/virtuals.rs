@@ -76,7 +76,7 @@ fn key(owner: &str, request: &str) -> Result<String, StoreError> {
     let request = uuid::Uuid::parse_str(request).map_err(|_| StoreError::InvalidInput)?;
     Ok(format!("virtual_create_v1:{owner}:{request}"))
 }
-fn lock() -> Result<File, StoreError> {
+pub(crate) fn lock() -> Result<File, StoreError> {
     if unsafe { libc::geteuid() } != 0 {
         return Err(StoreError::Forbidden);
     }

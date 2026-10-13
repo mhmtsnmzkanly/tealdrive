@@ -23,7 +23,6 @@ def mount(source, target):
 
 def inner(base):
     mount(base / 'home', '/home/tealdrive')
-    mount(base / 'proc', '/proc')
     mount(base / 'systemd', '/etc/systemd/system')
     mount(base / 'pam', '/etc/pam.d')
     mount(base / 'systemctl', '/usr/bin/systemctl')
@@ -41,6 +40,37 @@ def inner(base):
     invoke(wizard, 'install', '--bundle', str(bundle), ok=False)
     invoke(wizard, 'config', 'validate')
     invoke(wizard, 'diagnose')
+    # A real dedicated quota filesystem inside this mount/PID namespace.
+    assert invoke(wizard, 'storage', 'status', ok=False).returncode != 0
+    marker = home / 'virtual-homes/preserved.txt'
+    marker.write_text('do not hide or replace')
+    invoke(wizard, 'storage', 'init', '128MiB', ok=False)
+    assert marker.read_text() == 'do not hide or replace'
+    marker.unlink()
+    invoke(wizard, 'storage', 'init', '128MiB')
+    native = json.loads(invoke(wizard, 'storage', 'status').stdout)
+    assert native['mounted'] and native['kernelUserQuota']
+    assert 0 < native['poolCapacityBytes'] < native['totalBytes'] <= 128 * 1024 * 1024
+    assert (home / 'storage/virtual-pool.ext4').stat().st_mode & 0o777 == 0o600
+    escaped = subprocess.check_output(['/usr/bin/systemd-escape', '--path', '--suffix=mount', '/home/tealdrive/virtual-homes'], text=True).strip()
+    assert (Path('/etc/systemd/system') / escaped).is_file()
+    assert escaped in Path('/etc/systemd/system/tealdrive.service.d/virtual-storage.conf').read_text()
+    invoke(wizard, 'storage', 'init', '128MiB', ok=False)
+    invoke(wizard, 'storage', 'mount') # Already mounted is idempotent, no reformat.
+    native_cfg = home / 'policy/native-acceptance.toml'
+    native_cfg.write_text((home / 'policy/helper.toml').read_text().replace('enforcement = "application"', 'enforcement = "user_quota"'))
+    native_cfg.chmod(0o600)
+    invoke(wizard, 'config', 'apply', str(native_cfg))
+    invoke(wizard, 'pool', 'set', str(native['totalBytes']), ok=False)
+    invoke(wizard, 'pool', 'set', '128KiB')
+    invoke(wizard, 'pool', 'set', '0')
+    subprocess.run(['/usr/bin/umount', '/home/tealdrive/virtual-homes'], check=True)
+    invoke(wizard, 'storage', 'status', ok=False)
+    invoke(wizard, 'storage', 'mount')
+    assert json.loads(invoke(wizard, 'storage', 'status').stdout)['kernelUserQuota']
+    subprocess.run(['/usr/bin/umount', '/home/tealdrive/virtual-homes'], check=True)
+    native_cfg.write_bytes(cfg_before)
+    invoke(wizard, 'config', 'apply', str(native_cfg))
     invoke(wizard, 'account', 'approve', 'root', ok=False)
     invoke(wizard, 'account', 'approve', 'tealdrive', '--allow-nologin', ok=False)
     invoke(wizard, 'update', '--bundle', str(bundle))
@@ -63,7 +93,7 @@ def inner(base):
     assert (home / 'auth/accounts.db').read_bytes() == db_before
     assert (home / 'policy/helper.key').read_bytes() == key_before
     assert not (home / 'bin/tealdrive-server').exists()
-    print('PASS: isolated install, reinstall rejection, modes, Root/service denial, update, binary rollback, metadata backup/restore, repair, tamper rejection, preserving uninstall')
+    print('PASS: isolated install, reinstall rejection, modes, Root/service denial, update, binary rollback, metadata backup/restore, repair, tamper rejection, preserving uninstall, dedicated native quota image and remount')
 
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == '--inner':
@@ -85,7 +115,7 @@ def main():
         (base / 'bundle/manifest.json').write_text(json.dumps({'schema_version': 1, 'version': 'acceptance-v1', 'sha256': hashes}))
         (base / 'systemctl').write_text('#!/bin/sh\nexit 0\n')
         (base / 'systemctl').chmod(0o755)
-        subprocess.run(['/usr/bin/unshare', '--mount', '--propagation', 'private', sys.executable, str(Path(__file__).resolve()), '--inner', str(base)], check=True)
+        subprocess.run(['/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc', '--propagation', 'private', sys.executable, str(Path(__file__).resolve()), '--inner', str(base)], check=True)
 
 if __name__ == '__main__':
     main()

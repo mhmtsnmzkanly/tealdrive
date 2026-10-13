@@ -26,6 +26,7 @@ const BINARIES: [&str; 4] = [
     "tealdrive-ctl",
 ];
 const UNIT: &str = "tealdrive.service";
+mod storage;
 fn root() -> Result<()> {
     if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
         return Err(
@@ -293,7 +294,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
-            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/allow <id>/deny <id>/password <id> | pool set <size> | budget set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
+            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/allow <id>/deny <id>/password <id> | storage init <size>/status/mount/sync | pool set <size> | budget set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
             Ok(())
         }
         ["init"] => {
@@ -444,6 +445,18 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 request,
             )?)
         }
+        ["storage", "init", size] => {
+            root()?;
+            storage::init(bytes(size)?)
+        }
+        ["storage", "status"] => {
+            root()?;
+            print(&storage::inspect()?)
+        }
+        ["storage", "mount"] => {
+            root()?;
+            storage::mount()
+        }
         ["storage", "sync"] => {
             root()?;
             crate::accounts::virtuals::sync_limits(&mut store()?, &config()?)?;
@@ -452,6 +465,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         }
         ["pool", "set", size] => {
             root()?;
+            storage::check_pool(bytes(size)?)?;
             store()?.set_pool(&Authority::Root, bytes(size)?)?;
             println!("Root pool updated.");
             Ok(())

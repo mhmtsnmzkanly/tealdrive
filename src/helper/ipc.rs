@@ -495,6 +495,7 @@ pub(crate) mod tests_support {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum HelperInvocation {
+    Worker(crate::helper::worker::WorkerInvocation),
     Account(crate::helper::account_gateway::AccountCommand),
     Authenticate(crate::auth::account::AuthRequest),
     Operation {
@@ -544,6 +545,10 @@ pub fn run_secure_helper<R: Read, W: Write>(
     let invocation: HelperInvocation =
         rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)?;
     match invocation {
+        HelperInvocation::Worker(invocation) => {
+            let response = crate::helper::worker::run(invocation)?;
+            write_helper_response(writer, &response)
+        }
         HelperInvocation::Account(command) => {
             let response = crate::helper::account_gateway::execute(command);
             let bytes = zeroize::Zeroizing::new(encode_length_prefixed(
@@ -801,31 +806,12 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     .map_err(|_| TealDriveError::PermissionDenied)?;
                 }
             }
-            if crate::helper::security::enter_identity(&user).is_err() {
-                return write_helper_response(
-                    writer,
-                    &HelperResponse::permission_denied(&request, "Identity verification failed."),
-                );
-            }
-            let Some(root) = config.roots.iter().find(|r| r.root_id == request.root_id) else {
-                return write_helper_response(
-                    writer,
-                    &HelperResponse::permission_denied(&request, "Unknown root."),
-                );
+            let available = reservation.as_ref().and_then(|r| r.available);
+            let mut response = if elevated {
+                crate::helper::worker::spawn(&request, &config, available)?
+            } else {
+                crate::helper::worker::execute(&request, &config, available)?
             };
-            if crate::helper::sandbox::confine(root).is_err() {
-                return write_helper_response(
-                    writer,
-                    &HelperResponse::permission_denied(
-                        &request,
-                        "Kernel filesystem confinement is unavailable.",
-                    ),
-                );
-            }
-            let mut response = crate::helper::quota::with_budget(
-                reservation.as_ref().and_then(|r| r.available),
-                || crate::helper::transaction::execute(&request, &config),
-            );
             response.policy_revision = policy.map(|p| p.revision);
             write_helper_response(writer, &response)
         }

@@ -25,3 +25,5 @@ pub mod trash;
 pub mod types;
 pub mod upload;
 pub mod usage;
+
+pub mod worker;

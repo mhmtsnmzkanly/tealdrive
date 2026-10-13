@@ -249,6 +249,14 @@ pub fn enter_identity(user: &UserContext) -> io::Result<()> {
     }
     Ok(())
 }
+// Domain-separated internal delegation; never exposed as a signing RPC.
+pub(super) fn sign_worker(message: &[u8]) -> io::Result<[u8; 32]> {
+    Ok(hmac(&key()?, message))
+}
+pub(super) fn verify_worker(message: &[u8], mac: &[u8; 32]) -> io::Result<bool> {
+    Ok(verify_mac(&key()?, message, mac))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

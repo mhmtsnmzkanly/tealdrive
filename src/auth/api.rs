@@ -587,10 +587,9 @@ where
                 None => cfg.as_ref().clone(),
             };
             let is_admin = cfg.account_policy.is_admin(&session.username)
-                && account.as_ref().is_none_or(|account| {
-                    account.kind == crate::accounts::store::AccountKind::Linux
-                        && account.role == crate::accounts::store::Role::Admin
-                });
+                && account
+                    .as_ref()
+                    .is_none_or(|account| account.role == crate::accounts::store::Role::Admin);
             let csrf_token = session.csrf_token.clone();
             let roots = cfg
                 .allowed_roots()

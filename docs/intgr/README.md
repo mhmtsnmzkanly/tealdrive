@@ -2,6 +2,8 @@
 
 2026-10-13: planlanan çekirdek uygulandı ve bu sunucuda yeni sürüme geçildi. Güncel teslim ve sınırlar [FINAL_REPORT.md](FINAL_REPORT.md), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md), işlerin kapanışı [PLAN.md](PLAN.md) içindedir. Önceki hedef şemalar [history](history/) altında korunur; eski örnekleri çalışan parser'a vermeyin.
 
+Yeni yetkilendirilmiş çekirdek geliştirme: [NEXT_PHASES.md](NEXT_PHASES.md). Buradaki yeni işler önceki teslimden ayrıdır; kabul edilmeden canlı özellik sayılmaz.
+
 | Belge | Konu |
 |---|---|
 | [HELPER.md](HELPER.md) / [SECURITY.md](SECURITY.md) | Root supervisor, User worker, kimlik/politika ve kernel sınırları |

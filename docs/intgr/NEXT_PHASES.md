@@ -28,3 +28,11 @@ Kullanıcının son kapsamı: hosting yönetimi eklenmez. Mevcut veri ve aktif s
 ### Oturum köprüsü düzeltmesi
 
 SDK bind HTTP reddi, ağ hatası ve bind başarılı/session401 durumlarında kimliği temizler ve WS kapatır. Tekrar giriş yeni handshake gerektirir. Üç regression senaryosu mevcut SDK testine eklendi. `cargo test --locked --test sdk_client` passed (incremental/debug sembolleri kapalı). Canlı release henüz değiştirilmedi. Test sonrasında kök disk boş alanı95GiB.
+
+### Genel yönetim kapsamı
+
+Hesap türüne bağlı Linux-only genel admin denetimi kaldırıldı. Genel panel yönetimi için iki şart birlikte zorunludur: protected DB RoleAdmin ve Root-owned account_policy.admin_users listesinde açık ad. Bu listeye dahil olmayan virtual RoleAdmin tenant kapsamında kalır; RoleUser listeye yazılsa bile admin olamaz. Root Wizard account admin ACCOUNT_ID komutu sanal admin için de bu kapsamı açıkça atar. Server runtime overlay bu listeyi değiştiremez. Kullanıcı dosya UID/GID kimliği değişmez; Root yetkisi webden kritik yapılandırma düzenleme anlamına gelmez. Yeni DB şeması veya kullanıcıya açılan role claim gerekmedi.
+
+Bu değişiklik source aşamasındadır; henüz canlı sürüme geçilmedi. Servis adıyla aynı panel adı için Root provisioning istisnası ayrıca dar kapsamda uygulanacak; normal self-registration/service filtreleri gevşetilmeyecek.
+
+Yetki kapsamı regression testi ve tam library testi passed:588 başarılı,1 açık PAM testi normal koşuda ignored. Root roster dışında tenant sınırı ve roster içinde sanal genel yönetici doğrulandı.

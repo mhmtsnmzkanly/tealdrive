@@ -425,7 +425,7 @@ fn management_authority(
     if actor.role != Role::Admin {
         return Err(GatewayFailure::Forbidden);
     }
-    if actor.kind == AccountKind::Linux && config.account_policy.is_admin(&actor.username) {
+    if config.account_policy.is_admin(&actor.username) {
         Ok(Authority::Root)
     } else if kind == AccountKind::Virtual {
         Ok(Authority::Account {
@@ -1307,6 +1307,12 @@ mod tests {
             Ok(Authority::Root)
         ));
         actor.kind = AccountKind::Virtual;
+        // Root explicitly grants global scope independently of storage identity.
+        assert!(matches!(
+            management_authority(&config, &actor, AccountKind::Linux),
+            Ok(Authority::Root)
+        ));
+        config.account_policy.admin_users.clear();
         assert!(management_authority(&config, &actor, AccountKind::Linux).is_err());
         assert!(matches!(
             management_authority(&config, &actor, AccountKind::Virtual),

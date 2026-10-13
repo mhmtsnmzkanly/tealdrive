@@ -55,3 +55,7 @@ Kritik yönetim audit intent yazılamazsa başlamaz; işlem sonrası audit hatas
 ## 24 saat açıklaması — kullanıcı düzeltmesi
 
 24 saat kullanıcı tercihi varsayılanı değil, server geri alma üst sınırının varsayılanıdır. Kullanıcı 1..server-max saat seçer; server-max root/admin yetki tavanı içinde yapılandırılır.
+
+## Uygulanan protected journal temeli (2026-10-13)
+
+Root supervisor before/after operasyon kayıtları accounts.db içindedir; versioned operation_v1 alanları accountId/generation/requestId/action/rootId/sourcePath/targetPath/requestedMode/status/bytes/errorCode/time. `pending`, `success`, `failed`, `unknown` ayrılır; pending başarı değildir. Varsayılan henüz kapalı `[journal] enabled=false`, retention_hours504, undo_max_hours24, max_entries_per_account2048, max_record_bytes8192. Bu bir geliştirme aşamasıdır: kullanıcıya kendi history API/UI, gerçek eski/yeni metadata, sanal log kota muhasebesi, GC ve undo bağlantısı tamamlanmadan capability açılmıyor. Track edilenler mutasyonlar + readText/DownloadFile; HTTP range/chunk aggregate server audit kapsamı ayrıca mevcut. Bounded journal dolduğunda mutasyon başlamadan static structured error döner. Sonuç kaydı hatası gerçekleşmiş işlemi hiç yapılmamış gibi sunmaz. Dosya içerikleri/credentials protected journal'da da tutulmaz.

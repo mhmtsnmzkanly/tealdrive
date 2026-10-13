@@ -256,3 +256,7 @@ UI package sadece Root; all-declared-assets validation, optional SHAmap, bounded
 ## D048 — Move/rename/trash restore atomik no-overwrite
 
 2026-10-13: Önce hedef yok kontrolü ardından fs::rename dış writer yarışında üzerine yazabiliyordu. Move/rename/trash transfer/restore artık doğrulanmış directory FD'leri üzerinden renameat2 RENAME_NOREPLACE kullanır. Private trash parent'a geçici, dar logical-parent alias yalnız bu helper adımında uygulanır; genel gizli alan politikasını açmaz. Undo hedef çakışması da aynı primitive üzerinden reddedilecek. Dış süreç dosya içeriğini değiştirebilir; burada sağlanan garanti hedef adını ezmemektir.
+
+## D049 — Protected operasyon intent/result temeli
+
+2026-10-13: accounts.db security_state altında versioned operation_v1/account/time/UUID anahtarları; mevcut Root-only SQLite/WAL/backup güven sınırı tekrar kullanılır. Yeni operasyon kaydı Root grant/NSS/policy doğrulamasından sonra, kullanıcı worker başlamadan commit edilir. Sonuç success/failed/unknown; crash sonrası pending başarı sayılmaz. Request ID server audit ile eşleştirme içindir. Request dosya içeriği, parola, cookie/grant veya free-form exception metni kaydedilmez. Bounded record/account count/retention; intent yazılamazsa structured error ve hiç işlem başlatmama. Sonuç kaydı yazılamazsa gerçekleşmiş dosya işlemi sahte rollback/hata olarak sunulmaz, pending history mesajı taşır. Kullanıcıya history/undo ve log-kota entegrasyonu tamamlanana kadar yeni journal default disabled ve SDK capability kapalıdır; eski kuruluma sessiz log kotası yükü eklenmez.

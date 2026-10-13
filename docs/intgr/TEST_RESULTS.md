@@ -350,3 +350,7 @@ Normal571 unit passed/1 ignored ve normal integration grupları passed; fmt/Clip
 ## 2026-10-13 — Atomik move/trash no-overwrite
 
 Helper140 testten139 passed/1 PAM ignored. Kernel primitive testinde validation sonrası external destination oluşturuldu; kaynak ve hedef içerikleri korunarak AlreadyExists döndü. Search/trash/restore/current-policy denial ve alias testleri geçti. Gerçek Chromium shared-SDK CRUD/upload/chmod/state/dir recovery ve Root admin/enrollment/suspend acceptance passed; production untouched/fixture cleanup. Clippy all-targets -D warnings passed.
+
+## 2026-10-13 — Protected operasyon journal temeli
+
+Normal574 unit passed/1 ignored ve normal integration grupları, fmt/Clippy -D warnings, Rust1.85 all-target check passed. Unit: intent→result, interrupted unknown, repeat finish conflict, iki kullanıcı/cursor scope isolation, action filtre, content exclusion, journal cap ve expiry reclamation. Özel Root/PAM/Chromium helper config'te journal açılarak sharedSDK CRUD/conflict/upload/chmod/state çalıştırıldı; RootDB gerçek success/failed sonuçları ve credential exclusion doğrulandı; tamamlanan fixture'da pending yok. Fixture temizliği yalnız kendi account ID operation kayıtlarını kaldırır; üretim helper config byte-identical restore. Kullanıcı history/undo/kota capability henüz açılmadı.

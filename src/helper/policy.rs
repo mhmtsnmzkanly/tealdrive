@@ -47,6 +47,7 @@ pub fn restrict(
     config.virtual_accounts = ceiling.virtual_accounts.clone();
     config.web_accounts = ceiling.web_accounts.clone();
     config.journal = ceiling.journal.clone();
+    config.lifecycle = ceiling.lifecycle.clone();
     config.access_policy.extend_ceiling(&ceiling.access_policy);
     config.access_policy.validate()?;
     for root in &mut config.roots {

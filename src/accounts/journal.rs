@@ -146,6 +146,10 @@ pub struct OperationRecord {
     pub undo_status: Option<String>,
     #[serde(default)]
     pub undo_error_code: Option<crate::errors::ErrorKind>,
+    #[serde(default)]
+    pub staging_path: Option<crate::config::RelativePath>,
+    #[serde(default)]
+    pub trash_gc_status: Option<String>,
 }
 fn prefix(id: &str) -> String {
     format!("operation_v1:{id}:")
@@ -232,9 +236,46 @@ impl AccountStore {
             generation: account.generation,
         };
         let actor = authorized(&self.connection, &authority)?.ok_or(StoreError::Forbidden)?;
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        let destination = if matches!(
+            request.command,
+            HelperCommand::WriteFile | HelperCommand::UploadCommit
+        ) {
+            Some(&request.relative_path)
+        } else {
+            request.target_relative_path.as_ref()
+        };
+        let staging_path = if matches!(
+            request.command,
+            HelperCommand::WriteFile
+                | HelperCommand::UploadCommit
+                | HelperCommand::Copy
+                | HelperCommand::CompressZip
+                | HelperCommand::CompressTarGz
+                | HelperCommand::ExtractArchive
+        ) {
+            destination.map(|path| {
+                let parent = path.0.rsplit_once('/').map_or("", |(parent, _)| parent);
+                let suffix = match request.command {
+                    HelperCommand::CompressZip => ".zip",
+                    HelperCommand::CompressTarGz => ".tar.gz",
+                    _ => "",
+                };
+                crate::config::RelativePath::new(format!(
+                    "{}.tdrv-transaction-{operation_id}{suffix}",
+                    if parent.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{parent}/")
+                    }
+                ))
+            })
+        } else {
+            None
+        };
         let record = OperationRecord {
             version: 1,
-            id: uuid::Uuid::new_v4().to_string(),
+            id: operation_id.clone(),
             request_id: request.request_id,
             account_id: actor.id.clone(),
             generation: actor.generation,
@@ -243,7 +284,11 @@ impl AccountStore {
             action: action(request.command).into(),
             root_id: request.root_id.clone(),
             source_path: request.relative_path.clone(),
-            target_path: if request.command == HelperCommand::Rename {
+            target_path: if request.command == HelperCommand::MoveToTrash {
+                Some(crate::config::RelativePath::new(format!(
+                    ".tealdrive-trash/files/{operation_id}"
+                )))
+            } else if request.command == HelperCommand::Rename {
                 request.target_relative_path.as_ref().map(|target| {
                     crate::config::RelativePath::new(
                         match request.relative_path.0.rsplit_once('/') {
@@ -271,6 +316,8 @@ impl AccountStore {
             undo_epoch: Some(super::undo::epoch(&self.connection)?),
             undo_status: None,
             undo_error_code: None,
+            staging_path,
+            trash_gc_status: None,
         };
         let data = encode(&record, config)?;
         // Reserve bounded after-state metadata before the filesystem mutation begins.
@@ -324,6 +371,30 @@ impl AccountStore {
             "INSERT INTO security_state(key,value) VALUES(?1,?2)",
             params![key(&record), data],
         )?;
+        if record.action == "trash" {
+            let count: i64 = tx.query_row(
+                "SELECT count(*) FROM security_state WHERE key GLOB ?1",
+                [format!("trash_expiry_v1:{}:*", actor.id)],
+                |r| r.get(0),
+            )?;
+            let global: i64 = tx.query_row(
+                "SELECT count(*) FROM security_state WHERE key GLOB 'trash_expiry_v1:*'",
+                [],
+                |r| r.get(0),
+            )?;
+            if count >= i64::from(config.max_entries_per_account)
+                || global >= i64::from(config.max_total_entries)
+            {
+                return Err(StoreError::QuotaExceeded);
+            }
+            tx.execute(
+                "INSERT INTO security_state(key,value) VALUES(?1,?2)",
+                params![
+                    format!("trash_expiry_v1:{}:{}", actor.id, record.id),
+                    encode(&record, config)?
+                ],
+            )?;
+        }
         tx.commit()?;
         Ok(record)
     }
@@ -365,7 +436,7 @@ impl AccountStore {
         if let Some(r) = response {
             if current.action == "trash" && r.success {
                 if let crate::helper::types::HelperResponsePayload::TrashEntry(entry) = &r.payload {
-                    if uuid::Uuid::parse_str(&entry.trash_id).is_err() {
+                    if entry.trash_id != current.id {
                         return Err(StoreError::InvalidInput);
                     }
                     current.target_path = Some(crate::config::RelativePath::new(format!(
@@ -388,6 +459,31 @@ impl AccountStore {
             "UPDATE security_state SET value=?1 WHERE key=?2",
             params![encode(&current, config)?, key(record)],
         )?;
+        if current.action == "trash" {
+            let token = format!("trash_expiry_v1:{}:{}", current.account_id, current.id);
+            if current.status == "failed" {
+                tx.execute("DELETE FROM security_state WHERE key=?1", [token])?;
+            } else {
+                tx.execute(
+                    "UPDATE security_state SET value=?1 WHERE key=?2",
+                    params![encode(&current, config)?, token],
+                )?;
+            }
+        }
+        if current.status == "success" && ["delete", "restore"].contains(&current.action.as_str()) {
+            // An explicit successful trash operation retires the corresponding maintenance token.
+            let supplied = record
+                .source_path
+                .0
+                .strip_prefix(".tealdrive-trash/files/")
+                .unwrap_or(&record.source_path.0);
+            if let Ok(id) = uuid::Uuid::parse_str(supplied) {
+                tx.execute(
+                    "DELETE FROM security_state WHERE key=?1",
+                    [format!("trash_expiry_v1:{}:{id}", current.account_id)],
+                )?;
+            }
+        }
         tx.commit()?;
         Ok(current)
     }

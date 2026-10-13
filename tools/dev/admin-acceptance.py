@@ -273,6 +273,43 @@ def main():
             if any(r['status']=='pending' for r in records):
                 raise RuntimeError('Completed fixture has unexplained pending journal')
             print(json.dumps(dict(protectedHelperJournal=True,successAndFailure=True,noCredentialJournal=True)))
+            # Expire only explicitly named trash fixtures from this fresh Linux account.
+            cutoff=int(time.time())-504*3600-2
+            targets=[]
+            with sqlite3.connect(DB) as state:
+                owned={r['accountId'] for r in records}
+                expired=state.execute("SELECT value FROM security_state WHERE key GLOB 'operation_v1:*' AND json_extract(value,'$.createdAt')<=?",(cutoff+2,)).fetchall()
+                if any(json.loads(row[0])['accountId'] not in owned for row in expired):
+                    raise RuntimeError('Unrelated expired journal exists; refusing trash GC fixture')
+                for record in records:
+                    if record['action']!='trash' or not record['sourcePath'].startswith(('gc-unchanged-','gc-changed-')):
+                        continue
+                    account=state.execute('SELECT home,uid FROM accounts WHERE id=?',(record['accountId'],)).fetchone()
+                    if not account or account[0] not in [str(pathlib.Path('/home')/u['username']) for u in users]:
+                        raise RuntimeError('Trash fixture outside fresh homes')
+                    target=pathlib.Path(account[0])/record['targetPath']
+                    if not target.is_file() or target.is_symlink() or target.stat().st_uid!=account[1]:
+                        raise RuntimeError('Untrusted trash fixture')
+                    if record['sourcePath'].startswith('gc-changed-'):
+                        target.write_bytes(b'changed expiry fixture')
+                    old_key='operation_v1:'+record['accountId']+':'+str(record['createdAt']).zfill(20)+':'+record['id']
+                    record['createdAt']=cutoff
+                    new_key='operation_v1:'+record['accountId']+':'+str(cutoff).zfill(20)+':'+record['id']
+                    state.execute('UPDATE security_state SET key=?,value=? WHERE key=?',(new_key,json.dumps(record),old_key))
+                    state.execute('UPDATE security_state SET value=? WHERE key=?',(json.dumps(record),'trash_expiry_v1:'+record['accountId']+':'+record['id']))
+                    targets.append((record['sourcePath'],target))
+            if len(targets)!=2:
+                raise RuntimeError('Missing explicit trash expiry fixtures')
+            cleaned=json.loads(run(['/home/tealdrive/bin/tealdrive-wizard','gc'],capture_output=True,text=True).stdout)
+            if cleaned.get('trash_cleaned')!=1 or cleaned.get('trash_skipped')!=1 or cleaned.get('operation_logs_expired')!=2:
+                raise RuntimeError('Expected-state trash GC result: '+json.dumps(cleaned))
+            for label,target in targets:
+                if label.startswith('gc-unchanged-') and target.exists():
+                    raise RuntimeError('Expired unchanged trash remained')
+                if label.startswith('gc-changed-') and (not target.is_file() or target.read_bytes()!=b'changed expiry fixture'):
+                    raise RuntimeError('Changed trash was deleted or altered')
+            print(json.dumps(dict(trashRetention504h=True,userIdentityTrashCleanup=True,changedTrashPreserved=True)))
+
         audit_text = audit.read_text()
         if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
             raise RuntimeError('Fixture credentials appeared in audit')
@@ -349,6 +386,7 @@ def main():
                         for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:', 'virtual_purged_v1:', 'virtual_purge_intent_v1:'):
                             connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
                         connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+child[0]+':%',))
+                        connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('trash_expiry_v1:'+child[0]+':%',))
                         connection.execute('DELETE FROM accounts WHERE id=?', (child[0],))
                     for uid in virtual_uids:
                         connection.execute('DELETE FROM security_state WHERE key=?', ('virtual_uid_retired:' + str(uid),))
@@ -359,6 +397,7 @@ def main():
                 connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
                 connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+row[0]+':%',))
+                connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('trash_expiry_v1:'+row[0]+':%',))
                 connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
             connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
         if virtual:

@@ -28,5 +28,7 @@ pub mod usage;
 
 pub mod worker;
 
+mod artifact;
+pub mod maintenance;
 pub mod observation;
 pub mod undo;

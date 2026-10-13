@@ -21,6 +21,8 @@ pub struct WorkerInvocation {
     pub mac: [u8; 32],
     #[serde(default)]
     pub undo: Option<Box<crate::accounts::journal::OperationRecord>>,
+    #[serde(default)]
+    pub operation_id: Option<String>,
 }
 impl WorkerInvocation {
     fn payload(&self) -> Result<Vec<u8>, TealDriveError> {
@@ -35,6 +37,7 @@ impl WorkerInvocation {
                 self.expires_at,
                 self.nonce,
                 &self.undo,
+                &self.operation_id,
             ))
             .map_err(|_| TealDriveError::HelperDecodeFailed)?,
         );
@@ -89,12 +92,21 @@ pub fn run(invocation: WorkerInvocation) -> Result<HelperResponse, TealDriveErro
         config,
         available,
         undo,
+        operation_id,
         ..
     } = invocation;
     config.validate()?;
     super::access::authorize(&request, &config)?;
     super::policy::authorize(&request, &config)?;
-    execute_inner(&request, &config, available, undo.as_deref(), true)
+    if operation_id
+        .as_ref()
+        .is_some_and(|id| uuid::Uuid::parse_str(id).is_err())
+    {
+        return Err(TealDriveError::PermissionDenied);
+    }
+    super::artifact::with_operation(operation_id.as_deref(), || {
+        execute_inner(&request, &config, available, undo.as_deref(), true)
+    })
 }
 pub(super) fn execute(
     request: &HelperRequest,
@@ -158,18 +170,28 @@ fn execute_inner(
         })
     }))
 }
-pub(super) fn spawn(
-    request: &HelperRequest,
-    config: &AppConfig,
-    available: Option<u64>,
-) -> Result<HelperResponse, TealDriveError> {
-    spawn_with_undo(request, config, available, None)
-}
 pub(super) fn spawn_with_undo(
     request: &HelperRequest,
     config: &AppConfig,
     available: Option<u64>,
     undo: Option<crate::accounts::journal::OperationRecord>,
+) -> Result<HelperResponse, TealDriveError> {
+    spawn_inner(request, config, available, undo, None)
+}
+pub(super) fn spawn_with_operation(
+    request: &HelperRequest,
+    config: &AppConfig,
+    available: Option<u64>,
+    operation_id: Option<String>,
+) -> Result<HelperResponse, TealDriveError> {
+    spawn_inner(request, config, available, None, operation_id)
+}
+fn spawn_inner(
+    request: &HelperRequest,
+    config: &AppConfig,
+    available: Option<u64>,
+    undo: Option<crate::accounts::journal::OperationRecord>,
+    operation_id: Option<String>,
 ) -> Result<HelperResponse, TealDriveError> {
     let child = Command::new("/proc/self/exe")
         .arg("--watch-stdin")
@@ -202,6 +224,7 @@ pub(super) fn spawn_with_undo(
         nonce: *uuid::Uuid::new_v4().as_bytes(),
         mac: [0; 32],
         undo: undo.map(Box::new),
+        operation_id,
     };
     invocation.mac = super::security::sign_worker(&invocation.payload()?)
         .map_err(|_| TealDriveError::PermissionDenied)?;

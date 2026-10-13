@@ -118,6 +118,7 @@ fn private_worker_rejects_forgery_and_cannot_read_root_owned_content() {
     };
     let invocation = WorkerInvocation {
         undo: None,
+        operation_id: None,
         request: Box::new(request),
         config: Box::new(config),
         available: None,
@@ -167,6 +168,7 @@ fn worker_payload(i: &WorkerInvocation) -> Vec<u8> {
             i.expires_at,
             i.nonce,
             &i.undo,
+            &i.operation_id,
         ))
         .unwrap(),
     );

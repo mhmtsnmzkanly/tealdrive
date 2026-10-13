@@ -240,6 +240,11 @@ const fs = require("node:fs");
         if (unknown.status !== 400)
           throw Error("Unknown scope option accepted");
         const uiPath = `ui-undo-${suffix}.txt`;
+        for (const label of ["gc-unchanged", "gc-changed"]) {
+          const path = `${label}-${suffix}.txt`;
+          await historyApi.files.createText({ path, content: "expiry fixture" });
+          await historyApi.files.trash.move({ path });
+        }
         await historyApi.files.createText({ path: uiPath, content: "UI undo" });
         await historyApi.files.rename({
           path: uiPath,

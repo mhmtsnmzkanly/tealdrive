@@ -962,7 +962,12 @@ pub fn run_secure_helper<R: Read, W: Write>(
             }
             let available = reservation.as_ref().and_then(|r| r.available);
             let outcome = if elevated {
-                crate::helper::worker::spawn(&request, &config, available)
+                crate::helper::worker::spawn_with_operation(
+                    &request,
+                    &config,
+                    available,
+                    journal.as_ref().map(|(_, record)| record.id.clone()),
+                )
             } else {
                 crate::helper::worker::execute(&request, &config, available)
             };

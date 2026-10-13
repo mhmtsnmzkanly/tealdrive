@@ -106,7 +106,10 @@ fn execute_inner(request: &HelperRequest, config: &AppConfig) -> HelperResponse 
     } else {
         ""
     };
-    let name = format!(".tdrv-transaction-{}{extension}", uuid::Uuid::new_v4());
+    let name = format!(
+        ".tdrv-transaction-{}{extension}",
+        super::artifact::current().unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    );
     let staging = RelativePath::new(if parent.is_empty() {
         name
     } else {

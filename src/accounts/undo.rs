@@ -135,6 +135,15 @@ impl AccountStore {
         );
         current.updated_at = super::store::now();
         current.undo_error_code = response.and_then(|response| response.error_kind);
+        if current.action == "trash" && current.undo_status.as_deref() == Some("success") {
+            tx.execute(
+                "DELETE FROM security_state WHERE key=?1",
+                [format!(
+                    "trash_expiry_v1:{}:{}",
+                    current.account_id, current.id
+                )],
+            )?;
+        }
         let value = serde_json::to_string(&current).map_err(|_| StoreError::InvalidInput)?;
         if value.len() > config.max_record_bytes {
             return Err(StoreError::InvalidInput);

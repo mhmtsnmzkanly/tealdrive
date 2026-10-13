@@ -201,6 +201,7 @@ export interface AuditRecord {
   logStorage?: "userQuota" | "systemBudget" | "systemReserve" | null;
   undoStatus?: "pending" | "success" | "failed" | "unknown" | null;
   undoErrorCode?: string | null;
+  /** Reserved artifact path; never a token granting direct access. */ stagingPath?: string | null;
 }
 export interface AuditPage {
   items: readonly AuditRecord[];

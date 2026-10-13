@@ -1030,7 +1030,7 @@ pub(crate) fn cancel_pending(
     }
     Ok(())
 }
-fn no_nested_mounts(path: &Path) -> Result<(), StoreError> {
+pub(crate) fn no_nested_mounts(path: &Path) -> Result<(), StoreError> {
     let info = std::fs::read_to_string("/proc/self/mountinfo")?;
     for line in info.lines() {
         let raw = line

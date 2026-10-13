@@ -130,7 +130,7 @@ pub fn move_file_to_trash_with_roots(
         );
     }
 
-    let trash_id = uuid::Uuid::new_v4().to_string();
+    let trash_id = super::artifact::current().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let info_path = trash_info_dir.join(format!("{}.msgpack", trash_id));
 
     let display_name = source
@@ -606,6 +606,7 @@ pub fn list_trash_with_roots(
     )
 }
 
+#[cfg(test)]
 pub fn purge_expired_trash(roots: &[AllowedRoot], retention_days: u32) -> u64 {
     if retention_days == 0 {
         return 0;

@@ -423,16 +423,24 @@ pub fn run(args: Vec<String>) -> Result<()> {
             crate::accounts::virtuals::purge_worker(id)?;
             Ok(())
         }
+        ["__trash-expiry-worker", account_id, operation_id] => {
+            root()?;
+            crate::accounts::lifecycle::worker(account_id, operation_id)?;
+            Ok(())
+        }
         ["gc"] => {
             root()?;
             let cfg = config()?;
             let mut store = store()?;
             let purged = crate::accounts::virtuals::purge_deleted(&mut store, &cfg)?;
+            let cleanup = crate::accounts::lifecycle::cleanup(&store, &cfg)?;
             let expired = store.gc_operations(
                 &cfg.journal,
                 crate::session::store::InMemorySessionStore::now_epoch_seconds(),
             )?;
-            print(&serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired}))
+            print(
+                &serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired,"trash_cleaned":cleanup.trash_cleaned,"trash_skipped":cleanup.trash_skipped}),
+            )
         }
         ["virtual", "admin", "create", name, budget, request] => {
             root()?;

@@ -26,14 +26,22 @@ def inner(base):
     mount(base / 'home', '/home/tealdrive')
     mount(base / 'systemd', '/etc/systemd/system')
     mount(base / 'pam', '/etc/pam.d')
+    mount(base / 'local-bin', '/usr/local/bin')
     mount(base / 'systemctl', '/usr/bin/systemctl')
     wizard = REPO / 'target/debug/tealdrive-wizard'
     bundle = base / 'bundle'
+    collision = Path('/usr/local/bin/tealdrive-server')
+    collision.write_text('unrelated executable')
+    invoke(wizard, 'install', '--bundle', str(bundle), ok=False)
+    assert collision.read_text() == 'unrelated executable'
+    collision.unlink()
     invoke(wizard, 'install', '--bundle', str(bundle))
     home = Path('/home/tealdrive')
     for name in NAMES:
         mode = (home / 'bin' / name).stat().st_mode & 0o7777
         assert mode == (0o4755 if name == 'tealdrive-helper' else 0o755)
+    for name in NAMES:
+        assert Path('/usr/local/bin', name).readlink() == home / 'bin' / name
     assert (home / 'auth/accounts.db').stat().st_mode & 0o777 == 0o600
     assert (home / 'policy/helper.key').stat().st_mode & 0o777 == 0o600
     key_before = (home / 'policy/helper.key').read_bytes()
@@ -82,7 +90,9 @@ def inner(base):
     invoke(wizard, 'backup', str(home / 'storage/manual-backup'))
     invoke(wizard, 'restore', str(home / 'storage/manual-backup'))
     assert (home / 'policy/helper.key').read_bytes() == key_before
+    Path('/usr/local/bin/tealdrive-wizard').unlink()
     invoke(wizard, 'repair')
+    assert Path('/usr/local/bin/tealdrive-wizard').is_symlink()
     # A checksum failure must leave the already installed executable untouched.
     server_hash = hashlib.sha256((home / 'bin/tealdrive-server').read_bytes()).hexdigest()
     with (bundle / 'tealdrive-server').open('ab') as stream:
@@ -96,6 +106,7 @@ def inner(base):
     db_before = preserved_metadata()
     invoke(wizard, 'uninstall')
     assert preserved_metadata() == db_before
+    assert all(not Path("/usr/local/bin", name).is_symlink() for name in NAMES)
     with sqlite3.connect(home / 'auth/accounts.db') as database:
         assert database.execute("SELECT count(*) FROM security_state WHERE key GLOB 'control_v1:*' AND json_extract(value,'$.action')='Wizard_uninstall' AND json_extract(value,'$.status')='success'").fetchone()[0]==1
     assert (home / 'policy/helper.key').read_bytes() == key_before
@@ -111,7 +122,7 @@ def main():
     # Root-owned parent is intentional: /tmp is untrusted by the production Wizard.
     with tempfile.TemporaryDirectory(prefix='td-wizard-', dir='/root') as directory:
         base = Path(directory)
-        for name in ('home', 'proc', 'systemd', 'pam', 'bundle'):
+        for name in ('home', 'proc', 'systemd', 'pam', 'bundle', 'local-bin'):
             (base / name).mkdir(mode=0o700)
         hashes = {}
         for name in NAMES:

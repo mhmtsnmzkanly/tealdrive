@@ -638,6 +638,19 @@ fn run_inner(args: Vec<String>) -> Result<()> {
             }
             control(vec!["stop".into()])?;
             stopped()?;
+            // Remove only our exact Root-owned links; preserve unrelated PATH entries.
+            for name in BINARIES {
+                let link = Path::new("/usr/local/bin").join(name);
+                if let Ok(metadata) = std::fs::symlink_metadata(&link) {
+                    if metadata.file_type().is_symlink()
+                        && metadata.uid() == 0
+                        && std::fs::read_link(&link)?
+                            == Path::new(layout::HOME).join("bin").join(name)
+                    {
+                        std::fs::remove_file(link)?;
+                    }
+                }
+            }
             for name in BINARIES {
                 let path = Path::new(layout::HOME).join("bin").join(name);
                 if path.exists() {
@@ -941,9 +954,37 @@ fn publish_bundle(bundle: &Path) -> Result<()> {
     std::fs::File::open(Path::new(layout::HOME).join("bin"))?.sync_all()?;
     Ok(())
 }
+fn validate_path_links() -> Result<()> {
+    trusted_directory(Path::new("/usr/local/bin"))?;
+    for name in BINARIES {
+        let link = Path::new("/usr/local/bin").join(name);
+        match std::fs::symlink_metadata(&link) {
+            Ok(metadata)
+                if metadata.file_type().is_symlink()
+                    && metadata.uid() == 0
+                    && std::fs::read_link(&link)?
+                        == Path::new(layout::HOME).join("bin").join(name) => {}
+            Ok(_) => return Err("Refusing to replace an unrelated PATH executable or link.".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+fn install_path_links() -> Result<()> {
+    validate_path_links()?;
+    for name in BINARIES {
+        let link = Path::new("/usr/local/bin").join(name);
+        if link.symlink_metadata().is_err() {
+            std::os::unix::fs::symlink(Path::new(layout::HOME).join("bin").join(name), &link)?;
+        }
+    }
+    Ok(())
+}
 fn install(bundle: &Path, update: bool) -> Result<()> {
     let manifest = verify_bundle(bundle)?;
     stopped()?;
+    validate_path_links()?;
     if !update && Path::new(layout::HELPER_CONFIG).exists() {
         return Err("Installation already exists; use update/repair.".into());
     }
@@ -1061,11 +1102,13 @@ fn install(bundle: &Path, update: bool) -> Result<()> {
             0,
         )?;
     }
+    install_path_links()?;
     command("/usr/bin/systemctl", &["daemon-reload"])?;
     println!("Lifecycle timer is installed but not enabled automatically; enable after diagnose and recovery checks.\nInstalled {}. Server not auto-started. Default bind is loopback HTTP only. Configure TLS/proxy+origin before public exposure. Assign first admin with account approve then account admin. Configuration and user data were preserved.",manifest.version);
     Ok(())
 }
 fn repair() -> Result<()> {
+    validate_path_links()?;
     let identity = service_identity()?;
     prepare_layout(&identity)?;
     for name in BINARIES {
@@ -1087,6 +1130,7 @@ fn repair() -> Result<()> {
     }
     config()?.validate()?;
     store()?;
+    install_path_links()?;
     println!("Ownership, modes and configuration verified. User contents were not changed.");
     Ok(())
 }
@@ -1128,7 +1172,7 @@ fn diagnose() -> Result<()> {
         return Err("Helper mount is nosuid/noexec; refusing a broader fallback.".into());
     }
     print(
-        &serde_json::json!({"config_valid":true,"service_uid":identity.uid,"database_ready":true,"manual_server_running":running()?,"identity_problems":problems,"kernel":String::from_utf8_lossy(&Command::new("/usr/bin/uname").arg("-r").output()?.stdout).trim()}),
+        &serde_json::json!({"config_valid":true,"service_uid":identity.uid,"database_ready":true,"server_running":running()?,"identity_problems":problems,"kernel":String::from_utf8_lossy(&Command::new("/usr/bin/uname").arg("-r").output()?.stdout).trim()}),
     )
 }
 fn backup(directory: &Path) -> Result<()> {

@@ -89,3 +89,9 @@ Root ilk admin/sanal admin adımları [WIZARD.md](WIZARD.md), sıfırdan kurulum
 ## 7. Teslim sonrası kapsamlı geliştirme temizliği
 
 Kullanıcının ek talebiyle cargo target cache (46739file/34.5GiB logical),36218test directory ve532tmp file kaldırıldı. Live binaries ve sealed rollback manifest eşleşmesi doğrulandı; production dosyalarına dokunulmadı. Faydalı kaynaklar dev/ops/test alanlarında kalır. Eski6rollback private legacy-development-backups altında toplandı; generic eski audit korunarak public tmp dışına alındı. Açık FD/runtime UID/symlink guard testleri ve son public browser login geçti. Ayrıntılı kayıt [CLEANUP.md](../../tools/dev/CLEANUP.md).
+
+## Kullanıcı talebiyle bütün mevcut TealDrive yedeklerinin silinmesi — 2026-10-13
+
+`/root/tealdrive-runtime-backups` içindeki legacy/stage/final migration, metadata/key/user/binary/Caddy yedekleri ve release-bundle kopyaları silindi. `/home/tealdrive/storage/update-backup-*`, previous-tealdrive.service ve auth/accounts.db*.backup da kaldırıldı.5backup root altında156file,1807131092logical byte silindi. Live process FD/cwd/exe ve mount referansları önce denetlendi; symlink-safe removal kullanıldı.
+
+Aktif native image/mount,4installed binary, current config/key/SQLite, password otomasyon dosyaları, audit logs ve gerçek kullanıcı dosyaları korunur. Önceki belgelerde listelenen rollback konumları artık mevcut değildir. Yeni Wizard update/restore ileride yeniden backup üretebilir; bu işlem mevcut yedekleri silmiştir. Son public browser login/socket/logout passed.

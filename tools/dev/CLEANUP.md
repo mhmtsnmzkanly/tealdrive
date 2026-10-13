@@ -49,3 +49,9 @@ Yeniden kullanılabilir kabul kaynakları tests/live ve tools/dev; operasyon yar
 - Cleanup sonrası public Chromium login/socket/role boundary/logout geçti; service/Caddy active. Rust kaynak davranışı değiştirilmediği için31GiB cache'i yeniden oluşturacak gereksiz full rebuild yapılmadı.
 
 Disk son ölçüm:118GiB filesystem,20GiB used/94GiB available. Önceki genel30–31GiB alan geri kazanıldı; du/Cargo logical byte sayımı farklı ölçümlerdir.
+
+## Kullanıcı talebiyle bütün mevcut TealDrive yedeklerinin silinmesi — 2026-10-13
+
+`/root/tealdrive-runtime-backups` içindeki legacy/stage/final migration, metadata/key/user/binary/Caddy yedekleri ve release-bundle kopyaları silindi. `/home/tealdrive/storage/update-backup-*`, previous-tealdrive.service ve auth/accounts.db*.backup da kaldırıldı.5backup root altında156file,1807131092logical byte silindi. Live process FD/cwd/exe ve mount referansları önce denetlendi; symlink-safe removal kullanıldı.
+
+Aktif native image/mount,4installed binary, current config/key/SQLite, password otomasyon dosyaları, audit logs ve gerçek kullanıcı dosyaları korunur. Önceki belgelerde listelenen rollback konumları artık mevcut değildir. Yeni Wizard update/restore ileride yeniden backup üretebilir; bu işlem mevcut yedekleri silmiştir. Son public browser login/socket/logout passed.

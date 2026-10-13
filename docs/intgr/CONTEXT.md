@@ -35,3 +35,9 @@ Sistem entegrasyon istisnaları PAM ve systemd dosyalarıdır. Eski deploy/opera
 Backend sertifikası policy/origin-cert.pem Root644; private TLS key tls/origin-key.pem Root:tealdrive0640. Caddy yalnız bu sertifikayı trust pool ile doğrular ve SNI tealdrive-origin.local kullanır; skip-verify yoktur. Böylece servis dururken sıradan OS kullanıcısının loopback portu taklit etmesi backend kimliğini sağlayamaz. Sertifika1yıl geçerlidir; süresi dolmadan Root cert/key ve Caddy trust pool birlikte yenilenir.
 
 Teslim sonrası temizlik: target cache ve /tmp test artıkları silindi. Eski6rollback /root/tealdrive-runtime-backups/legacy-development-backups altında; LOCATIONS.json eşleme dosyası Root600. Root backup parent700. Aktif binary/config/DB/key/userdata ve private password dosyaları aynıdır.
+
+## Kullanıcı talebiyle bütün mevcut TealDrive yedeklerinin silinmesi — 2026-10-13
+
+`/root/tealdrive-runtime-backups` içindeki legacy/stage/final migration, metadata/key/user/binary/Caddy yedekleri ve release-bundle kopyaları silindi. `/home/tealdrive/storage/update-backup-*`, previous-tealdrive.service ve auth/accounts.db*.backup da kaldırıldı.5backup root altında156file,1807131092logical byte silindi. Live process FD/cwd/exe ve mount referansları önce denetlendi; symlink-safe removal kullanıldı.
+
+Aktif native image/mount,4installed binary, current config/key/SQLite, password otomasyon dosyaları, audit logs ve gerçek kullanıcı dosyaları korunur. Önceki belgelerde listelenen rollback konumları artık mevcut değildir. Yeni Wizard update/restore ileride yeniden backup üretebilir; bu işlem mevcut yedekleri silmiştir. Son public browser login/socket/logout passed.

@@ -92,3 +92,7 @@ Direct cert+key beraber gerekir; TLS/proxy iki mod birden seçilemez. Cert/key a
 Bind/mode/requireTLS/cert-path/key-path değişimi tüm config modlarında restart-required; reload eski active config'i koruyarak reddeder. Sertifika içeriği değiştiğinde de restart yapılır; panelden cert management/reload yoktur. DirectTLS ve HTTP aynı bounded drain/shutdown event/audit yolunu kullanır.
 
 Uygulama standardı: [rustls TLS server](https://docs.rs/rustls/latest/rustls/server/struct.ServerConfig.html), [axum-server](https://docs.rs/axum-server/0.7.3/axum_server/). Bağımlılıklar Cargo.lock'ta; axum-server0.7.3 MSRV1.82, proje1.85 ile test edildi.0.7.2 güncel hyper-util Buf sınırıyla derlenmediği için0.7.3 seçildi.
+
+## Kalıcı web-account giriş sınırlaması
+
+Helper'ın Root-owned accounts.db login_limits tablosu PAM enrollment, web login ve mevcut parola değiştirme doğrulamasından önce bounded rezervasyon tutar. Root helper.toml `[rate_limit] max_login_failures = 5`, `lockout_duration_seconds = 300`; hesap/IP/global default5/25/200, ilk attempt'tan300 saniye. Başarı kendi slotunu iade eder. Restart/bağlantı yenileme sayacı kaldırmaz; limit HTTP/WS429 `RATE_LIMITED` olur. Server'ın in-memory ve pre-auth socket sınırları ek savunma olarak kalır. IP ancak güvenilir proxy ayarına göre çözülür; Root helper hesap/global sınırı IP'den bağımsızdır. SQLite path/key scope istemci tarafından seçilmez; sayaçta parola yok.

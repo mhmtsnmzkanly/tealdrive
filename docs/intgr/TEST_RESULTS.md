@@ -334,3 +334,7 @@ Shared SDK UI fixture `TEALDRIVE_UI_FILES_ACCEPTANCE=1` koşusuna TR/EN testi ek
 ## 2026-10-13 — Hesap metadata sayfalama kabulü
 
 Normal paket568 unit passed/1 PAM ignored; bütün normal integration grupları geçti. fmt ve Clippy all-targets -D warnings passed. Gerçek Root/PAM/Chromium/native quota kabulü: Linux kayıt yenileme, suspend/enable, ayrı UID/GID, nologin/locked hesap, sanal adminin kendi tenant'ı, filtreli limit1 devam sayfası ve eski array uyumu passed. Sanal admin UI bütçe dialog'u da test edildi; eski undefined ticket hatası giderildi. Fixture cleanup ve helper policy restore passed; production değiştirilmedi. Testte sayfalı yanıtın items alanı okunacak şekilde assertion düzeltildi. SDK UTF-8 byte sınırını backend ile aynı uygular.
+
+## 2026-10-13 — Kalıcı giriş sınırları
+
+Normal paket570 unit passed/1 PAM ignored ve normal integration grupları passed; fmt/Clippy -D warnings ve Rust1.85 all-target check passed. Root protected SQLite kabulü12 paralel connection'da max3 rezervasyon, yeni connection'da devam eden engel ve pencere sonunda yeniden izin doğruladı. Unit testler farklı hesapların ortak IP/global sınırları, IPv6 normalizasyonu, yalnız başarılı attempt refund'u ve secret-free hashed keys doğruladı. Gerçek UID/PAM, own-user Wizard, shared-SDK CRUD/state/EN-TR, custom package/fallback ve direct TLS + local proxy HTTPS/WSS/cookie/shutdown kabulü yeni binary'lerle geçti. Üretim proxy/config değiştirilmedi, fixture cleanup/helper policy restore passed.

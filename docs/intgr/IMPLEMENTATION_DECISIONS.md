@@ -252,3 +252,7 @@ UI package sadece Root; all-declared-assets validation, optional SHAmap, bounded
 ## D047 — Fresh executable privsep ve dar internal delegation
 
 2026-10-13: Root helper supervisor grant/NSS/policy/quota doğrular; ayrı aynı-executable worker User IDs +Landlock ile FS işler. Worker context Root-created pipe/kernelRootparent +30s expiry/PID/realUID/nonce/domain-separated existing HMAC-SHA256 ile bağlıdır. Privileged key worker doğrulaması sonrası açılıp kapanır, kullanıcı dosya işlemi sırasında açık Root FD/key yok. Parent exe proc inspection bazı container'larda CAP_SYS_PTRACE gerektireceğinden güvenilir IPC+protected-key delegation seçildi; Root caps genişletilmez. Account/global authority server'a verilmez. Worker başına yeni süreç maliyeti güvenlik journal sınırı için kabul edilir. Root parent quota lock'u tutar; stdin EOF bounded cancellation kullanılır. Non-elevated dev helper ve identity rejection eski structured PermissionDenied yanıtını korur.
+
+## D048 — Move/rename/trash restore atomik no-overwrite
+
+2026-10-13: Önce hedef yok kontrolü ardından fs::rename dış writer yarışında üzerine yazabiliyordu. Move/rename/trash transfer/restore artık doğrulanmış directory FD'leri üzerinden renameat2 RENAME_NOREPLACE kullanır. Private trash parent'a geçici, dar logical-parent alias yalnız bu helper adımında uygulanır; genel gizli alan politikasını açmaz. Undo hedef çakışması da aynı primitive üzerinden reddedilecek. Dış süreç dosya içeriğini değiştirebilir; burada sağlanan garanti hedef adını ezmemektir.

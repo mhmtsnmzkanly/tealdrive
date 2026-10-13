@@ -346,3 +346,7 @@ Gerçek özel mount/PID namespace içinde clean install, ext4/usrquota128MiB pre
 ## 2026-10-13 — Root supervisor/User worker kabulü
 
 Normal571 unit passed/1 ignored ve normal integration grupları passed; fmt/Clippy -D warnings passed. Root private delegation kabulü: doğru MAC ile user UID'deki worker Root600 file içeriğini okuyamaz; imzalandıktan sonra path/UID değiştirme, expired delegation ve Root-created authorization'ın unprivileged parent'tan replay'i reddedilir. Gerçek PAM/Chromium sharedSDK CRUD/upload/chmod/state, protected policy CAS/revoke/bağımsız helper denial, native ext4/kernel quota, Root virtual admin/tenant/own-usage guard ve36h purge/crash-resume geçer; helper policy restore/fixture cleanup passed. İlk normal testte identity failure malformed response'a dönüşmüştü; structured PermissionDenied uyumu geri getirildi. Private Worker MAC/grant signing RPC olarak sunulmaz.
+
+## 2026-10-13 — Atomik move/trash no-overwrite
+
+Helper140 testten139 passed/1 PAM ignored. Kernel primitive testinde validation sonrası external destination oluşturuldu; kaynak ve hedef içerikleri korunarak AlreadyExists döndü. Search/trash/restore/current-policy denial ve alias testleri geçti. Gerçek Chromium shared-SDK CRUD/upload/chmod/state/dir recovery ve Root admin/enrollment/suspend acceptance passed; production untouched/fixture cleanup. Clippy all-targets -D warnings passed.

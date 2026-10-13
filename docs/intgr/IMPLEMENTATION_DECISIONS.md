@@ -264,3 +264,7 @@ UI package sadece Root; all-declared-assets validation, optional SHAmap, bounded
 ## D050 — Own history scope, filters ve protokol uyumu
 
 2026-10-13: GET/api/audit→protected History grant; accountId/UID seçimi yok. SQL action/status/root/path/from/to/requestId filtreleri LIMIT öncesi; helper current home/persisted deny policy görünmeyen source/target kayıtlarını saklar. Bounded1000-row visibility scan sonraki cursor ile sürer; toplam/gizli count verilmez. DESC timestamp+UUID keyset, cursor authority değildir. SDK typed filters/immutable results; bilinmeyen seçenekleri kabul etmez. AuthenticationCapabilities audit_history extension kullanılır: v1 FeatureFlags deny_unknown_fields sözleşmesine yeni flag eklemek eski Rust istemcilerinde handshake bozabilirdi. Backend quota/actual metadata/UI tamamlanana kadar advertised flag false kalır.
+
+## D051 — Yerel proxy admin API ayrı yetki sınırı
+
+2026-10-13: Somut UID995/config endpoint okuma testiyle Caddy localhost2019 yönetimi DNS credential sızıntısı yolu olarak doğrulandı. Dosya640 yeterli değildi. Caddy Root/Caddy-only0700 RuntimeDirectory Unix socket'e taşındı; TCP kapandı. Systemd ExecReload private address ile güncellendi, graceful reload ve originHTTPS200 geçti. Backend/domain değişmedi; CF edge bu sunucudan403 ayrı final ağ kabulü konusudur. Root/Caddy credential değerleri ne test çıktısına ne Git'e girer. Caddy opsiyoneldir; genel kurulum proxy'nin ayrı yönetim/secret sınırını korumalıdır.

@@ -10,6 +10,9 @@ case "${1:-}" in
     cargo clippy --locked --all-targets -- -D warnings
     cargo test --locked
     ;;
+  proxy-admin)
+    exec python3 tools/dev/proxy-admin-check.py
+    ;;
   wizard)
     exec python3 tools/dev/wizard-acceptance.py
     ;;
@@ -27,5 +30,5 @@ case "${1:-}" in
     export NODE_PATH="$tealdrive_tool_dir/node_modules${NODE_PATH:+:$NODE_PATH}"
     exec node "tests/live/$tealdrive_script.cjs"
     ;;
-  *) echo 'Usage: tools/dev/check.sh unit | wizard | admin | live <test-name>' >&2; exit 2 ;;
+  *) echo 'Usage: tools/dev/check.sh unit | wizard | admin | proxy-admin | live <test-name>' >&2; exit 2 ;;
 esac

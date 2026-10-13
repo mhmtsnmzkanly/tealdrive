@@ -111,3 +111,5 @@ Direct TLS ve production'dan ayrı Caddy proxy kabulü: admin/home fixture'a `TE
 
 
 Custom UI acceptance: admin/home fixture'a `TEALDRIVE_UI_PACKAGE_ACCEPTANCE=1` ekleyin. Root-owned uniquepackage ve server13106; global theme activation yapılmaz. CLIcheck, sameSDKauthfiles, assetallowlist, incompatible/override fallback ve `/ui/default` browser testi.
+
+`sudo tools/dev/check.sh proxy-admin`: Caddy-only read-only service UID/TCP+Unix isolation and Root control probe; no config/credentials output. Setup [CADDY_ADMIN.md](../../docs/deployment/CADDY_ADMIN.md). Caddy olmayan kurulumlarda gerekli değildir.

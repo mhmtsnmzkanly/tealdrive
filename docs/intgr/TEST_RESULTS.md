@@ -358,3 +358,7 @@ Normal574 unit passed/1 ignored ve normal integration grupları, fmt/Clippy -D w
 ## 2026-10-13 — Own history gateway/API ve geniş SDK sorgusu
 
 Normal575 unit passed/1 ignored, normal integration, fmt/Clippy -D warnings, Rust1.85 all-target ve strict TypeScript passed. Gerçek iki Chromium/UID oturumu kendi history/page/continuation, foreign cursor ile scope değişmeme, unknown accountId query400, current personal deny sonrası eski path'in de kayıtlardan gizlenmesi ve content exclusion passed. Kombine action/status/rootId/path/from/to filtresi limit1 öncesi uygulanır, ters time range400. SDK fake transport capability gate, typed camelCase/immutable result, UTF-8 byte bounds, unknown scope/status/reverse range/requestId rejection passed. İlk browser test private olmayan setPersonal adı kullanıyordu; gerçek public policy.set ile düzeltildi. Production config restored/fixture cleanup passed; public SDK history capability henüz kapalı.
+
+## 2026-10-13 — Canlı Caddy yönetim izolasyonu
+
+Önce service UID995 Caddy TCP/admin config200 ve dns credential field present bool doğrulandı; secret değerleri çıkarılmadı. Private Unix socket sonrası service TCP denied(ECONNREFUSED), Unix denied(EACCES), Root Unix config200. Systemctl reload ve local origin HTTPS200 passed; Caddyfile yalnız admin directive farkı. Harici CF edge403 olduğu ayrı kaydedildi. Reusable read-only tools/dev/proxy-admin-check.py passed; private runtime rollback/validate/reload logs Root600 outsideGit.

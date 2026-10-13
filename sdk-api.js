@@ -1,6 +1,6 @@
 /**
  * TealDrive SDK v1 kullanım/JSDoc referansı; implementasyon /sdk/v1/tealdrive.js içindedir.
- * Kaynak: docs/intgr/SDK.md ve src/ui/sdk/client.d.ts. audit/undo capability tamamlanana kadar FEATURE_DISABLED kalır.
+ * Kaynak: docs/intgr/SDK.md ve src/ui/sdk/client.d.ts. audit/undo için Root journal ayarı açık olmalıdır.
  * Import edilince ağ çağrısı veya dosya değişikliği yapmaz. Her örnek ayrı çağrılabilir;
  * mutasyon örnekleri gerçek SDK ile çalıştırılırsa veri değiştirir. Placeholder'ları değiştirin.
  *
@@ -389,20 +389,27 @@ export const examples = {
    */
   trashDelete: (API) => API.files.trash.deletePermanently({ rootId: "home", trashId: "trash_example" }),
 
-  // API.files.audit.list({ limit: 50, cursor: null, action: "ChmodFile" }); — Yalnızca kendi audit olaylarını sayfalı sorgular; başka username/UID parametresi yoktur.
+  // API.files.audit.list({ limit: 50, cursor: null, action: "chmod" }); — Yalnızca kendi audit olaylarını sayfalı sorgular; başka username/UID parametresi yoktur.
   /**
    * Yalnızca kendi audit olaylarını sayfalı sorgular; başka username/UID parametresi yoktur.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.files.audit.list({ limit: 50, cursor: null, action: "ChmodFile" });
+   * @example API.files.audit.list({ limit: 50, cursor: null, action: "chmod" });
    * @description SDK yöntemi parametreleri: options: { limit?: number, cursor?: string|null, action?: string }.
    * @returns {Promise<{ events: AuditEvent[], nextCursor: string|null }>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, INVALID_FILTER, AUDIT_UNAVAILABLE.
    */
-  auditList: (API) => API.files.audit.list({ limit: 50, cursor: null, action: "ChmodFile" }),
+  auditList: (API) => API.files.audit.list({ limit: 50, cursor: null, action: "chmod" }),
 
-  // API.files.undo.list({ limit: 20, cursor: null }); — Geri alma adayları canUndo/reasonCode/expectedState ile döner.
+  // API.files.undo.getPreferences(); — null tercih sunucunun güncel üst sınırını izler.
+  /** @returns {Promise<{hours:number|null,effectiveHours:number,maximumHours:number,revision:number}>} Saat ve CAS sürümü. */
+  undoPreferences: (API) => API.files.undo.getPreferences(),
+  // API.files.undo.setPreferences({ hours: 6, expectedRevision: preferences.revision }); — Yalnız kendi tercihini değiştirir; oturum iptal edilmez.
+  /** @throws {TealDriveError} INVALID_ARGUMENT, CONFLICT, AUTH_REQUIRED, FEATURE_DISABLED. */
+  setUndoPreferences: (API, preferences) => API.files.undo.setPreferences({ hours: Math.min(6, preferences.maximumHours), expectedRevision: preferences.revision }),
+
+  // API.files.undo.list({ limit: 20, cursor: null }); — Geri alma adayları available/unavailableReason/expectedState ile döner.
   /**
-   * Geri alma adayları canUndo/reasonCode/expectedState ile döner.
+   * Geri alma adayları available/unavailableReason/expectedState ile döner.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
    * @example API.files.undo.list({ limit: 20, cursor: null });
    * @description SDK yöntemi parametreleri: options: { limit?: number, cursor?: string|null }.
@@ -411,16 +418,16 @@ export const examples = {
    */
   undoList: (API) => API.files.undo.list({ limit: 20, cursor: null }),
 
-  // API.files.undo.apply({ operationId: "op_example", expectedState: "state_from_candidate" }); — Beklenen durumu helper uygulama anında tekrar doğrular; eski audit silinmez.
+  // API.files.undo.apply({ operationId: candidate.operation.id, expectedState: candidate.expectedState }); — Beklenen durumu helper uygulama anında tekrar doğrular; eski audit silinmez.
   /**
    * Beklenen durumu helper uygulama anında tekrar doğrular; eski audit silinmez.
    * @param {Object} API Başlatılacak/başlatılmış gerçek SDK istemcisi.
-   * @example API.files.undo.apply({ operationId: "op_example", expectedState: "state_from_candidate" });
+   * @example API.files.undo.apply({ operationId: candidate.operation.id, expectedState: candidate.expectedState });
    * @description SDK yöntemi parametreleri: options: { operationId: string, expectedState: string }.
    * @returns {Promise<MutationResult>} Örnek çağrının sonucu.
    * @throws {TealDriveError} AUTH_REQUIRED, FEATURE_DISABLED, UNDO_STATE_MISMATCH, UNDO_EXPIRED, PERMISSION_DENIED, ALREADY_EXISTS.
    */
-  undoApply: (API) => API.files.undo.apply({ operationId: "op_example", expectedState: "state_from_candidate" }),
+  undoApply: (API, candidate) => API.files.undo.apply({ operationId: candidate.operation.id, expectedState: candidate.expectedState }),
 
   // API.files.policy.get(); — Etkin kişisel/admin/root kural kaynaklarını güvenli biçimde döndürür.
   /**

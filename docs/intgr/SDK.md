@@ -42,7 +42,7 @@ HTTPS/WSS sertifika/şifrelemesini tarayıcı yapar; handshake JS kripto değild
 | Admin settings ve Linux user picker | Mevcut endpointlerle uygulandı |
 | PAM first-enrollment + ayrı web parola login + nonce logout | Uygulandı; proof server WS'de, credentials WS'den; private grant user API'de yok |
 | Password change/self-revoke, policy, virtual management | Uygulandı; gerçek helper/UID/PAM/Chromium kabulü |
-| Kullanıcı geçmişi ve undo | Yüzey tanımlı; backend tamamlanana kadar FEATURE_DISABLED |
+| Kullanıcı geçmişi ve undo | Root journal açıkken protected backend/typed SDK uygulanmıştır; gömülü geçmiş UI bağlantısı sürüyor |
 
 Bu tablo işin bitiş raporu değildir. Son sütundaki backendler tamamlanmadan destek varmış gibi UI'de sunulmaz. Public sözleşme yeni SDK feature'ı için tasarlanmıştır; legacy wire API'nin bozularak yeniden adlandırılması değildir.
 
@@ -230,3 +230,7 @@ if (page.hasMore) {
 Typed AuditQuery/AuditRecord/AuditPage; result `{items,nextCursor,hasMore}`. Limit1..200 default100; path source/target case-sensitive substring (256UTF-8 bytes), rootId128, action32 ASCII alnum, cursor160; controls/unknown options rejected. from/to inclusive Unix epoch seconds, from<=to. requestId UUID traces OperationResult to protected helper event. Pending/success/failed/unknown distinct; bytes/mode request recorded, plaintext file contents/credentials absent. Same filters across cursor pages; live listing is not a snapshot. No accountId/UID override; helper derives own scope and current hidden-path policy. Legacy array endpoints unaffected. `getInfo().authentication.auditHistory` is enabled when Root journal mode and web accounts are active; actual metadata and log quota acceptance completed. No fake successful history/undo.
 
 `files.deletePermanently({path,rootId?,signal?})` canlı path için açık ve geri alınamaz silmedir; Root feature +helper policy gerektirir. Trash ID için ayrı `files.trash.deletePermanently` korunur. Native full-quota alan açma kabulü doğrudan public SDK ile yapıldı. AuditRecord optional oldMode/newMode/before/after ve logReserveBytes/logStorage yeni metadata alanlarıdır; eski backend null/omitted ile uyumludur. Root journal false ise FEATURE_DISABLED gerçek config durumudur.
+
+## Koşullu geri alma
+
+`getInfo().authentication.undo` Root journal ve web hesapları açıkken true. `files.undo.list(AuditQuery)` typed UndoPage/UndoCandidate döndürür; `apply({operationId,expectedState})` Root kayıt ve gerçek dosya doğrulamasından geçer. `getPreferences`/`setPreferences({hours,expectedRevision})` kendi süre tercihidir; null Root üst sınırını izler. Event `files.changed` operation=undo ile gelir. Kullanım, hata/claim/crash davranışı ve gerçek sınırlar [UNDO.md](UNDO.md) içindedir.

@@ -134,6 +134,7 @@ export interface ServerInfo {
     selfRevoke: boolean;
     accountManagement: boolean;
     accountPagination: boolean;
+    auditHistory: boolean;
     linuxApproval: boolean;
     policyManagement: boolean;
     virtualAccounts: boolean;
@@ -144,6 +145,40 @@ export interface ServerInfo {
   authenticated: boolean;
 }
 /** Public account metadata. Password hashes and grant nonces are never returned. */
+export interface AuditQuery {
+  limit?: number;
+  cursor?: string | null;
+  action?: string;
+  /** Correlates OperationResult.requestId with its protected record. */ requestId?: string;
+  status?: "pending" | "success" | "failed" | "unknown";
+  rootId?: string;
+  /** Case-sensitive substring of source or target path. */ path?: string;
+  /** Inclusive Unix epoch seconds. */ from?: number;
+  to?: number;
+}
+export interface AuditRecord {
+  version: 1;
+  id: string;
+  requestId: string;
+  accountId: string;
+  generation: number;
+  /** Unix epoch seconds. */ createdAt: number;
+  updatedAt: number;
+  action: string;
+  rootId: string;
+  sourcePath: string;
+  targetPath: string | null;
+  requestedMode: number | null;
+  status: "pending" | "success" | "failed" | "unknown";
+  errorCode: string | null;
+  bytesRead: number;
+  bytesWritten: number;
+}
+export interface AuditPage {
+  items: readonly AuditRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
 export interface AccountMetadata {
   id: string;
   username: string;
@@ -305,11 +340,8 @@ export interface FilesAPI {
   };
   quota: { get(): Promise<Quota> };
   audit: {
-    list(options?: {
-      limit?: number;
-      cursor?: string | null;
-      action?: string;
-    }): Promise<unknown>;
+    /** Current helper policy filters own history; cursor is not an authority token. */
+    list(options?: AuditQuery): Promise<Readonly<AuditPage>>;
   };
   undo: {
     list(options?: {

@@ -12,3 +12,5 @@ pub mod search;
 pub mod text;
 pub mod trash;
 pub mod usage;
+
+pub mod history;

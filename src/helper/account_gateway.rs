@@ -58,6 +58,10 @@ impl WebAccountsConfig {
 }
 #[derive(Serialize, Deserialize)]
 pub enum AccountCommand {
+    History {
+        grant: SessionGrant,
+        query: crate::accounts::journal::HistoryQuery,
+    },
     Login(AuthRequest),
     BeginEnrollment(AuthRequest),
     CompleteEnrollment {
@@ -141,6 +145,7 @@ pub enum AccountCommand {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
+    History(crate::accounts::journal::HistoryPage),
     Authenticated {
         account: Account,
         grant: SessionGrant,
@@ -626,6 +631,99 @@ fn dispatch(
                 .set_policy(&authority, &target.id, expected_generation, layer, rules)
                 .map_err(GatewayFailure::from)?;
             Ok(AccountReply::AccountUpdated(updated))
+        }
+        AccountCommand::History { grant, query } => {
+            if !config.journal.enabled {
+                return Err(GatewayFailure::Disabled);
+            }
+            query.validate().map_err(GatewayFailure::from)?;
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let mut view =
+                crate::policy::home::resolve(config, &actor, config.home_template.as_ref())
+                    .map_err(|_| GatewayFailure::Forbidden)?;
+            apply_persisted_policy(&mut view, &actor)?;
+            let authority = crate::accounts::store::Authority::Account {
+                id: actor.id.clone(),
+                generation: actor.generation,
+            };
+            let mut cursor = query.cursor.clone();
+            let mut items = Vec::new();
+            let mut scanned = 0usize;
+            let mut has_more = false;
+            loop {
+                let batch = store
+                    .operation_records_filtered(
+                        &authority,
+                        &crate::accounts::journal::HistoryQuery {
+                            limit: 200,
+                            cursor: cursor.clone(),
+                            ..query.clone()
+                        },
+                    )
+                    .map_err(GatewayFailure::from)?;
+                let count = batch.len();
+                if count == 0 {
+                    break;
+                }
+                for record in batch {
+                    scanned += 1;
+                    cursor = Some(crate::accounts::store::AccountStore::operation_cursor(
+                        &record,
+                    ));
+                    let visible =
+                        view.roots.iter().any(|root| {
+                            root.root_id == record.root_id && root.base_path == actor.home
+                        }) && view
+                            .access_policy
+                            .check(
+                                &actor.username,
+                                &record.root_id,
+                                &record.source_path,
+                                crate::policy::access::Access::Discover,
+                            )
+                            .is_ok()
+                            && record.target_path.as_ref().is_none_or(|path| {
+                                view.access_policy
+                                    .check(
+                                        &actor.username,
+                                        &record.root_id,
+                                        path,
+                                        crate::policy::access::Access::Discover,
+                                    )
+                                    .is_ok()
+                            });
+                    if visible {
+                        items.push(record);
+                    }
+                    if items.len() > usize::from(query.limit) {
+                        has_more = true;
+                        break;
+                    }
+                }
+                if has_more || count < 200 {
+                    break;
+                }
+                if scanned >= 1000 {
+                    has_more = true;
+                    break;
+                }
+            }
+            if items.len() > usize::from(query.limit) {
+                items.pop();
+                cursor = items
+                    .last()
+                    .map(crate::accounts::store::AccountStore::operation_cursor);
+            }
+            Ok(AccountReply::History(
+                crate::accounts::journal::HistoryPage {
+                    items,
+                    next_cursor: if has_more { cursor } else { None },
+                    has_more,
+                },
+            ))
         }
         AccountCommand::Login(request) => {
             let reservation = store

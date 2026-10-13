@@ -279,8 +279,7 @@ export class TealDriveClient {
       }),
       quota: Object.freeze({ get: () => this._quota() }),
       audit: Object.freeze({
-        list: async (o) =>
-          this._featureHttp("audit_history", "/api/audit", "GET", o, true),
+        list: async (o) => this._auditList(o),
       }),
       undo: Object.freeze({
         list: async (o) =>
@@ -499,6 +498,7 @@ export class TealDriveClient {
         self_revoke: false,
         account_management: false,
         account_pagination: false,
+        audit_history: false,
         linux_approval: false,
         policy_management: false,
         virtual_accounts: false,
@@ -998,6 +998,70 @@ export class TealDriveClient {
       expectedGeneration: view.account.generation,
       rules,
     });
+  }
+  /** Own-account protected history. Epoch times are seconds, paths are substring filters. */
+  _auditList(options = {}) {
+    this._require(true);
+    if (
+      !this._hello?.authentication?.audit_history &&
+      !this._hello?.feature_flags?.audit_history
+    )
+      fail("FEATURE_DISABLED");
+    object(options, [
+      "limit",
+      "cursor",
+      "action",
+      "requestId",
+      "status",
+      "rootId",
+      "path",
+      "from",
+      "to",
+    ]);
+    if (options.limit !== undefined) integer(options.limit, 1, 200, "limit");
+    for (const [field, max] of [
+      ["cursor", 160],
+      ["action", 32],
+      ["requestId", 36],
+      ["rootId", 128],
+      ["path", 256],
+    ]) {
+      const value = options[field];
+      if (
+        value !== undefined &&
+        value !== null &&
+        (typeof value !== "string" ||
+          new TextEncoder().encode(value).length > max ||
+          /[\x00-\x1f\x7f-\x9f]/.test(value))
+      )
+        fail("INVALID_ARGUMENT", { params: { field } });
+    }
+    for (const field of ["action", "requestId", "rootId", "path"])
+      if (options[field] === null) fail("INVALID_ARGUMENT");
+    if (
+      options.requestId !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        options.requestId,
+      )
+    )
+      fail("INVALID_ARGUMENT");
+    if (options.action !== undefined && !/^[a-zA-Z0-9]*$/.test(options.action))
+      fail("INVALID_ARGUMENT");
+    if (
+      options.status !== undefined &&
+      !["pending", "success", "failed", "unknown"].includes(options.status)
+    )
+      fail("INVALID_ARGUMENT");
+    for (const field of ["from", "to"])
+      if (options[field] !== undefined)
+        integer(options[field], 0, Number.MAX_SAFE_INTEGER, field);
+    if (
+      options.from !== undefined &&
+      options.to !== undefined &&
+      options.from > options.to
+    )
+      fail("INVALID_ARGUMENT");
+    return this._http("/api/audit", "GET", options, true).then(freeze);
   }
   _accountPage(kind, options = {}) {
     this._require(true);

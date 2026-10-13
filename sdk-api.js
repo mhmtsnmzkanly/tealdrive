@@ -668,4 +668,11 @@ export const examples = {
   // API.admin.virtualUsers.listPage({limit:100,cursor:"LAST_USERNAME",enrolled:true}); — Admin yalnız kendi hesaplarını görür; dönen nextCursor ile sonraki sayfa alınır.
   /** @param {Object} API @returns {Promise<{items:Array,nextCursor:string|null,hasMore:boolean}>} @throws {TealDriveError} FEATURE_DISABLED, PERMISSION_DENIED, INVALID_ARGUMENT */
   virtualAccountsPage: API => API.admin.virtualUsers.listPage({limit:100,enrolled:true}),
+  // API.files.audit.list({limit:100,status:"failed",path:"projects/",from:0,to:Math.floor(Date.now()/1000)}); — Kendi geçmişi; güncel helper politikası, source/target filtresi ve saniye cinsinden zaman aralığı.
+  /** @param {Object} API @returns {Promise<{items:Array,nextCursor:string|null,hasMore:boolean}>} @throws {TealDriveError} FEATURE_DISABLED, AUTH_REQUIRED, INVALID_ARGUMENT */
+  auditFilteredPage: API => API.files.audit.list({limit:100,status:"failed",path:"projects/",from:0,to:Math.floor(Date.now()/1000)}),
+  // API.files.audit.list({requestId:operationResult.requestId}); — İşlem yanıtının isteğini korumalı helper kaydıyla eşleştirir; başka hesaba erişim vermez.
+  /** @param {Object} API @param {{requestId:string}} operationResult @returns {Promise<Object>} @throws {TealDriveError} FEATURE_DISABLED, INVALID_ARGUMENT */
+  auditForRequest: (API, operationResult) => API.files.audit.list({requestId:operationResult.requestId}),
+
 };

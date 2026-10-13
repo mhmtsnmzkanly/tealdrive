@@ -199,6 +199,7 @@ def main():
         if os.environ.get('TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE') == '1':
             run([sys.executable, str(ROOT / 'tools/dev/local-wizard-acceptance.py'), str(manifest)], cwd=ROOT)
         if os.environ.get('TEALDRIVE_JOURNAL_ACCEPTANCE') == '1':
+            run(['node', str(ROOT / 'tests/live/journal-history.cjs')], env=env, cwd=ROOT)
             with sqlite3.connect(DB) as state:
                 records=[]
                 for user in users:

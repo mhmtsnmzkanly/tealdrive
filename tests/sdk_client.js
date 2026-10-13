@@ -173,6 +173,30 @@ globalThis.crypto = webcrypto;
     personalRules = [];
   const settingsRequests = [];
   const fetch = async (url, options) => {
+    if (url.startsWith("/api/audit")) {
+      const query = new URLSearchParams(url.split("?")[1]);
+      assert.equal(query.get("limit"), "1");
+      assert.equal(query.get("path"), "docs");
+      assert.equal(query.get("status"), "success");
+      assert.equal(query.get("from"), "0");
+      assert.equal(query.get("to"), "2");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              id: "own-record",
+              account_id: "actor",
+              status: "success",
+              source_path: "docs",
+            },
+          ],
+          next_cursor: null,
+          has_more: false,
+        }),
+      };
+    }
     if (
       url.startsWith("/api/admin/virtual/page") ||
       url.startsWith("/api/admin/accounts/system/page")
@@ -421,6 +445,34 @@ globalThis.crypto = webcrypto;
   quota = { limit_bytes: 100, used_bytes: 60 };
   await api.files.quota.get();
   assert.equal(conditions.at(-1), false);
+  await assert.rejects(
+    api.files.audit.list(),
+    (e) => e.code === "FEATURE_DISABLED",
+  );
+  api._hello.authentication.audit_history = true;
+  const history = await api.files.audit.list({
+    limit: 1,
+    path: "docs",
+    status: "success",
+    from: 0,
+    to: 2,
+  });
+  assert.equal(history.items[0].accountId, "actor");
+  assert.equal(history.items[0].sourcePath, "docs");
+  assert(Object.isFrozen(history.items));
+  for (const options of [
+    { accountId: "foreign" },
+    { limit: 201 },
+    { from: 2, to: 1 },
+    { status: "fake" },
+    { path: "ğ".repeat(129) },
+    { requestId: "not-uuid" },
+    { action: null },
+  ])
+    await assert.rejects(
+      api.files.audit.list(options),
+      (e) => e.code === "INVALID_ARGUMENT",
+    );
   const controller = new AbortController();
   const reading = api.files.readText({
     path: "waiting.txt",

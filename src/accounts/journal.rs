@@ -36,6 +36,77 @@ impl JournalConfig {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryQuery {
+    pub limit: u16,
+    pub cursor: Option<String>,
+    pub action: Option<String>,
+    pub request_id: Option<String>,
+    pub status: Option<String>,
+    pub root_id: Option<String>,
+    pub path: Option<String>,
+    pub from: Option<u64>,
+    pub to: Option<u64>,
+}
+impl Default for HistoryQuery {
+    fn default() -> Self {
+        Self {
+            limit: 100,
+            cursor: None,
+            action: None,
+            request_id: None,
+            status: None,
+            root_id: None,
+            path: None,
+            from: None,
+            to: None,
+        }
+    }
+}
+impl HistoryQuery {
+    pub fn validate(&self) -> Result<(), StoreError> {
+        if !(1..=200).contains(&self.limit)
+            || self
+                .cursor
+                .as_ref()
+                .is_some_and(|v| v.len() > 160 || v.chars().any(char::is_control))
+            || self
+                .action
+                .as_ref()
+                .is_some_and(|v| v.len() > 32 || !v.chars().all(|c| c.is_ascii_alphanumeric()))
+            || self
+                .request_id
+                .as_ref()
+                .is_some_and(|value| uuid::Uuid::parse_str(value).is_err())
+            || self
+                .status
+                .as_ref()
+                .is_some_and(|v| !["pending", "success", "failed", "unknown"].contains(&v.as_str()))
+            || self
+                .root_id
+                .as_ref()
+                .is_some_and(|v| v.len() > 128 || v.chars().any(char::is_control))
+            || self
+                .path
+                .as_ref()
+                .is_some_and(|v| v.len() > 256 || v.chars().any(char::is_control))
+            || self.from.is_some_and(|v| v > i64::MAX as u64)
+            || self.to.is_some_and(|v| v > i64::MAX as u64)
+            || self.from.zip(self.to).is_some_and(|(from, to)| from > to)
+        {
+            return Err(StoreError::InvalidInput);
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryPage {
+    pub items: Vec<OperationRecord>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OperationRecord {
     pub version: u8,
@@ -244,19 +315,40 @@ impl AccountStore {
         cursor: Option<&str>,
         filter: Option<&str>,
     ) -> Result<Vec<OperationRecord>, StoreError> {
-        if !(1..=200).contains(&limit)
-            || cursor.is_some_and(|v| v.len() > 160 || v.chars().any(char::is_control))
-            || filter.is_some_and(|v| v.len() > 32 || !v.chars().all(|c| c.is_ascii_alphanumeric()))
-        {
-            return Err(StoreError::InvalidInput);
-        }
+        self.operation_records_filtered(
+            authority,
+            &HistoryQuery {
+                limit,
+                cursor: cursor.map(str::to_owned),
+                action: filter.map(str::to_owned),
+                ..Default::default()
+            },
+        )
+    }
+    pub fn operation_records_filtered(
+        &self,
+        authority: &Authority,
+        query: &HistoryQuery,
+    ) -> Result<Vec<OperationRecord>, StoreError> {
+        query.validate()?;
         let actor = authorized(&self.connection, authority)?.ok_or(StoreError::Forbidden)?;
         let pattern = format!("{}%", prefix(&actor.id));
-        let mut statement=self.connection.prepare("SELECT value FROM security_state WHERE key LIKE ?1 AND (?2 IS NULL OR key<?2) AND (?3 IS NULL OR json_extract(value,'$.action')=?3) ORDER BY key DESC LIMIT ?4")?;
-        let records = statement
-            .query_map(params![pattern, cursor, filter, i64::from(limit)], |r| {
-                r.get::<_, String>(0)
-            })?;
+        let mut statement=self.connection.prepare("SELECT value FROM security_state WHERE key LIKE ?1 AND (?2 IS NULL OR key<?2) AND (?3 IS NULL OR json_extract(value,'$.action')=?3) AND (?5 IS NULL OR json_extract(value,'$.status')=?5) AND (?6 IS NULL OR json_extract(value,'$.rootId')=?6) AND (?7 IS NULL OR instr(json_extract(value,'$.sourcePath'),?7)>0 OR instr(json_extract(value,'$.targetPath'),?7)>0) AND (?8 IS NULL OR json_extract(value,'$.createdAt')>=?8) AND (?9 IS NULL OR json_extract(value,'$.createdAt')<=?9) AND (?10 IS NULL OR json_extract(value,'$.requestId')=?10) ORDER BY key DESC LIMIT ?4")?;
+        let records = statement.query_map(
+            params![
+                pattern,
+                query.cursor,
+                query.action,
+                i64::from(query.limit),
+                query.status,
+                query.root_id,
+                query.path,
+                query.from.map(number).transpose()?,
+                query.to.map(number).transpose()?,
+                query.request_id
+            ],
+            |r| r.get::<_, String>(0),
+        )?;
         records
             .map(|data| {
                 let record: OperationRecord =
@@ -388,5 +480,68 @@ mod tests {
                 1000 + config.retention_hours * 3600 + 1,
             )
             .unwrap();
+    }
+    #[test]
+    fn status_path_root_and_time_filters_run_before_limit() {
+        let mut store = AccountStore::memory();
+        let alice = account(&mut store, "alice", 1000);
+        let config = JournalConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let request = crate::helper::ipc::tests_support::sample_request(HelperCommand::WriteFile);
+        let first = store
+            .begin_operation(&alice, &request, &config, 1000)
+            .unwrap();
+        store
+            .finish_operation(
+                &first,
+                Some(&HelperResponse::operation_done(&request, "ok")),
+                &config,
+                1001,
+            )
+            .unwrap();
+        let second = store
+            .begin_operation(&alice, &request, &config, 1050)
+            .unwrap();
+        store
+            .finish_operation(
+                &second,
+                Some(&HelperResponse::permission_denied(&request, "no")),
+                &config,
+                1051,
+            )
+            .unwrap();
+        let authority = Authority::Account {
+            id: alice.id,
+            generation: alice.generation,
+        };
+        let query = HistoryQuery {
+            limit: 1,
+            status: Some("success".into()),
+            root_id: Some("home".into()),
+            path: Some("docs".into()),
+            from: Some(999),
+            to: Some(1051),
+            ..Default::default()
+        };
+        let records = store
+            .operation_records_filtered(&authority, &query)
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, first.id);
+        assert!(HistoryQuery {
+            from: Some(10),
+            to: Some(1),
+            ..Default::default()
+        }
+        .validate()
+        .is_err());
+        assert!(HistoryQuery {
+            status: Some("fabricated".into()),
+            ..Default::default()
+        }
+        .validate()
+        .is_err());
     }
 }

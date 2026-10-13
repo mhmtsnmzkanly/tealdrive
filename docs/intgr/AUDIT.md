@@ -67,3 +67,19 @@ Chmod kaydı requestedMode yanında actual oldMode/newMode içerir; aynı pinned
 ## Çalışan quota ledger ve history capability
 
 Own history API/SDK artık Root `[journal] enabled=true` ve web-account modelinde authentication.audit_history=true ilan eder. Direct backend/native/application/own-scope/policy testleri geçti. Old configs defaultfalse kalır; undo API/UI devam ediyor. `logReserveBytes` ve `logStorage` userQuota/systemBudget/systemReserve ayrımını gösterir. Padded ledger copy/rootDB primary intent-result aynı event ID'dir; plaintext file contents yok. Root account/global count cap ve kontrollü rotation/504h GC uygulanır. Linux logs sistem bütçesinde, virtual events gerçek UID kotasında. Delete-after36h log UIDRoot'a aktarılır, Root policy kalan retention'a göre temizler.
+
+## Uygulanmış protected security/control kayıtları
+
+Server JSONL HTTP/WS/delivery/audit kaydı devam eder. Ek olarak Root accounts.db security_state/control_v1 helper auth/login/enrollment/logout/password/revoke, access/policy, virtual create/quota/delete ve undo dispatch intent/result'ını tutar. Validation/history/list gibi sık read-only denetimler burada yeni kayıt oluşturmaz. Caller UID/PID kernel'den gelir; subjectClaim/targetClaim giriş isimleri/hesap ID'leridir ve authority değildir. Parola, proof/grant/cookie/MAC, raw argv veya file content yok. Root CLI mutasyonları kapsanır; pre-DB install ve untrusted store repair recovery istisnası Root-only'dir. Dış Root'un elle yaptığı OS/config değişiklikleri uygulama audit garantisi değildir.
+
+```toml
+[control_audit]
+retention_hours = 504
+max_records = 16384
+```
+
+```sh
+sudo tealdrive-wizard audit list 100
+```
+
+Control history Root CLI dışında panel/tenant own history yüzeyine verilmez. Own files.audit protected operation kayıtlarını gösterir. Store backup/restore control kayıtlarını da taşır; recovery tamamlanma olayı yeni DB'ye eklenebilir. Central server log ve root control log farklı güven sınırlarındadır.

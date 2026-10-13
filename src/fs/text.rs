@@ -269,6 +269,7 @@ pub fn save_text_file_request<H: SaveTextFileHelper + MetadataHelper>(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            stream_size: None,
             expected_revision: request.expected_revision.clone(),
             data: request.content.into_bytes(),
             offset: 0,

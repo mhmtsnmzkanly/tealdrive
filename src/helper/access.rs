@@ -439,6 +439,7 @@ mod tests {
         let mut write = sample_request(HelperCommand::WriteFile);
         write.relative_path = RelativePath::new("private/new.txt");
         write.write_options = Some(crate::helper::types::HelperWriteOptions {
+            stream_size: None,
             data: b"secret".to_vec(),
             offset: 0,
             truncate: true,

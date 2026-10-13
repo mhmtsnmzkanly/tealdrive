@@ -7,7 +7,8 @@ pub const MAX_FRAME_PAYLOAD: usize = MIB;
 pub const MAX_CONTROL_PAYLOAD: usize = 256 * KIB;
 pub const MAX_DECOMPRESSED_CONTROL_PAYLOAD: usize = 4 * MIB;
 pub const MAX_CHUNK_SIZE: usize = 256 * KIB;
-pub const MAX_IN_FLIGHT_UPLOAD: usize = MIB;
+pub const MAX_IN_FLIGHT_UPLOAD: usize = 1024 * MIB;
+pub const MAX_UPLOAD_FILE_BYTES: usize = 64 * 1024 * MIB;
 pub const MAX_DIRECTORY_PAGE_SIZE: usize = 500;
 pub const DEFAULT_DIRECTORY_PAGE_SIZE: usize = 200;
 pub const MAX_TEXT_EDIT_SIZE: usize = 128 * KIB;
@@ -57,7 +58,7 @@ mod tests {
         assert_eq!(limits.max_control_payload, 256 * 1024);
         assert_eq!(limits.max_decompressed_control_payload, 4 * 1024 * 1024);
         assert_eq!(limits.max_chunk_size, 256 * 1024);
-        assert_eq!(limits.max_in_flight_upload, 1024 * 1024);
+        assert_eq!(limits.max_in_flight_upload, 1024 * 1024 * 1024);
         assert_eq!(limits.max_directory_page_size, 500);
         assert_eq!(limits.default_directory_page_size, 200);
         assert_eq!(limits.max_text_edit_size, 128 * 1024);

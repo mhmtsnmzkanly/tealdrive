@@ -96,6 +96,7 @@ pub fn run(invocation: WorkerInvocation) -> Result<HelperResponse, TealDriveErro
         ..
     } = invocation;
     config.validate()?;
+    let source = super::upload::source(&request).map_err(|_| TealDriveError::PermissionDenied)?;
     super::access::authorize(&request, &config)?;
     super::policy::authorize(&request, &config)?;
     if operation_id
@@ -105,7 +106,9 @@ pub fn run(invocation: WorkerInvocation) -> Result<HelperResponse, TealDriveErro
         return Err(TealDriveError::PermissionDenied);
     }
     super::artifact::with_operation(operation_id.as_deref(), || {
-        execute_inner(&request, &config, available, undo.as_deref(), true)
+        super::upload::with_source(source, || {
+            execute_inner(&request, &config, available, undo.as_deref(), true)
+        })
     })
 }
 pub(super) fn execute(
@@ -193,7 +196,12 @@ fn spawn_inner(
     undo: Option<crate::accounts::journal::OperationRecord>,
     operation_id: Option<String>,
 ) -> Result<HelperResponse, TealDriveError> {
-    let child = Command::new("/proc/self/exe")
+    let source = super::upload::source(request).map_err(|_| TealDriveError::PermissionDenied)?;
+    let mut command = Command::new("/proc/self/exe");
+    if let Some(file) = source.as_ref() {
+        super::upload::inherit_source(&mut command, file);
+    }
+    let child = command
         .arg("--watch-stdin")
         .env_clear()
         .stdin(Stdio::piped())

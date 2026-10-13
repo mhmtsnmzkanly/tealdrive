@@ -1,5 +1,5 @@
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
@@ -26,6 +26,24 @@ use crate::protocol::payload::{
 };
 use crate::upload::temp::TempUploadName;
 
+// Keep system metadata/control writes possible while staging user uploads.
+const MIN_STAGING_FREE_BYTES: u64 = 1024 * 1024 * 1024;
+static STAGING_IO: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn check_staging_capacity(file: &fs::File, bytes: u64) -> Result<(), TealDriveError> {
+    use std::os::fd::AsRawFd;
+    let mut status: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatvfs(file.as_raw_fd(), &mut status) } != 0 {
+        return Err(TealDriveError::Internal);
+    }
+    let free = status.f_bavail.saturating_mul(status.f_frsize);
+    if bytes
+        .checked_add(MIN_STAGING_FREE_BYTES)
+        .is_none_or(|required| free < required)
+    {
+        return Err(TealDriveError::DiskFull);
+    }
+    Ok(())
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UploadState {
     pub transfer_id: TransferId,
@@ -48,11 +66,51 @@ pub struct ActiveUpload {
 
 pub trait UploadHelper {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError>;
+    /// Production passes an already-open read-only descriptor; small in-process
+    /// adapters retain the old interface without granting a filesystem path.
+    fn execute_upload_source(
+        &self,
+        request: &HelperRequest,
+        source: &mut fs::File,
+    ) -> Result<HelperResponse, TealDriveError> {
+        let size = request
+            .write_options
+            .as_ref()
+            .and_then(|v| v.stream_size)
+            .ok_or(TealDriveError::Validation)?;
+        if size > 3 * crate::limits::MIB as u64 {
+            return Err(TealDriveError::HelperRequestTooLarge);
+        }
+        let mut request = request.clone();
+        let options = request
+            .write_options
+            .as_mut()
+            .ok_or(TealDriveError::Validation)?;
+        source
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| TealDriveError::Internal)?;
+        source
+            .take(size)
+            .read_to_end(&mut options.data)
+            .map_err(|_| TealDriveError::Internal)?;
+        if options.data.len() as u64 != size {
+            return Err(TealDriveError::Validation);
+        }
+        options.stream_size = None;
+        self.execute_helper(&request)
+    }
 }
 
 impl UploadHelper for HelperProcessClient {
     fn execute_helper(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
         self.execute(request)
+    }
+    fn execute_upload_source(
+        &self,
+        request: &HelperRequest,
+        source: &mut fs::File,
+    ) -> Result<HelperResponse, TealDriveError> {
+        self.execute_upload_stream(request, source)
     }
 }
 
@@ -122,13 +180,24 @@ pub fn upload_begin_request(
     let negotiated_chunk_size = request.chunk_size.min(config.limits.max_chunk_size).max(1);
     let staging_path = std::env::temp_dir().join(temp_name.as_str());
 
-    OpenOptions::new()
+    if root
+        .quota_bytes
+        .is_some_and(|quota| request.total_size > quota)
+    {
+        return Err(TealDriveError::DiskFull);
+    }
+    let staging = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&staging_path)
         .map_err(|_| TealDriveError::Internal)?;
+    if let Err(error) = check_staging_capacity(&staging, request.total_size) {
+        drop(staging);
+        let _ = fs::remove_file(&staging_path);
+        return Err(error);
+    }
 
     let active_upload = ActiveUpload {
         transfer_id,
@@ -179,6 +248,8 @@ pub fn upload_chunk_request(
         .open(&active_upload.staging_path)
         .map_err(|_| TealDriveError::Internal)?;
 
+    let _disk_lock = STAGING_IO.lock().map_err(|_| TealDriveError::Internal)?;
+    check_staging_capacity(&file, chunk.chunk_bytes.len() as u64)?;
     file.seek(SeekFrom::Start(chunk.offset))
         .map_err(|_| TealDriveError::Internal)?;
     file.write_all(&chunk.chunk_bytes)
@@ -221,8 +292,19 @@ pub fn upload_end_request<H: UploadHelper>(
         return Err(TealDriveError::Validation);
     }
 
-    let staged_bytes =
-        fs::read(&active_upload.staging_path).map_err(|_| TealDriveError::Internal)?;
+    let mut source = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&active_upload.staging_path)
+        .map_err(|_| TealDriveError::Internal)?;
+    if source
+        .metadata()
+        .map_err(|_| TealDriveError::Internal)?
+        .len()
+        != active_upload.total_size
+    {
+        return Err(TealDriveError::Validation);
+    }
 
     if let (Some(begin), Some(end)) = (&active_upload.sha256, &request.sha256) {
         if !begin.eq_ignore_ascii_case(end) {
@@ -232,7 +314,19 @@ pub fn upload_end_request<H: UploadHelper>(
     let sha256_verified =
         if let Some(expected_hash) = active_upload.sha256.as_ref().or(request.sha256.as_ref()) {
             let mut hasher = Sha256::new();
-            hasher.update(&staged_bytes);
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let count = source
+                    .read(&mut buffer)
+                    .map_err(|_| TealDriveError::Internal)?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+            }
+            source
+                .seek(SeekFrom::Start(0))
+                .map_err(|_| TealDriveError::Internal)?;
             let computed_hash = format!("{:x}", hasher.finalize());
             if !computed_hash.eq_ignore_ascii_case(expected_hash) {
                 let _ = fs::remove_file(&active_upload.staging_path);
@@ -275,8 +369,9 @@ pub fn upload_end_request<H: UploadHelper>(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            stream_size: Some(active_upload.total_size),
             expected_revision: None,
-            data: staged_bytes,
+            data: Vec::new(),
             offset: 0,
             truncate: true,
         }),
@@ -285,11 +380,14 @@ pub fn upload_end_request<H: UploadHelper>(
         search_options: None,
     };
 
-    let response = helper_client.execute_helper(&helper_request)?;
+    let response = helper_client.execute_upload_source(&helper_request, &mut source)?;
     let _ = fs::remove_file(&active_upload.staging_path);
 
     if !response.success {
         return Err(helper_response_to_error(&response));
+    }
+    if response.bytes_written != active_upload.total_size {
+        return Err(TealDriveError::HelperMalformedResponse);
     }
 
     Ok(UploadEndResponse {

@@ -104,6 +104,20 @@ impl HelperProcessClient {
         rmp_serde::from_slice(&output).map_err(|_| GatewayFailure::Unavailable)?
     }
     pub fn execute(&self, request: &HelperRequest) -> Result<HelperResponse, TealDriveError> {
+        self.execute_with_source(request, None)
+    }
+    pub fn execute_upload_stream(
+        &self,
+        request: &HelperRequest,
+        source: &std::fs::File,
+    ) -> Result<HelperResponse, TealDriveError> {
+        self.execute_with_source(request, Some(source))
+    }
+    fn execute_with_source(
+        &self,
+        request: &HelperRequest,
+        source: Option<&std::fs::File>,
+    ) -> Result<HelperResponse, TealDriveError> {
         let mut ticket = self
             .tickets
             .lock()
@@ -124,11 +138,13 @@ impl HelperProcessClient {
             ticket,
             policy: policy.map(Box::new),
         })?;
-        let output = self.communicate(bytes).map_err(|error| {
-            // Safe enum only: never include the request, ticket, grant or password.
-            eprintln!("Helper operation failed: {error:?}");
-            error
-        })?;
+        let output = self
+            .communicate_with_source(bytes, source)
+            .map_err(|error| {
+                // Safe enum only: never include the request, ticket, grant or password.
+                eprintln!("Helper operation failed: {error:?}");
+                error
+            })?;
         let response: HelperResponse =
             rmp_serde::from_slice(&output).map_err(|_| TealDriveError::HelperMalformedResponse)?;
         crate::audit::operation::observe(&response);
@@ -140,6 +156,13 @@ impl HelperProcessClient {
     /// Read and write both pipes while the child runs. All exits kill/reap the child
     /// and join pipe workers; timeout includes input writes, authentication and output.
     fn communicate(&self, bytes: Vec<u8>) -> Result<Vec<u8>, TealDriveError> {
+        self.communicate_with_source(bytes, None)
+    }
+    fn communicate_with_source(
+        &self,
+        bytes: Vec<u8>,
+        source: Option<&std::fs::File>,
+    ) -> Result<Vec<u8>, TealDriveError> {
         let bytes = zeroize::Zeroizing::new(bytes);
         let start = Instant::now();
         let timeout = self.timeout();
@@ -156,6 +179,9 @@ impl HelperProcessClient {
             .stderr(Stdio::null());
         for (key, value) in &self.env_vars {
             command.env(key, value);
+        }
+        if let Some(source) = source {
+            crate::helper::upload::inherit_source(&mut command, source);
         }
         let mut child = command
             .spawn()

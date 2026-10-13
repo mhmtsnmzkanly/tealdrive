@@ -43,6 +43,9 @@ pub struct HelperSearchOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperWriteOptions {
+    /// Read-only inherited descriptor, never a caller-selected filesystem path.
+    #[serde(default)]
+    pub stream_size: Option<u64>,
     #[serde(default)]
     pub expected_revision: Option<String>,
     pub data: Vec<u8>,

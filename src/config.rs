@@ -258,7 +258,7 @@ impl AppConfig {
             || l.max_text_edit_size == 0
             || l.max_text_edit_size > l.max_control_payload / 2
             || l.max_in_flight_upload == 0
-            || l.max_in_flight_upload > 3 * crate::limits::MIB
+            || l.max_in_flight_upload > crate::limits::MAX_UPLOAD_FILE_BYTES
             || l.max_directory_page_size == 0
             || l.max_directory_page_size > crate::limits::MAX_DIRECTORY_PAGE_SIZE
             || l.default_directory_page_size == 0

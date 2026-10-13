@@ -731,7 +731,7 @@
       await client.files.upload({rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
         const percentage = progress.totalBytes ? Math.round(100*progress.transferredBytes/progress.totalBytes) : 100;
         el.uploadProgressBar.style.width = `${percentage}%`;
-        el.uploadPercent.textContent = `${percentage}%`;
+        el.uploadPercent.textContent = percentage === 100 ? t('Finalizing upload...') : `${percentage}%`;
       }});
       showToast('Upload completed','success'); loadDirectory(state.currentPath);
     } catch (error) {

@@ -110,6 +110,7 @@ fn range_request(
         },
         list_options: None,
         write_options: Some(HelperWriteOptions {
+            stream_size: None,
             expected_revision: None,
             data: Vec::new(),
             offset,

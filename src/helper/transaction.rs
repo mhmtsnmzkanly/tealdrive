@@ -217,6 +217,7 @@ mod tests {
                     );
                     request.relative_path = RelativePath::new(format!("file-{index}"));
                     request.write_options = Some(crate::helper::types::HelperWriteOptions {
+                        stream_size: None,
                         expected_revision: None,
                         data: vec![1; 250],
                         offset: 0,

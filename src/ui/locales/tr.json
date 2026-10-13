@@ -312,5 +312,6 @@
   "Undo preference unavailable": "Geri alma tercihi alınamadı",
   "File exceeds the server upload limit ({limit}).": "Dosya sunucunun yükleme sınırını ({limit}) aşıyor.",
   "Upload cancelled.": "Yükleme iptal edildi.",
-  "Storage is full or the account quota has been reached.": "Depolama dolu veya hesap kotasına ulaşıldı."
+  "Storage is full or the account quota has been reached.": "Depolama dolu veya hesap kotasına ulaşıldı.",
+  "Finalizing upload...": "Yükleme tamamlanıyor..."
 }

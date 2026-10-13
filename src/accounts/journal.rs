@@ -689,6 +689,7 @@ mod tests {
             crate::helper::ipc::tests_support::sample_request(HelperCommand::ReadFileRange);
         request.limits.max_chunk_size = 4;
         request.write_options = Some(crate::helper::types::HelperWriteOptions {
+            stream_size: None,
             data: vec![],
             expected_revision: None,
             offset: 10,
@@ -761,6 +762,7 @@ mod tests {
         let mut request =
             crate::helper::ipc::tests_support::sample_request(HelperCommand::WriteFile);
         request.write_options = Some(crate::helper::types::HelperWriteOptions {
+            stream_size: None,
             data: b"PRIVATE_CONTENT_NEVER_LOG".to_vec(),
             expected_revision: None,
             offset: 0,

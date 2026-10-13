@@ -116,7 +116,12 @@ pub fn authorize(
             UploadCommit => config.limits.max_in_flight_upload,
             _ => usize::MAX,
         };
-        if options.data.len() > bound {
+        if options.stream_size.is_some()
+            && (request.command != UploadCommit || !options.data.is_empty())
+        {
+            return Err(TealDriveError::Validation);
+        }
+        if options.stream_size.unwrap_or(options.data.len() as u64) > bound as u64 {
             return Err(TealDriveError::FileTooLarge);
         }
         if matches!(request.command, WriteFile | UploadCommit)

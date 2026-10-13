@@ -86,6 +86,7 @@ mod tests {
         );
         request.relative_path = RelativePath::new("note.txt");
         request.write_options = Some(crate::helper::types::HelperWriteOptions {
+            stream_size: None,
             expected_revision: Some(revision),
             data: b"panel edit".to_vec(),
             offset: 0,

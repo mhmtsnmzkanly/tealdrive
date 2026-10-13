@@ -97,6 +97,7 @@ fn test_real_helper_binary_subprocess_lifecycle() {
     // 2. Write file
     let content = b"Hello from real subprocess tealdrive-helper!\n";
     let write_opts = HelperWriteOptions {
+        stream_size: None,
         expected_revision: None,
         data: content.to_vec(),
         offset: 0,

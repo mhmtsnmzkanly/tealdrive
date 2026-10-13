@@ -52,3 +52,19 @@ Staging create_new+0600+NOFOLLOW/CLOEXEC ile açılır; umask yanlış olsa da k
 ### Backend TLS ilk adım
 
 Root-owned PEM çiftini60s aralıkla doğrulayıp canlı rustls config'e yükleme eklendi. `tls status` gerçek kurulum sertifikasını/private-key çiftini doğruladı, public fingerprint/date ve30gün yenileme uyarısı verdi. İzole gerçek listener kabulü `cargo test --locked --test tls_refresh -- --ignored`:124.44s içinde geçti; invalid key son geçerli sertifikayı korudu, yeni çift restart olmadan yayınlandı, eski CA yeni self-signed kimliği reddetti. Production cert/key/Caddy değişmedi. Otomatik sertifika üretimi ve çift-trust rollout henüz tamamlanmadı. Tasarım ve sınırlar TRANSPORT_SECURITY.md içinde.
+
+### Büyük aktarım ilk uygulama/kabulü
+
+UploadEnd artık dosyayı Vec/MessagePack içine almaz. Server readonly FD197 üzerinden setuid supervisor'a verir; supervisor/worker readonly regular-file,real-callerUID,0600,nlink1,exactsize kontrolü yapar. HMAC request stream_size'ı bağlar. Worker User UID/GID+Landlock'a geçtikten sonra önceden açık tanıtıcıdan64KiB bounded-buffer ile okur; her blokta cancellation denetlenir. Mevcut transaction staging/no-replace publication ve kernel/app quota korunur. Helper byte-count ile total_size eşleşmeden başarı döndürülmez.
+
+Source default per-file1GiB, Root hard ceiling64GiB; max_in_flight_upload eski alan adı/alias uyumluluk için korundu. Frame/chunk limitleri büyütülmedi. Small in-process UploadHelper adaptörünün eski arayüz fallback'i3MiB ile sınırlıdır; production stream override kullanır. Server staging başlangıçta beklenen boyut+1GiB boş alan ister; her chunk'ta1GiB sistem boşluk payı kontrol edilir ve process içi staging yazıları serialize edilir. Bu dış programların diski doldurmasına karşı mutlak garanti değildir. Root kullanıcı kotasından büyük dosya begin'de reddedilir.
+
+Kabul:591library test toplamında590passed/1ignored.17MiB helper testi IPC request<4KiB ve blok blok içerik doğrular. Config/browser/SDK/WS-auth integration passed. Gerçek private namespace Chromium+setuid/User-worker testinde17MiB upload/download,68progress,HTTP206range,abort cleanup,unsafe staging mode ve truncation reddi, yeniden bağlantı ve failed target yokluğu passed. Production helper ceiling hâlâ1MiB; release yapılmadan canlı büyük upload destekli sayılmaz. Kesinti sonrası cross-connection upload resume henüz uygulanmadı; disconnect/abort staging temizler. Native HTTP download Range desteği mevcut ve büyük dosya yolu test edildi.
+
+```sh
+TEALDRIVE_CORE_TRANSFER_ACCEPTANCE=1 \
+TEALDRIVE_TEST_WEB_PASSWORD_FILE=/root/private-existing-test-password \
+python3 tools/dev/core-transfer-acceptance.py
+```
+
+Araç gerçek onaylı tealdrive-test hesabının cloned auth DB'sini kullanır; tüm home/policy/bin/runtime/auth mount'ları private namespace içindedir. Fixture ve credentials kopyaları finally cleanup edilir, live config/home/DB değişmez. Kaynak binaries target/debug altında önceden hazırlanır.

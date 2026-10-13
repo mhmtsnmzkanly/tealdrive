@@ -283,10 +283,10 @@ export class TealDriveClient {
         list: async (o) => this._auditList(o),
       }),
       undo: Object.freeze({
-        list: async (o) =>
-          this._featureHttp("undo", "/api/undo", "GET", o, true),
-        apply: async (o) =>
-          this._featureHttp("undo", "/api/undo", "POST", o, true),
+        getPreferences: () => this._undoPreferences(),
+        setPreferences: (o) => this._undoPreferences(o),
+        list: async (o) => this._undoList(o),
+        apply: async (o) => this._undoApply(o),
       }),
       policy: this._policyAPI(),
     });
@@ -500,6 +500,7 @@ export class TealDriveClient {
         account_management: false,
         account_pagination: false,
         audit_history: false,
+        undo: false,
         linux_approval: false,
         policy_management: false,
         virtual_accounts: false,
@@ -1001,11 +1002,55 @@ export class TealDriveClient {
     });
   }
   /** Own-account protected history. Epoch times are seconds, paths are substring filters. */
-  _auditList(options = {}) {
+  _undoList(options = {}) {
+    return this._auditList(options, "/api/undo");
+  }
+  async _undoApply(options) {
+    this._require(true);
+    if (!this._hello?.authentication?.undo) fail("FEATURE_DISABLED");
+    object(options, ["operationId", "expectedState"]);
+    if (
+      typeof options.operationId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        options.operationId,
+      ) ||
+      typeof options.expectedState !== "string" ||
+      !/^[0-9a-f]{64}$/i.test(options.expectedState)
+    )
+      fail("INVALID_ARGUMENT");
+    const result = await this._http("/api/undo", "POST", options, true);
+    this._emit("files.changed", {
+      operation: "undo",
+      operationId: options.operationId,
+    });
+    return freeze(result);
+  }
+  _undoPreferences(options) {
+    this._require(true);
+    if (!this._hello?.authentication?.audit_history) fail("FEATURE_DISABLED");
+    if (options === undefined)
+      return this._http("/api/undo/preferences", "GET", {}, true).then(freeze);
+    object(options, ["hours", "expectedRevision"]);
+    if (
+      !(
+        options.hours === null ||
+        (Number.isSafeInteger(options.hours) && options.hours >= 1)
+      ) ||
+      !Number.isSafeInteger(options.expectedRevision) ||
+      options.expectedRevision < 0
+    )
+      fail("INVALID_ARGUMENT");
+    return this._http("/api/undo/preferences", "POST", options, true).then(
+      freeze,
+    );
+  }
+  _auditList(options = {}, url = "/api/audit") {
     this._require(true);
     if (
-      !this._hello?.authentication?.audit_history &&
-      !this._hello?.feature_flags?.audit_history
+      url === "/api/undo"
+        ? !this._hello?.authentication?.undo
+        : !this._hello?.authentication?.audit_history &&
+          !this._hello?.feature_flags?.audit_history
     )
       fail("FEATURE_DISABLED");
     object(options, [
@@ -1062,7 +1107,7 @@ export class TealDriveClient {
       options.from > options.to
     )
       fail("INVALID_ARGUMENT");
-    return this._http("/api/audit", "GET", options, true).then(freeze);
+    return this._http(url, "GET", options, true).then(freeze);
   }
   _accountPage(kind, options = {}) {
     this._require(true);

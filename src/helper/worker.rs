@@ -19,6 +19,8 @@ pub struct WorkerInvocation {
     pub expires_at: u64,
     pub nonce: [u8; 16],
     pub mac: [u8; 32],
+    #[serde(default)]
+    pub undo: Option<Box<crate::accounts::journal::OperationRecord>>,
 }
 impl WorkerInvocation {
     fn payload(&self) -> Result<Vec<u8>, TealDriveError> {
@@ -32,6 +34,7 @@ impl WorkerInvocation {
                 self.caller_uid,
                 self.expires_at,
                 self.nonce,
+                &self.undo,
             ))
             .map_err(|_| TealDriveError::HelperDecodeFailed)?,
         );
@@ -85,17 +88,26 @@ pub fn run(invocation: WorkerInvocation) -> Result<HelperResponse, TealDriveErro
         request,
         config,
         available,
+        undo,
         ..
     } = invocation;
     config.validate()?;
     super::access::authorize(&request, &config)?;
     super::policy::authorize(&request, &config)?;
-    execute(&request, &config, available)
+    execute_inner(&request, &config, available, undo.as_deref())
 }
 pub(super) fn execute(
     request: &HelperRequest,
     config: &AppConfig,
     available: Option<u64>,
+) -> Result<HelperResponse, TealDriveError> {
+    execute_inner(request, config, available, None)
+}
+fn execute_inner(
+    request: &HelperRequest,
+    config: &AppConfig,
+    available: Option<u64>,
+    undo: Option<&crate::accounts::journal::OperationRecord>,
 ) -> Result<HelperResponse, TealDriveError> {
     let user = crate::config::UserContext {
         username: request.username.clone(),
@@ -120,8 +132,9 @@ pub(super) fn execute(
         ));
     }
     Ok(super::quota::with_budget(available, || {
-        super::access::with_context(request, config, || {
-            super::observation::execute(request, config)
+        super::access::with_context(request, config, || match undo {
+            Some(record) => super::undo::execute(request, config, record),
+            None => super::observation::execute(request, config),
         })
     }))
 }
@@ -129,6 +142,14 @@ pub(super) fn spawn(
     request: &HelperRequest,
     config: &AppConfig,
     available: Option<u64>,
+) -> Result<HelperResponse, TealDriveError> {
+    spawn_with_undo(request, config, available, None)
+}
+pub(super) fn spawn_with_undo(
+    request: &HelperRequest,
+    config: &AppConfig,
+    available: Option<u64>,
+    undo: Option<crate::accounts::journal::OperationRecord>,
 ) -> Result<HelperResponse, TealDriveError> {
     let child = Command::new("/proc/self/exe")
         .arg("--watch-stdin")
@@ -160,6 +181,7 @@ pub(super) fn spawn(
             .saturating_add(30),
         nonce: *uuid::Uuid::new_v4().as_bytes(),
         mac: [0; 32],
+        undo: undo.map(Box::new),
     };
     invocation.mac = super::security::sign_worker(&invocation.payload()?)
         .map_err(|_| TealDriveError::PermissionDenied)?;

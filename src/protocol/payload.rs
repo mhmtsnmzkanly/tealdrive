@@ -21,6 +21,8 @@ pub struct AuthenticationCapabilities {
     pub account_management: bool,
     pub account_pagination: bool,
     pub audit_history: bool,
+    #[serde(default)]
+    pub undo: bool,
     pub linux_approval: bool,
     pub policy_management: bool,
     pub virtual_accounts: bool,

@@ -198,9 +198,32 @@ export interface AuditRecord {
   bytesWritten: number;
   /** Real reserved log allocation counted for virtual quota. */ logReserveBytes?: number;
   logStorage?: "userQuota" | "systemBudget" | "systemReserve" | null;
+  undoStatus?: "pending" | "success" | "failed" | "unknown" | null;
+  undoErrorCode?: string | null;
 }
 export interface AuditPage {
   items: readonly AuditRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+export interface UndoCandidate {
+  operation: Readonly<AuditRecord>;
+  /** Final filesystem/policy checks still run when applying. */ available: boolean;
+  unavailableReason:
+    | "operationIncomplete"
+    | "unsupportedOperation"
+    | "alreadyClaimed"
+    | "restoredBackup"
+    | "expired"
+    | "missingExpectedState"
+    | "unsupportedOriginalMode"
+    | "incompleteObservation"
+    | null;
+  expiresAt: number;
+  expectedState: string | null;
+}
+export interface UndoPage {
+  items: readonly UndoCandidate[];
   nextCursor: string | null;
   hasMore: boolean;
 }
@@ -230,7 +253,12 @@ export interface ClientEvents {
   "connection.changed": { status: ClientState["connection"] };
   "server.shutdown": { deadlineSeconds: number };
   "session.revoked": Record<string, never>;
-  "files.changed": { operation: string; rootId?: string; path?: string };
+  "files.changed": {
+    operation: string;
+    rootId?: string;
+    path?: string;
+    operationId?: string;
+  };
   "accounts.changed": {
     operation: "create" | "quota" | "delete";
     accountId: string;
@@ -371,10 +399,27 @@ export interface FilesAPI {
     list(options?: AuditQuery): Promise<Readonly<AuditPage>>;
   };
   undo: {
-    list(options?: {
-      limit?: number;
-      cursor?: string | null;
-    }): Promise<unknown>;
+    getPreferences(): Promise<
+      Readonly<{
+        hours: number | null;
+        effectiveHours: number;
+        maximumHours: number;
+        revision: number;
+      }>
+    >;
+    /** null inherits the current Root upper limit; revision prevents lost updates. */
+    setPreferences(options: {
+      hours: number | null;
+      expectedRevision: number;
+    }): Promise<
+      Readonly<{
+        hours: number | null;
+        effectiveHours: number;
+        maximumHours: number;
+        revision: number;
+      }>
+    >;
+    list(options?: AuditQuery): Promise<Readonly<UndoPage>>;
     apply(options: {
       operationId: string;
       expectedState: string;

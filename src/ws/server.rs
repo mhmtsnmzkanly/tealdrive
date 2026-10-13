@@ -255,6 +255,16 @@ where
         .route("/static/*path", get(crate::ui::serve_static_asset::<H>))
         .route("/api/quota", get(crate::fs::usage::usage_handler::<H>))
         .route("/api/audit", get(crate::fs::history::history_handler::<H>))
+        .route(
+            "/api/undo",
+            get(crate::fs::history::undo_list_handler::<H>)
+                .post(crate::fs::history::undo_apply_handler::<H>),
+        )
+        .route(
+            "/api/undo/preferences",
+            get(crate::fs::history::preferences_handler::<H>)
+                .post(crate::fs::history::set_preferences_handler::<H>),
+        )
         .route("/sdk/v1/tealdrive.js", get(crate::ui::serve_sdk))
         .route("/sdk/v1/tealdrive.d.ts", get(crate::ui::serve_sdk_types))
         .route("/api/health", get(health_check::<H>))

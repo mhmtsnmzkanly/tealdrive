@@ -140,6 +140,12 @@ pub struct OperationRecord {
     pub log_reserve_bytes: u64,
     #[serde(default)]
     pub log_storage: Option<String>,
+    #[serde(default)]
+    pub undo_epoch: Option<String>,
+    #[serde(default)]
+    pub undo_status: Option<String>,
+    #[serde(default)]
+    pub undo_error_code: Option<crate::errors::ErrorKind>,
 }
 fn prefix(id: &str) -> String {
     format!("operation_v1:{id}:")
@@ -262,6 +268,9 @@ impl AccountStore {
             bytes_written: 0,
             log_reserve_bytes: 0,
             log_storage: Some("systemBudget".into()),
+            undo_epoch: Some(super::undo::epoch(&self.connection)?),
+            undo_status: None,
+            undo_error_code: None,
         };
         let data = encode(&record, config)?;
         // Reserve bounded after-state metadata before the filesystem mutation begins.
@@ -354,6 +363,17 @@ impl AccountStore {
         }
         .into();
         if let Some(r) = response {
+            if current.action == "trash" && r.success {
+                if let crate::helper::types::HelperResponsePayload::TrashEntry(entry) = &r.payload {
+                    if uuid::Uuid::parse_str(&entry.trash_id).is_err() {
+                        return Err(StoreError::InvalidInput);
+                    }
+                    current.target_path = Some(crate::config::RelativePath::new(format!(
+                        ".tealdrive-trash/files/{}",
+                        entry.trash_id
+                    )));
+                }
+            }
             current.error_code = r.error_kind;
             current.bytes_read = r.bytes_read;
             current.bytes_written = r.bytes_written;

@@ -58,9 +58,24 @@ impl WebAccountsConfig {
 }
 #[derive(Serialize, Deserialize)]
 pub enum AccountCommand {
+    ApplyUndo {
+        grant: SessionGrant,
+        operation_id: String,
+        expected_state: String,
+    },
+    UndoPreferences {
+        grant: SessionGrant,
+    },
+    SetUndoPreferences {
+        grant: SessionGrant,
+        hours: Option<u64>,
+        expected_revision: u64,
+    },
     History {
         grant: SessionGrant,
         query: crate::accounts::journal::HistoryQuery,
+        #[serde(default)]
+        undo_only: bool,
     },
     Login(AuthRequest),
     BeginEnrollment(AuthRequest),
@@ -145,6 +160,13 @@ pub enum AccountCommand {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AccountReply {
+    UndoPage {
+        items: Vec<crate::accounts::undo::UndoCandidate>,
+        next_cursor: Option<String>,
+        has_more: bool,
+    },
+    UndoApplied(Box<crate::helper::types::HelperResponse>),
+    UndoPreferences(crate::accounts::undo::UndoPreferences),
     History(crate::accounts::journal::HistoryPage),
     Authenticated {
         account: Account,
@@ -634,7 +656,70 @@ fn dispatch(
                 .map_err(GatewayFailure::from)?;
             Ok(AccountReply::AccountUpdated(updated))
         }
-        AccountCommand::History { grant, query } => {
+        AccountCommand::ApplyUndo {
+            grant,
+            operation_id,
+            expected_state,
+        } => super::undo::apply(
+            store,
+            config,
+            &caller,
+            grant,
+            &operation_id,
+            &expected_state,
+        )
+        .map(|response| AccountReply::UndoApplied(Box::new(response))),
+        AccountCommand::UndoPreferences { grant } => {
+            if !config.journal.enabled {
+                return Err(GatewayFailure::Disabled);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            Ok(AccountReply::UndoPreferences(
+                store
+                    .undo_preferences(
+                        &crate::accounts::store::Authority::Account {
+                            id: actor.id,
+                            generation: actor.generation,
+                        },
+                        &config.journal,
+                    )
+                    .map_err(GatewayFailure::from)?,
+            ))
+        }
+        AccountCommand::SetUndoPreferences {
+            grant,
+            hours,
+            expected_revision,
+        } => {
+            if !config.journal.enabled {
+                return Err(GatewayFailure::Disabled);
+            }
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            Ok(AccountReply::UndoPreferences(
+                store
+                    .set_undo_preferences(
+                        &crate::accounts::store::Authority::Account {
+                            id: actor.id,
+                            generation: actor.generation,
+                        },
+                        &config.journal,
+                        hours,
+                        expected_revision,
+                    )
+                    .map_err(GatewayFailure::from)?,
+            ))
+        }
+        AccountCommand::History {
+            grant,
+            query,
+            undo_only,
+        } => {
             if !config.journal.enabled {
                 return Err(GatewayFailure::Disabled);
             }
@@ -687,17 +772,22 @@ fn dispatch(
                                 crate::policy::access::Access::Discover,
                             )
                             .is_ok()
-                            && record.target_path.as_ref().is_none_or(|path| {
-                                view.access_policy
-                                    .check(
-                                        &actor.username,
-                                        &record.root_id,
-                                        path,
-                                        crate::policy::access::Access::Discover,
-                                    )
-                                    .is_ok()
-                            });
-                    if visible {
+                            && (record.action == "trash"
+                                || record.target_path.as_ref().is_none_or(|path| {
+                                    view.access_policy
+                                        .check(
+                                            &actor.username,
+                                            &record.root_id,
+                                            path,
+                                            crate::policy::access::Access::Discover,
+                                        )
+                                        .is_ok()
+                                }));
+                    if visible
+                        && (!undo_only
+                            || ["move", "rename", "trash", "chmod"]
+                                .contains(&record.action.as_str()))
+                    {
                         items.push(record);
                     }
                     if items.len() > usize::from(query.limit) {
@@ -718,6 +808,18 @@ fn dispatch(
                 cursor = items
                     .last()
                     .map(crate::accounts::store::AccountStore::operation_cursor);
+            }
+            if undo_only {
+                let items = items
+                    .into_iter()
+                    .map(|record| store.undo_candidate(&authority, &config.journal, &record.id, at))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(GatewayFailure::from)?;
+                return Ok(AccountReply::UndoPage {
+                    items,
+                    next_cursor: if has_more { cursor } else { None },
+                    has_more,
+                });
             }
             Ok(AccountReply::History(
                 crate::accounts::journal::HistoryPage {

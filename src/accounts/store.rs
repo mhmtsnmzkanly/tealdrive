@@ -663,6 +663,7 @@ impl AccountStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM session_grants", [])?;
         tx.execute("DELETE FROM enrollment", [])?;
+        tx.execute("INSERT INTO security_state(key,value) VALUES('undo_epoch_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [uuid::Uuid::new_v4().to_string()])?;
         tx.execute(
             "UPDATE accounts SET generation=generation+1,updated_at=?1",
             [number(now())?],

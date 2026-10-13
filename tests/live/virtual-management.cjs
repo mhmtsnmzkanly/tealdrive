@@ -158,6 +158,24 @@ let checkpoint = "startup";
       });
       if (content.content !== "virtual file bytes")
         throw Error("Real UID helper read failed");
+      if (api.getInfo().authentication.undo) {
+        await api.files.rename({ path: "/a.txt", newName: "a-renamed.txt" });
+        const page = await api.files.undo.list({
+          action: "rename",
+          path: "a.txt",
+        });
+        const candidate = page.items.find((candidate) => candidate.available);
+        if (!candidate) throw Error("Virtual UID missing undo candidate");
+        await api.files.undo.apply({
+          operationId: candidate.operation.id,
+          expectedState: candidate.expectedState,
+        });
+        if (
+          (await api.files.readText({ path: "/a.txt" })).content !==
+          "virtual file bytes"
+        )
+          throw Error("Virtual UID undo failed");
+      }
       if (allocation > 8192)
         await api.files.createText({
           path: "/quota-padding.txt",

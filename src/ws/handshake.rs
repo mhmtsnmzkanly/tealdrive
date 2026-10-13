@@ -26,6 +26,7 @@ pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDr
             account_management: config.web_accounts.enabled,
             account_pagination: config.web_accounts.enabled,
             audit_history: config.web_accounts.enabled && config.journal.enabled,
+            undo: config.web_accounts.enabled && config.journal.enabled,
             linux_approval: config.web_accounts.enabled,
             policy_management: config.web_accounts.enabled,
             virtual_accounts: config.web_accounts.enabled

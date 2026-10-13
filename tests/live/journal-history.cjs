@@ -41,6 +41,149 @@ const fs = require("node:fs");
     );
     const result = await user.evaluate(
       async ({ privateName, suffix }) => {
+        const prefs = await historyApi.files.undo.getPreferences();
+        if (prefs.hours !== null || prefs.effectiveHours !== prefs.maximumHours)
+          throw Error("Undo default must inherit Root maximum");
+        const changed = await historyApi.files.undo.setPreferences({
+          hours: 1,
+          expectedRevision: prefs.revision,
+        });
+        if (
+          changed.effectiveHours !== 1 ||
+          changed.revision !== prefs.revision + 1
+        )
+          throw Error("Undo preference update");
+        let staleRejected = false;
+        try {
+          await historyApi.files.undo.setPreferences({
+            hours: 1,
+            expectedRevision: prefs.revision,
+          });
+        } catch (error) {
+          staleRejected = error.code === "CONFLICT";
+        }
+        if (!staleRejected) throw Error("Stale undo preference accepted");
+        await historyApi.files.undo.setPreferences({
+          hours: null,
+          expectedRevision: changed.revision,
+        });
+        const undoPath = `undo-fixture-${suffix}.txt`;
+        await historyApi.files.createText({
+          path: undoPath,
+          content: "undo content",
+        });
+        async function undoCandidate(action, sourcePath) {
+          const page = await historyApi.files.undo.list({ limit: 200 });
+          const item = page.items.find(
+            (item) =>
+              item.operation.action === action &&
+              item.operation.sourcePath === sourcePath &&
+              item.operation.undoStatus === null,
+          );
+          if (!item?.available || !item.expectedState)
+            throw Error(
+              `Missing undo candidate ${action}: ${JSON.stringify(item)}`,
+            );
+          return item;
+        }
+        async function apply(item) {
+          await historyApi.files.undo.apply({
+            operationId: item.operation.id,
+            expectedState: item.expectedState,
+          });
+        }
+        await historyApi.files.chmod({ path: undoPath, mode: 0 });
+        const chmod = await undoCandidate("chmod", undoPath);
+        await apply(chmod);
+        if (
+          (await historyApi.files.readText({ path: undoPath })).content !==
+          "undo content"
+        )
+          throw Error("Mode000 undo did not restore readability");
+        let duplicate = false;
+        try {
+          await apply(chmod);
+        } catch (error) {
+          duplicate = error.code === "CONFLICT";
+        }
+        if (!duplicate) throw Error("Repeated undo accepted");
+        const dir = `undo-tree-${suffix}`;
+        await historyApi.files.createFolder({ path: dir });
+        await historyApi.files.createText({
+          path: `${dir}/nested.txt`,
+          content: "nested",
+        });
+        await historyApi.files.rename({ path: dir, newName: `${dir}-renamed` });
+        await apply(await undoCandidate("rename", dir));
+        if (
+          (await historyApi.files.readText({ path: `${dir}/nested.txt` }))
+            .content !== "nested"
+        )
+          throw Error("Directory undo");
+        const renamed = `undo-renamed-${suffix}.txt`;
+        await historyApi.files.rename({ path: undoPath, newName: renamed });
+        await apply(await undoCandidate("rename", undoPath));
+        await historyApi.files.createFolder({ path: `undo-dir-${suffix}` });
+        await historyApi.files.move({
+          source: { path: undoPath },
+          destination: { path: `undo-dir-${suffix}/moved.txt` },
+        });
+        await apply(await undoCandidate("move", undoPath));
+        await historyApi.files.trash.move({ path: undoPath });
+        await apply(await undoCandidate("trash", undoPath));
+        if (
+          (await historyApi.files.readText({ path: undoPath })).content !==
+          "undo content"
+        )
+          throw Error("Trash undo content");
+        await historyApi.files.rename({ path: undoPath, newName: renamed });
+        const changedCandidate = await undoCandidate("rename", undoPath);
+        const text = await historyApi.files.readText({ path: renamed });
+        await historyApi.files.writeText({
+          path: renamed,
+          content: "changed content",
+          expectedRevision: text.revision,
+        });
+        let mismatch = false;
+        try {
+          await apply(changedCandidate);
+        } catch (error) {
+          mismatch = error.code === "REVISION_CONFLICT";
+        }
+        if (
+          !mismatch ||
+          (await historyApi.files.readText({ path: renamed })).content !==
+            "changed content"
+        )
+          throw Error("Changed state undo was not rejected");
+        const conflictPath = `undo-conflict-${suffix}.txt`;
+        await historyApi.files.createText({
+          path: conflictPath,
+          content: "original",
+        });
+        await historyApi.files.rename({
+          path: conflictPath,
+          newName: `${conflictPath}-moved`,
+        });
+        const conflictCandidate = await undoCandidate("rename", conflictPath);
+        await historyApi.files.createText({
+          path: conflictPath,
+          content: "new occupant",
+        });
+        let conflict = false;
+        try {
+          await apply(conflictCandidate);
+        } catch (error) {
+          conflict = error.code === "ALREADY_EXISTS";
+        }
+        if (
+          !conflict ||
+          (await historyApi.files.readText({ path: conflictPath })).content !==
+            "new occupant" ||
+          (await historyApi.files.readText({ path: `${conflictPath}-moved` }))
+            .content !== "original"
+        )
+          throw Error("Undo overwrote conflict target");
         await historyApi.files.createText({
           path: privateName,
           content: "private content must not enter journal",
@@ -95,7 +238,12 @@ const fs = require("node:fs");
         const unknown = await fetch("/api/audit?accountId=foreign");
         if (unknown.status !== 400)
           throw Error("Unknown scope option accepted");
-        return { own, cursor: first.nextCursor };
+        return {
+          own,
+          cursor: first.nextCursor,
+          undoId: chmod.operation.id,
+          expectedState: chmod.expectedState,
+        };
       },
       { privateName, suffix },
     );
@@ -108,6 +256,21 @@ const fs = require("node:fs");
     );
     if (foreign.items.some((r) => r.accountId === result.own))
       throw Error("Admin read another user through cursor");
+    await admin.evaluate(async (result) => {
+      let denied = false;
+      try {
+        await historyApi.files.undo.apply({
+          operationId: result.undoId,
+          expectedState: result.expectedState,
+        });
+      } catch (error) {
+        denied =
+          error.status === 403 ||
+          error.code === "FORBIDDEN" ||
+          error.code === "HTTP_403";
+      }
+      if (!denied) throw Error("Admin could apply foreign own undo");
+    }, result);
     await user.evaluate(async (privateName) => {
       const view = await historyApi.files.policy.get();
       await historyApi.files.policy.set({
@@ -134,6 +297,11 @@ const fs = require("node:fs");
         unknownScopeRejected: true,
         currentPolicyHidesHistory: true,
         noContentHistory: true,
+        undoPreferencesCas: true,
+        undoChmodMode000: true,
+        undoRenameMoveTrashDirectory: true,
+        undoChangedStateRejected: true,
+        undoTargetPreserved: true,
       }),
     );
   } finally {

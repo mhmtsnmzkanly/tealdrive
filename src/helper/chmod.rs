@@ -15,6 +15,14 @@ pub fn chmod_file_with_roots(
     roots: &[AllowedRoot],
     sensitive_config: &SensitivePolicyConfig,
 ) -> HelperResponse {
+    chmod_with_expected_state(request, roots, sensitive_config, None)
+}
+pub(super) fn chmod_with_expected_state(
+    request: &HelperRequest,
+    roots: &[AllowedRoot],
+    sensitive_config: &SensitivePolicyConfig,
+    expected: Option<&crate::helper::observation::FileState>,
+) -> HelperResponse {
     if request.command != HelperCommand::Chmod {
         return HelperResponse::not_implemented(request);
     }
@@ -120,6 +128,18 @@ pub fn chmod_file_with_roots(
         Err(error) => return helper_error_from_io(request, error),
     };
     let old_mode = original.mode() & 0o7777;
+    if expected.is_some_and(|expected| {
+        crate::helper::observation::FileState::metadata(&original)
+            .finish()
+            .map_or(true, |observed| observed != *expected)
+    }) {
+        return helper_error(
+            request,
+            ErrorKind::RevisionConflict,
+            "Target changed since the recorded operation.",
+            "undo_expected_state_mismatch",
+        );
+    }
     match chmod_pinned(root, &validated_path, &pinned, mode.0 & 0o0777) {
         Ok(()) => {
             let mut response = HelperResponse::operation_done(request, "Permissions changed.");

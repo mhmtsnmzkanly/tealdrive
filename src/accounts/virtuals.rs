@@ -273,6 +273,16 @@ pub fn minimum_quota(cfg: &AppConfig) -> u64 {
     }
 }
 fn validate_input(cfg: &AppConfig, name: &str, quota: u64) -> Result<(), StoreError> {
+    validate_input_scope(cfg, name, quota, false)
+}
+// Only Root virtual-admin provisioning can use the panel alias "tealdrive".
+// Its NSS identity remains tdv_UID; service enrollment rules are unchanged.
+fn validate_input_scope(
+    cfg: &AppConfig,
+    name: &str,
+    quota: u64,
+    root_admin: bool,
+) -> Result<(), StoreError> {
     if !cfg.virtual_accounts.enabled || cfg.home_template.is_none() {
         return Err(StoreError::Forbidden);
     }
@@ -284,7 +294,8 @@ fn validate_input(cfg: &AppConfig, name: &str, quota: u64) -> Result<(), StoreEr
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
         || quota < minimum_quota(cfg)
         || quota > i64::MAX as u64
-        || crate::auth::account::is_reserved_service_username(name)
+        || (crate::auth::account::is_reserved_service_username(name)
+            && !(root_admin && name == "tealdrive"))
     {
         return Err(StoreError::InvalidInput);
     }
@@ -715,7 +726,7 @@ pub(crate) fn create_admin(
     password: &str,
     request: &str,
 ) -> Result<Account, StoreError> {
-    validate_input(cfg, name, budget)?;
+    validate_input_scope(cfg, name, budget, true)?;
     if !cfg.web_accounts.enabled || cfg.home_template.is_none() {
         return Err(StoreError::Forbidden);
     }
@@ -754,7 +765,7 @@ pub(crate) fn create_admin(
         }
         intent
     } else {
-        if store.find_username(name)?.is_some() || name_exists(name)? {
+        if store.find_username(name)?.is_some() || (name != "tealdrive" && name_exists(name)?) {
             return Err(StoreError::Conflict);
         }
         let pending_name: bool = store.connection.query_row("SELECT EXISTS(SELECT 1 FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.name')=?1 AND json_extract(value,'$.account_id') IS NULL ELSE 0 END)", [name], |r| r.get(0))?;
@@ -1307,6 +1318,28 @@ mod tests {
             id: account.id.clone(),
             generation: account.generation,
         }
+    }
+    #[test]
+    fn only_root_admin_provisioning_accepts_service_named_panel_alias() {
+        let mut cfg = AppConfig::default();
+        cfg.virtual_accounts.enabled = true;
+        cfg.home_template = Some(AllowedRoot {
+            root_id: crate::config::RootId::new("home"),
+            base_path: "/home/example".into(),
+            read_only: false,
+            uploads_allowed: true,
+            hidden_files_allowed: false,
+            is_web_root: false,
+            quota_bytes: None,
+        });
+        assert!(validate_input(&cfg, "tealdrive", 4096).is_err());
+        assert!(validate_input_scope(&cfg, "tealdrive", 4096, true).is_ok());
+        for name in ["root", "caddy", "www-data", "mysql"] {
+            assert!(validate_input_scope(&cfg, name, 4096, true).is_err());
+        }
+        assert!(crate::auth::account::is_reserved_service_username(
+            "tealdrive"
+        ));
     }
     #[test]
     fn root_admin_intent_reserves_pool_and_finalizes_budget_atomically() {

@@ -36,3 +36,7 @@ Hesap türüne bağlı Linux-only genel admin denetimi kaldırıldı. Genel pane
 Bu değişiklik source aşamasındadır; henüz canlı sürüme geçilmedi. Servis adıyla aynı panel adı için Root provisioning istisnası ayrıca dar kapsamda uygulanacak; normal self-registration/service filtreleri gevşetilmeyecek.
 
 Yetki kapsamı regression testi ve tam library testi passed:588 başarılı,1 açık PAM testi normal koşuda ignored. Root roster dışında tenant sınırı ve roster içinde sanal genel yönetici doğrulandı.
+
+### Panel adı ve servis kimliği
+
+Root-only virtual admin provisioning `tealdrive` panel adına dar bir istisna tanır. Generated NSS adı/home/UID hala tdv_UID; servis NSS hesabı benimsenmez. Normal virtual kullanıcı oluşturma, Linux approval ve PAM enrollment servis adını reddetmeye devam eder. Diğer servis adlarına istisna yok. İsim collision istisnası yalnız Root create_admin yolundadır. Regression testi passed;590 library test toplamında589passed/1ignored.

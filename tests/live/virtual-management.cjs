@@ -44,17 +44,19 @@ let checkpoint = "startup";
     checkpoint = "create";
     const created = await admin.evaluate(
       async ({ names, password }) => {
+        const initial = await api.admin.quota.getBudget();
+        const allocation = Math.max(8192, (initial.minimumQuotaBytes ?? 1) * 2);
         const idempotencyKey = crypto.randomUUID();
         const first = await api.admin.virtualUsers.create({
           name: names[0],
           password,
-          quotaBytes: 8192,
+          quotaBytes: allocation,
           idempotencyKey,
         });
         const replay = await api.admin.virtualUsers.create({
           name: names[0],
           password: "different-password-ignored-on-replay",
-          quotaBytes: 8192,
+          quotaBytes: allocation,
           idempotencyKey,
         });
         if (
@@ -66,19 +68,24 @@ let checkpoint = "startup";
         const second = await api.admin.virtualUsers.create({
           name: names[1],
           password,
-          quotaBytes: 8192,
+          quotaBytes: allocation,
           idempotencyKey: crypto.randomUUID(),
         });
         if (first.uid === second.uid || first.gid === second.gid)
           throw Error("Virtual identities share OS identity");
         const budget = await api.admin.quota.getBudget();
-        if (budget.reservedBytes !== 16384 || budget.remainingBytes !== 49152)
+        if (
+          budget.reservedBytes !== initial.reservedBytes + allocation * 2 ||
+          budget.remainingBytes !== initial.remainingBytes - allocation * 2
+        )
           throw Error("Budget reservation mismatch");
         try {
           await api.admin.virtualUsers.create({
             name: "virtual-too-large",
             password,
-            quotaBytes: 65536,
+            quotaBytes:
+              Math.ceil(budget.remainingBytes / 1024) * 1024 +
+              Math.max(4096, initial.minimumQuotaBytes ?? 1),
             idempotencyKey: crypto.randomUUID(),
           });
           throw Error("Budget overbooking");
@@ -139,7 +146,7 @@ let checkpoint = "startup";
     const first = await page({ username: names[0], password });
     const second = await page({ username: names[1], password });
     checkpoint = "UID files and quota";
-    await first.evaluate(async () => {
+    await first.evaluate(async (allocation) => {
       await api.files.createText({
         rootId: "home",
         path: "/a.txt",
@@ -151,13 +158,18 @@ let checkpoint = "startup";
       });
       if (content.content !== "virtual file bytes")
         throw Error("Real UID helper read failed");
+      if (allocation > 8192)
+        await api.files.createText({
+          path: "/quota-padding.txt",
+          content: "p".repeat(65536),
+        });
       try {
         await api.auth.revokeSelf();
         throw Error("Virtual user revoked itself");
       } catch (error) {
         if (error.status !== 403) throw error;
       }
-    });
+    }, created[0].quotaBytes);
     await second.evaluate(() =>
       api.files.createText({
         rootId: "home",
@@ -199,21 +211,25 @@ let checkpoint = "startup";
       { stdio: "ignore" },
     );
     if (noRead.status === 0) throw Error("Unix isolation failed");
-    await first.evaluate(async () => {
+    await first.evaluate(async (allocation) => {
       try {
         await api.files.createText({
           rootId: "home",
           path: "/too-large.txt",
-          content: "x".repeat(16384),
+          content: "x".repeat(Math.max(16384, allocation)),
         });
         throw Error("Quota enforcement failed");
       } catch (error) {
         if (error.code !== "DISK_FULL") throw error;
       }
       const quota = await api.files.quota.get();
-      if (quota.limitBytes !== 8192 || quota.source !== "helper" || quota.stale)
+      if (
+        quota.limitBytes !== allocation ||
+        quota.source !== "helper" ||
+        quota.stale
+      )
         throw Error("Quota source mismatch");
-    });
+    }, created[0].quotaBytes);
     if (native) {
       const beyond = require("node:child_process").spawnSync(
         "/usr/sbin/runuser",
@@ -223,13 +239,30 @@ let checkpoint = "startup";
           "--",
           "/usr/bin/python3",
           "-c",
-          'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"x"*65536)',
+          'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"x"*int(sys.argv[2]))',
           created[0].home + "/native-overflow",
+          String(created[0].quotaBytes * 4),
         ],
         { stdio: "ignore" },
       );
       if (beyond.status === 0)
         throw Error("Kernel quota bypassed without helper");
+      if (created[0].quotaBytes > 8192)
+        await first.evaluate(async () => {
+          await api.files.deletePermanently({ path: "/native-overflow" });
+          const history = await fetch(
+            "/api/audit?action=delete&path=native-overflow",
+          ).then((r) => r.json());
+          if (
+            !history.items.some(
+              (r) =>
+                r.status === "success" &&
+                r.logStorage === "systemReserve" &&
+                r.logReserveBytes === 0,
+            )
+          )
+            throw Error("Full quota cleanup audit reserve");
+        });
     }
     checkpoint = "quota mutation";
     await admin.evaluate(
@@ -246,13 +279,13 @@ let checkpoint = "startup";
         }
         await api.admin.virtualUsers.setQuota({
           accountId: account.id,
-          quotaBytes: 16384,
+          quotaBytes: account.quotaBytes * 2,
           expectedGeneration: account.generation,
         });
         try {
           await api.admin.virtualUsers.setQuota({
             accountId: account.id,
-            quotaBytes: 8192,
+            quotaBytes: account.quotaBytes,
             expectedGeneration: account.generation,
           });
           throw Error("Quota stale generation accepted");
@@ -260,7 +293,10 @@ let checkpoint = "startup";
           if (error.status !== 409) throw error;
         }
       },
-      { account: created[0], shrink: native ? 4096 : 1 },
+      {
+        account: created[0],
+        shrink: created[0].quotaBytes > 8192 ? 65536 : native ? 4096 : 1,
+      },
     );
     await first.waitForFunction(
       () => api.getState().connection === "disconnected",
@@ -268,13 +304,17 @@ let checkpoint = "startup";
       { timeout: 5000 },
     );
     await first.evaluate(
-      async (user) => {
+      async ({ user, allocation }) => {
         await api.handshake();
         await api.auth.login(user);
         const quota = await api.files.quota.get();
-        if (quota.limitBytes !== 16384) throw Error("Updated quota missing");
+        if (quota.limitBytes !== allocation * 2)
+          throw Error("Updated quota missing");
       },
-      { username: names[0], password },
+      {
+        user: { username: names[0], password },
+        allocation: created[0].quotaBytes,
+      },
     );
     checkpoint = "delete retention";
     await admin.evaluate(async (account) => {
@@ -308,7 +348,9 @@ let checkpoint = "startup";
       .locator("dialog input[name=name]")
       .fill("virtual-ui-" + users[0].username.slice(-10));
     await admin.locator("dialog input[name=password]").fill(password);
-    await admin.locator("dialog input[name=quotaBytes]").fill("8192");
+    await admin
+      .locator("dialog input[name=quotaBytes]")
+      .fill(String(created[0].quotaBytes));
     await admin
       .locator("dialog")
       .getByRole("button", { name: "Create user", exact: true })
@@ -318,7 +360,9 @@ let checkpoint = "startup";
       .locator("#accountsTableBody tr")
       .filter({ hasText: "virtual-ui-" + users[0].username.slice(-10) });
     await uiRow.getByRole("button", { name: "Quota", exact: true }).click();
-    await admin.locator("dialog input[name=quotaBytes]").fill("16384");
+    await admin
+      .locator("dialog input[name=quotaBytes]")
+      .fill(String(created[0].quotaBytes * 2));
     await admin
       .locator("dialog")
       .getByRole("button", { name: "Save quota", exact: true })

@@ -425,9 +425,14 @@ pub fn run(args: Vec<String>) -> Result<()> {
         }
         ["gc"] => {
             root()?;
-            print(
-                &serde_json::json!({"virtual_purged": crate::accounts::virtuals::purge_deleted(&mut store()?, &config()?)?}),
-            )
+            let cfg = config()?;
+            let mut store = store()?;
+            let purged = crate::accounts::virtuals::purge_deleted(&mut store, &cfg)?;
+            let expired = store.gc_operations(
+                &cfg.journal,
+                crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+            )?;
+            print(&serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired}))
         }
         ["virtual", "admin", "create", name, budget, request] => {
             root()?;

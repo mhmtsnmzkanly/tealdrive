@@ -3,6 +3,8 @@
 Never resets existing account data or production service config. Requires installed current binaries.
 """
 import sys
+sys.dont_write_bytecode=True
+from fixture_cleanup import cleanup_ledger
 import fcntl
 import grp
 import hashlib
@@ -151,6 +153,56 @@ def main():
             run([sys.executable, str(ROOT / 'tools/dev/root-virtual-admin-acceptance.py'), str(manifest)], env=env, cwd=ROOT)
         if virtual:
             run(['node', str(ROOT / 'tests/live/virtual-management.cjs')], env=env, cwd=ROOT)
+        if virtual and os.environ.get('TEALDRIVE_JOURNAL_ACCEPTANCE') == '1':
+            with sqlite3.connect(DB) as ledger_state:
+                owner=ledger_state.execute('SELECT id FROM accounts WHERE username=?',(users[0]['username'],)).fetchone()[0]
+                children=ledger_state.execute('SELECT id,uid FROM accounts WHERE owner_admin_id=?',(owner,)).fetchall()
+            seen=0
+            for account_id,uid in children:
+                ledger=virtual_parent/'.tealdrive-audit'/account_id
+                if not ledger.exists():
+                    continue
+                if ledger.stat().st_uid!=0 or ledger.stat().st_mode&0o777!=0o700:
+                    raise RuntimeError('Private ledger directory permissions')
+                for entry in ledger.iterdir():
+                    metadata=entry.stat()
+                    if metadata.st_uid!=uid or metadata.st_mode&0o777!=0o400 or metadata.st_size<8192:
+                        raise RuntimeError('Virtual ledger allocation not charged to UID')
+                    attempted=subprocess.run(['/usr/sbin/runuser','-u','tdv_'+str(uid),'--','/usr/bin/cat',str(entry)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    if attempted.returncode==0:
+                        raise RuntimeError('Virtual UID could read private ledger')
+                    seen+=1
+            if not seen:
+                raise RuntimeError('No real virtual quota ledger allocations')
+            print(json.dumps(dict(virtualLedgerCharged=True,ownerCannotReadLedger=True,nativeLedger=native)))
+            # Age only one owned completed record and verify the real Root GC releases its file.
+            cutoff=int(time.time())-504*3600-1
+            with sqlite3.connect(DB) as state:
+                owned={account_id for account_id,_ in children}
+                expired=state.execute("SELECT value FROM security_state WHERE key GLOB 'operation_v1:*' AND json_extract(value,'$.createdAt')<?",(cutoff+1,)).fetchall()
+                if any(json.loads(row[0])['accountId'] not in owned for row in expired):
+                    raise RuntimeError('Unrelated expired journal exists; refusing global GC acceptance')
+                candidate=None
+                for account_id,uid in children:
+                    rows=state.execute("SELECT key,value FROM security_state WHERE key GLOB ? AND json_extract(value,'$.status')='success' LIMIT 1",('operation_v1:'+account_id+':*',)).fetchall()
+                    if rows:
+                        candidate=(account_id,uid,*rows[0]);break
+                if not candidate:
+                    raise RuntimeError('No completed virtual journal for GC test')
+                account_id,uid,old_key,value=candidate
+                record=json.loads(value);record['createdAt']=cutoff
+                new_key='operation_v1:'+account_id+':'+str(cutoff).zfill(20)+':'+record['id']
+                state.execute('UPDATE security_state SET key=?,value=? WHERE key=?',(new_key,json.dumps(record),old_key))
+                entry=virtual_parent/'.tealdrive-audit'/account_id/(record['id']+'.json')
+                if not entry.exists():
+                    raise RuntimeError('Expected real ledger before GC')
+            cleaned=run(['/home/tealdrive/bin/tealdrive-wizard','gc'],capture_output=True,text=True)
+            if json.loads(cleaned.stdout).get('operation_logs_expired')!=1 or entry.exists():
+                raise RuntimeError('Protected log retention/real file release failed')
+            with sqlite3.connect(DB) as state:
+                if state.execute('SELECT 1 FROM security_state WHERE key=?',(new_key,)).fetchone():
+                    raise RuntimeError('Expired protected record retained')
+            print(json.dumps(dict(logRetention504h=True,physicalLogRelease=True)))
         if os.environ.get('TEALDRIVE_LIFECYCLE_ACCEPTANCE') == '1':
             if not virtual:
                 raise RuntimeError('Lifecycle acceptance requires virtual fixture')
@@ -292,6 +344,7 @@ def main():
                                 raise RuntimeError('Virtual fixture group changed; refusing cleanup')
                             run(['/usr/sbin/groupdel', os_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     for child in children:
+                        cleanup_ledger(child[0],child[2])
                         connection.execute('DELETE FROM session_grants WHERE account_id=?', (child[0],))
                         for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:', 'virtual_purged_v1:', 'virtual_purge_intent_v1:'):
                             connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
@@ -302,6 +355,7 @@ def main():
                     for key, _ in intents:
                         connection.execute('DELETE FROM security_state WHERE key=?', (key,))
                     connection.execute('DELETE FROM admin_budgets WHERE account_id=?', (row[0],))
+                cleanup_ledger(row[0],identity.pw_uid)
                 connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
                 connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+row[0]+':%',))

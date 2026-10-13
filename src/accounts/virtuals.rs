@@ -246,6 +246,15 @@ fn allocate(store: &AccountStore, cfg: &AppConfig) -> Result<u32, StoreError> {
     }
     Err(StoreError::QuotaExceeded)
 }
+pub fn minimum_quota(cfg: &AppConfig) -> u64 {
+    if cfg.journal.enabled {
+        65536u64.max((cfg.journal.max_record_bytes as u64).div_ceil(4096) * 8192 + 8192)
+    } else if cfg.virtual_accounts.enforcement == Enforcement::UserQuota {
+        4096
+    } else {
+        1
+    }
+}
 fn validate_input(cfg: &AppConfig, name: &str, quota: u64) -> Result<(), StoreError> {
     if !cfg.virtual_accounts.enabled || cfg.home_template.is_none() {
         return Err(StoreError::Forbidden);
@@ -256,7 +265,7 @@ fn validate_input(cfg: &AppConfig, name: &str, quota: u64) -> Result<(), StoreEr
         || !name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
-        || quota == 0
+        || quota < minimum_quota(cfg)
         || quota > i64::MAX as u64
         || crate::auth::account::is_reserved_service_username(name)
     {
@@ -295,13 +304,20 @@ pub(crate) fn root(cfg: &AppConfig, target: &Account) -> Result<AllowedRoot, Sto
         .map(|q| root.quota_bytes.map_or(q, |ceiling| q.min(ceiling)));
     Ok(root)
 }
-pub(crate) fn usage(cfg: &AppConfig, root: &AllowedRoot, uid: u32) -> Result<u64, StoreError> {
+pub(crate) fn usage(
+    cfg: &AppConfig,
+    root: &AllowedRoot,
+    account: &Account,
+) -> Result<u64, StoreError> {
     if cfg.virtual_accounts.enforcement == Enforcement::UserQuota {
-        crate::helper::native_quota::read(root, uid)
+        crate::helper::native_quota::read(root, account.uid)
             .map(|u| u.used_bytes)
             .map_err(io_error)
     } else {
-        crate::helper::quota::measure(root).map_err(io_error)
+        crate::helper::quota::measure(root)
+            .map_err(io_error)?
+            .checked_add(crate::accounts::ledger::used(account)?)
+            .ok_or(StoreError::InvalidInput)
     }
 }
 fn native_set(cfg: &AppConfig, root: &AllowedRoot, uid: u32, bytes: u64) -> Result<(), StoreError> {
@@ -336,6 +352,8 @@ fn own_reservation(
             .used_bytes
     } else {
         held.used_bytes
+            .checked_add(crate::accounts::ledger::used(parent)?)
+            .ok_or(StoreError::InvalidInput)?
     };
     Ok(Some((root, held, used)))
 }
@@ -804,7 +822,10 @@ pub(crate) fn set_quota(
             .map_err(io_error)?
             .used_bytes
     } else {
-        _held.used_bytes
+        _held
+            .used_bytes
+            .checked_add(crate::accounts::ledger::used(target)?)
+            .ok_or(StoreError::InvalidInput)?
     };
     if bytes < used {
         return Err(StoreError::QuotaExceeded);
@@ -1178,6 +1199,7 @@ pub(crate) fn purge_deleted(
             {
                 return Err(StoreError::Forbidden);
             }
+            crate::accounts::ledger::retire(&target)?;
             command("/usr/sbin/userdel", &[&generated])?;
         }
         let name_c = CString::new(generated.as_str()).map_err(|_| StoreError::InvalidInput)?;

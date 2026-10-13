@@ -196,6 +196,8 @@ export interface AuditRecord {
   errorCode: string | null;
   bytesRead: number;
   bytesWritten: number;
+  /** Real reserved log allocation counted for virtual quota. */ logReserveBytes?: number;
+  logStorage?: "userQuota" | "systemBudget" | "systemReserve" | null;
 }
 export interface AuditPage {
   items: readonly AuditRecord[];
@@ -271,6 +273,8 @@ export interface AuthAPI {
   }): Promise<void>;
 }
 export interface FilesAPI {
+  /** Irreversible live-path removal; requires Root feature and current helper policy. */
+  deletePermanently(options: FileOptions): Promise<OperationResult>;
   /** @example await api.files.list({filter:{extensions:['pdf']},limit:50}); */
   list(options?: ListOptions): Promise<DirectoryPage>;
   stat(
@@ -461,6 +465,7 @@ export type AccountVersion =
   | { expectedGeneration: number; expectedRevision?: never }
   | { expectedRevision: string; expectedGeneration?: never };
 export interface AdminBudget {
+  /** Minimum allocation with native storage and reserved operation log space. */ minimumQuotaBytes?: number;
   limitBytes: number;
   reservedBytes: number;
   remainingBytes: number;

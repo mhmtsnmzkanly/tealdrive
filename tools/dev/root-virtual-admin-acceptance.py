@@ -11,6 +11,8 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+sys.dont_write_bytecode=True
+from fixture_cleanup import cleanup_ledger
 import uuid
 
 DB = '/home/tealdrive/auth/accounts.db'
@@ -75,6 +77,8 @@ finally:
                 assert group.gr_gid == uid and not group.gr_mem
                 subprocess.run(['/usr/sbin/groupdel', expected], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if account_id:
+                cleanup_ledger(account_id,uid)
+                state.execute("DELETE FROM security_state WHERE key LIKE ?",('operation_v1:'+account_id+':%',))
                 state.execute('DELETE FROM session_grants WHERE account_id=?', (account_id,))
                 state.execute('DELETE FROM admin_budgets WHERE account_id=?', (account_id,))
                 for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:'):

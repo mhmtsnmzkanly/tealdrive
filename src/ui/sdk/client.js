@@ -254,6 +254,7 @@ export class TealDriveClient {
       move: async (o) => this._moveCopy("MoveFile", o),
       copy: async (o) => this._moveCopy("CopyFile", o),
       chmod: async (o) => this._chmod(o),
+      deletePermanently: async (o) => this._permanentDelete(o),
       search: async (o) => this._search(o),
       upload: async (o) => this._upload(o),
       download: async (o) => this._download(o),
@@ -1538,6 +1539,13 @@ export class TealDriveClient {
       },
       options,
     );
+  }
+  /** Explicit permanent deletion of a live path, guarded by the server feature/policy. */
+  _permanentDelete(options = {}) {
+    object(options, ["rootId", "path", "signal"]);
+    const ref = this._ref(options);
+    if (!ref.relative_path) fail("INVALID_PATH");
+    return this._operation("DeletePermanently", ref, options);
   }
   _delete(options = {}) {
     object(options, ["rootId", "trashId", "signal"]);

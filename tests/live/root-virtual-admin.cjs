@@ -28,7 +28,10 @@ const { execFileSync, spawnSync } = require("node:child_process");
       return api.admin.virtualUsers.create({
         name: user.username + "-child",
         password: user.password,
-        quotaBytes: 8192,
+        quotaBytes: Math.max(
+          8192,
+          (await api.admin.quota.getBudget()).minimumQuotaBytes ?? 1,
+        ),
       });
     }, user);
     await page.evaluate(async () => {

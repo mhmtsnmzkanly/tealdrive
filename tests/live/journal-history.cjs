@@ -50,9 +50,10 @@ const fs = require("node:fs");
           content: "visible content must not enter journal",
         });
         const own = (await historyApi.auth.getSession()).accountId;
-        const first = await fetch("/api/audit?limit=1&action=write").then((r) =>
-          r.json(),
-        );
+        const first = await historyApi.files.audit.list({
+          limit: 1,
+          action: "write",
+        });
         if (
           first.items.length !== 1 ||
           !first.hasMore ||

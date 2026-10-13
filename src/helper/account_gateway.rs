@@ -559,7 +559,7 @@ fn dispatch(
                 let root = crate::accounts::virtuals::root(config, &actor)
                     .map_err(GatewayFailure::from)?;
                 budget["used_bytes"] = serde_json::Value::from(
-                    crate::accounts::virtuals::usage(config, &root, actor.uid)
+                    crate::accounts::virtuals::usage(config, &root, &actor)
                         .map_err(GatewayFailure::from)?,
                 );
             }
@@ -569,6 +569,8 @@ fn dispatch(
                     .unwrap_or(0)
                     .saturating_sub(budget["used_bytes"].as_u64().unwrap_or(0)),
             );
+            budget["minimum_quota_bytes"] =
+                serde_json::Value::from(crate::accounts::virtuals::minimum_quota(config));
             budget["enforcement"] = serde_json::to_value(config.virtual_accounts.enforcement)
                 .map_err(|_| GatewayFailure::Unavailable)?;
             Ok(AccountReply::Budget(budget))

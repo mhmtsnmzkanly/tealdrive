@@ -711,17 +711,19 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     ),
                 );
             }
-            let mut reservation = if matches!(
-                request.command,
-                HelperCommand::QuotaUsage
-                    | HelperCommand::ListDirectory
-                    | HelperCommand::FileMetadata
-                    | HelperCommand::ReadTextFile
-                    | HelperCommand::ReadFileRange
-                    | HelperCommand::DownloadFile
-                    | HelperCommand::ListTrash
-                    | HelperCommand::SearchFiles
-            ) {
+            let mut reservation = if !(config.journal.enabled
+                && crate::accounts::journal::tracked(request.command))
+                && matches!(
+                    request.command,
+                    HelperCommand::QuotaUsage
+                        | HelperCommand::ListDirectory
+                        | HelperCommand::FileMetadata
+                        | HelperCommand::ReadTextFile
+                        | HelperCommand::ReadFileRange
+                        | HelperCommand::DownloadFile
+                        | HelperCommand::ListTrash
+                        | HelperCommand::SearchFiles
+                ) {
                 None
             } else {
                 Some(
@@ -806,7 +808,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     .map_err(|_| TealDriveError::PermissionDenied)?;
                 }
             }
-            let journal = if config.journal.enabled
+            let mut journal = if config.journal.enabled
                 && crate::accounts::journal::tracked(request.command)
             {
                 match authenticated_account.as_ref() {
@@ -850,6 +852,109 @@ pub fn run_secure_helper<R: Read, W: Write>(
             } else {
                 None
             };
+            let mut charge = None;
+            if let (Some(account), Some((store, record)), Some(held)) = (
+                authenticated_account.as_ref(),
+                journal.as_ref(),
+                reservation.as_mut(),
+            ) {
+                let root = config
+                    .roots
+                    .iter()
+                    .find(|root| root.root_id == request.root_id)
+                    .ok_or(TealDriveError::PermissionDenied)?;
+                let native = account.kind == crate::accounts::store::AccountKind::Virtual
+                    && config.virtual_accounts.enforcement
+                        == crate::accounts::virtuals::Enforcement::UserQuota;
+                match crate::accounts::ledger::reserve(
+                    account,
+                    record,
+                    root,
+                    &config.journal,
+                    native,
+                    held.used_bytes,
+                    config.virtual_accounts.max_inodes,
+                ) {
+                    Ok(value) => charge = value,
+                    Err(crate::accounts::store::StoreError::QuotaExceeded)
+                        if matches!(request.command, HelperCommand::DeletePermanently) =>
+                    {
+                        // Freeing user space remains possible; this bounded event uses system budget.
+                    }
+                    Err(_) => {
+                        let response = crate::helper::listing::helper_error(
+                            &request,
+                            crate::errors::ErrorKind::DiskFull,
+                            "Quota cannot accommodate protected operation history.",
+                            "journal_quota_exceeded",
+                        );
+                        let _ = store; // The mutable journal handle is consumed below to preserve a truthful failure.
+                        if let Some((mut store, record)) = journal {
+                            let _ = store.finish_operation(
+                                &record,
+                                Some(&response),
+                                &config.journal,
+                                crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                            );
+                        }
+                        return write_helper_response(writer, &response);
+                    }
+                }
+                if account.kind == crate::accounts::store::AccountKind::Virtual {
+                    let used = if native {
+                        crate::helper::native_quota::read(root, account.uid)
+                            .map_err(|_| TealDriveError::Internal)?
+                            .used_bytes
+                    } else {
+                        held.used_bytes.saturating_add(
+                            crate::accounts::ledger::used(account)
+                                .map_err(|_| TealDriveError::Internal)?,
+                        )
+                    };
+                    held.available = root.quota_bytes.map(|limit| limit.saturating_sub(used));
+                }
+            }
+            if let Some((_, record)) = journal.as_mut() {
+                record.log_reserve_bytes = charge
+                    .as_ref()
+                    .map_or(0, crate::accounts::ledger::Charge::reserved_bytes);
+                record.log_storage = Some(
+                    if charge.is_some() {
+                        "userQuota"
+                    } else if authenticated_account
+                        .as_ref()
+                        .is_some_and(|a| a.kind == crate::accounts::store::AccountKind::Virtual)
+                    {
+                        "systemReserve"
+                    } else {
+                        "systemBudget"
+                    }
+                    .into(),
+                );
+            }
+            let mut ledger_bytes = 0;
+            let mut public_limit = None;
+            if let Some(account) = authenticated_account.as_ref() {
+                if account.kind == crate::accounts::store::AccountKind::Linux {
+                    config.virtual_accounts.enforcement =
+                        crate::accounts::virtuals::Enforcement::Application;
+                }
+                if account.kind == crate::accounts::store::AccountKind::Virtual
+                    && config.virtual_accounts.enforcement
+                        == crate::accounts::virtuals::Enforcement::Application
+                {
+                    ledger_bytes = crate::accounts::ledger::used(account)
+                        .map_err(|_| TealDriveError::Internal)?;
+                    for root in &mut config.roots {
+                        if root.root_id == request.root_id {
+                            public_limit = root.quota_bytes;
+                            root.quota_bytes = root
+                                .quota_bytes
+                                .map(|limit| limit.saturating_sub(ledger_bytes));
+                        }
+                    }
+                }
+            }
             let available = reservation.as_ref().and_then(|r| r.available);
             let outcome = if elevated {
                 crate::helper::worker::spawn(&request, &config, available)
@@ -864,7 +969,25 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     crate::session::store::InMemorySessionStore::now_epoch_seconds(),
                 )
             });
+            let ledger_result = match (charge.as_mut(), journal_result.as_ref()) {
+                (Some(charge), Some(Ok(record))) => charge.write(record),
+                _ => Ok(()),
+            };
             let mut response = outcome?;
+            if ledger_result.is_err() && response.success {
+                response.safe_message =
+                    Some("Operation completed; quota ledger result is pending.".into());
+            }
+            if let crate::helper::types::HelperResponsePayload::Usage {
+                used_bytes,
+                limit_bytes,
+            } = &mut response.payload
+            {
+                if public_limit.is_some() {
+                    *used_bytes = used_bytes.saturating_add(ledger_bytes);
+                    *limit_bytes = public_limit;
+                }
+            }
             if journal_result.is_some_and(|result| result.is_err()) && response.success {
                 // Files already changed; do not report a fabricated rollback/failure.
                 response.safe_message =

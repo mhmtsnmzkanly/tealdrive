@@ -10,6 +10,7 @@ pub struct JournalConfig {
     pub retention_hours: u64,
     pub undo_max_hours: u64,
     pub max_entries_per_account: u32,
+    pub max_total_entries: u32,
     pub max_record_bytes: usize,
 }
 impl Default for JournalConfig {
@@ -19,6 +20,7 @@ impl Default for JournalConfig {
             retention_hours: 504,
             undo_max_hours: 24,
             max_entries_per_account: 2048,
+            max_total_entries: 32768,
             max_record_bytes: 8192,
         }
     }
@@ -28,6 +30,7 @@ impl JournalConfig {
         if !(1..=876000).contains(&self.retention_hours)
             || !(1..=self.retention_hours).contains(&self.undo_max_hours)
             || !(100..=100000).contains(&self.max_entries_per_account)
+            || !(self.max_entries_per_account..=1000000).contains(&self.max_total_entries)
             || !(4096..=32768).contains(&self.max_record_bytes)
         {
             return Err(StoreError::InvalidInput);
@@ -133,6 +136,10 @@ pub struct OperationRecord {
     pub error_code: Option<crate::errors::ErrorKind>,
     pub bytes_read: u64,
     pub bytes_written: u64,
+    #[serde(default)]
+    pub log_reserve_bytes: u64,
+    #[serde(default)]
+    pub log_storage: Option<String>,
 }
 fn prefix(id: &str) -> String {
     format!("operation_v1:{id}:")
@@ -253,6 +260,8 @@ impl AccountStore {
             error_code: None,
             bytes_read: 0,
             bytes_written: 0,
+            log_reserve_bytes: 0,
+            log_storage: Some("systemBudget".into()),
         };
         let data = encode(&record, config)?;
         // Reserve bounded after-state metadata before the filesystem mutation begins.
@@ -262,15 +271,45 @@ impl AccountStore {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let pattern = format!("{}%", prefix(&actor.id));
-        tx.execute("DELETE FROM security_state WHERE key IN (SELECT key FROM security_state WHERE key LIKE ?1 AND json_extract(value,'$.createdAt')<?2 LIMIT 2000)",params![pattern,number(at.saturating_sub(config.retention_hours*3600))?])?;
+        let pattern = format!("{}*", prefix(&actor.id));
+        let expired: Vec<(String, String)> = {
+            let mut query=tx.prepare("SELECT key,value FROM security_state WHERE key GLOB ?1 AND json_extract(value,'$.createdAt')<?2 LIMIT 2000")?;
+            let rows = query.query_map(
+                params![
+                    pattern,
+                    number(at.saturating_sub(config.retention_hours * 3600))?
+                ],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        for (key, value) in expired {
+            let old: OperationRecord =
+                serde_json::from_str(&value).map_err(|_| StoreError::InvalidInput)?;
+            super::ledger::remove_record(&actor, &old)?;
+            tx.execute("DELETE FROM security_state WHERE key=?1", [key])?;
+        }
         let count: i64 = tx.query_row(
-            "SELECT count(*) FROM security_state WHERE key LIKE ?1",
+            "SELECT count(*) FROM security_state WHERE key GLOB ?1",
             [&pattern],
             |r| r.get(0),
         )?;
-        if count >= i64::from(config.max_entries_per_account) {
-            return Err(StoreError::QuotaExceeded);
+        let global: i64 = tx.query_row(
+            "SELECT count(*) FROM security_state WHERE key GLOB 'operation_v1:*'",
+            [],
+            |r| r.get(0),
+        )?;
+        if count >= i64::from(config.max_entries_per_account)
+            || global >= i64::from(config.max_total_entries)
+        {
+            let oldest:Option<(String,String)>=tx.query_row("SELECT key,value FROM security_state WHERE key GLOB ?1 AND json_extract(value,'$.status') IN ('success','failed') AND (json_extract(value,'$.action') NOT IN ('move','rename','trash','chmod') OR json_extract(value,'$.createdAt')<?2) ORDER BY key LIMIT 1",params![pattern,number(at.saturating_sub(config.undo_max_hours*3600))?],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+            let Some((old_key, value)) = oldest else {
+                return Err(StoreError::QuotaExceeded);
+            };
+            let old: OperationRecord =
+                serde_json::from_str(&value).map_err(|_| StoreError::InvalidInput)?;
+            super::ledger::remove_record(&actor, &old)?;
+            tx.execute("DELETE FROM security_state WHERE key=?1", [old_key])?;
         }
         tx.execute(
             "INSERT INTO security_state(key,value) VALUES(?1,?2)",
@@ -306,6 +345,8 @@ impl AccountStore {
             return Err(StoreError::Conflict);
         }
         current.updated_at = at;
+        current.log_reserve_bytes = record.log_reserve_bytes;
+        current.log_storage = record.log_storage.clone();
         current.status = match response {
             Some(r) if r.success => "success",
             Some(_) => "failed",
@@ -354,8 +395,8 @@ impl AccountStore {
     ) -> Result<Vec<OperationRecord>, StoreError> {
         query.validate()?;
         let actor = authorized(&self.connection, authority)?.ok_or(StoreError::Forbidden)?;
-        let pattern = format!("{}%", prefix(&actor.id));
-        let mut statement=self.connection.prepare("SELECT value FROM security_state WHERE key LIKE ?1 AND (?2 IS NULL OR key<?2) AND (?3 IS NULL OR json_extract(value,'$.action')=?3) AND (?5 IS NULL OR json_extract(value,'$.status')=?5) AND (?6 IS NULL OR json_extract(value,'$.rootId')=?6) AND (?7 IS NULL OR instr(json_extract(value,'$.sourcePath'),?7)>0 OR instr(json_extract(value,'$.targetPath'),?7)>0) AND (?8 IS NULL OR json_extract(value,'$.createdAt')>=?8) AND (?9 IS NULL OR json_extract(value,'$.createdAt')<=?9) AND (?10 IS NULL OR json_extract(value,'$.requestId')=?10) ORDER BY key DESC LIMIT ?4")?;
+        let pattern = format!("{}*", prefix(&actor.id));
+        let mut statement=self.connection.prepare("SELECT value FROM security_state WHERE key GLOB ?1 AND (?2 IS NULL OR key<?2) AND (?3 IS NULL OR json_extract(value,'$.action')=?3) AND (?5 IS NULL OR json_extract(value,'$.status')=?5) AND (?6 IS NULL OR json_extract(value,'$.rootId')=?6) AND (?7 IS NULL OR instr(json_extract(value,'$.sourcePath'),?7)>0 OR instr(json_extract(value,'$.targetPath'),?7)>0) AND (?8 IS NULL OR json_extract(value,'$.createdAt')>=?8) AND (?9 IS NULL OR json_extract(value,'$.createdAt')<=?9) AND (?10 IS NULL OR json_extract(value,'$.requestId')=?10) ORDER BY key DESC LIMIT ?4")?;
         let records = statement.query_map(
             params![
                 pattern,
@@ -381,6 +422,35 @@ impl AccountStore {
                 Ok(record)
             })
             .collect()
+    }
+    pub fn gc_operations(&mut self, config: &JournalConfig, at: u64) -> Result<usize, StoreError> {
+        if unsafe { libc::geteuid() } != 0 {
+            return Err(StoreError::Forbidden);
+        }
+        config.validate()?;
+        let expired: Vec<(String, String)> = {
+            let mut statement=self.connection.prepare("SELECT key,value FROM security_state WHERE key GLOB 'operation_v1:*' AND json_extract(value,'$.createdAt')<?1 LIMIT 500")?;
+            let rows = statement.query_map(
+                [number(at.saturating_sub(config.retention_hours * 3600))?],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut removed = 0;
+        for (old_key, value) in expired {
+            let record: OperationRecord =
+                serde_json::from_str(&value).map_err(|_| StoreError::InvalidInput)?;
+            if record.version != 1 || key(&record) != old_key {
+                return Err(StoreError::InvalidInput);
+            }
+            let account = self.get(&record.account_id)?;
+            super::ledger::remove_record(&account, &record)?;
+            removed += self.connection.execute(
+                "DELETE FROM security_state WHERE key=?1 AND value=?2",
+                params![old_key, value],
+            )?;
+        }
+        Ok(removed)
     }
     pub fn operation_cursor(record: &OperationRecord) -> String {
         key(record)
@@ -565,5 +635,62 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+    #[test]
+    fn rotation_reclaims_completed_nonundo_events_and_keeps_other_accounts() {
+        let mut store = AccountStore::memory();
+        let alice = account(&mut store, "alice", 1000);
+        let bob = account(&mut store, "bob", 1001);
+        let config = JournalConfig {
+            enabled: true,
+            max_entries_per_account: 100,
+            max_total_entries: 100,
+            ..Default::default()
+        };
+        let mut request =
+            crate::helper::ipc::tests_support::sample_request(HelperCommand::WriteFile);
+        let response = HelperResponse::operation_done(&request, "ok");
+        for i in 0..99 {
+            let record = store
+                .begin_operation(&alice, &request, &config, 1000 + i)
+                .unwrap();
+            store
+                .finish_operation(&record, Some(&response), &config, 1000 + i)
+                .unwrap();
+        }
+        request.username = "bob".into();
+        request.uid = 1001;
+        request.gid = 1001;
+        let foreign = store
+            .begin_operation(&bob, &request, &config, 1200)
+            .unwrap();
+        store
+            .finish_operation(&foreign, Some(&response), &config, 1200)
+            .unwrap();
+        request.username = "alice".into();
+        request.uid = 1000;
+        request.gid = 1000;
+        store
+            .begin_operation(&alice, &request, &config, 1201)
+            .unwrap();
+        let own = Authority::Account {
+            id: alice.id,
+            generation: alice.generation,
+        };
+        let other = Authority::Account {
+            id: bob.id,
+            generation: bob.generation,
+        };
+        assert_eq!(
+            store
+                .operation_records(&own, 200, None, None)
+                .unwrap()
+                .len(),
+            99
+        );
+        assert_eq!(
+            store.operation_records(&other, 200, None, None).unwrap()[0].id,
+            foreign.id
+        );
     }
 }

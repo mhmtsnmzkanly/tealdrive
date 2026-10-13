@@ -92,12 +92,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let pool: i64 = store.pool_limit()? as i64;
                 store.set_pool(&Authority::Root, (pool as u64) + 16777216)?;
-                store.set_admin_budget(&Authority::Root, &account.id, 65536)?;
+                store.set_admin_budget(
+                    &Authority::Root,
+                    &account.id,
+                    if std::env::var("TEALDRIVE_JOURNAL_ACCEPTANCE").as_deref() == Ok("1") {
+                        4194304
+                    } else {
+                        65536
+                    },
+                )?;
             }
         }
     }
     if std::env::var("TEALDRIVE_JOURNAL_ACCEPTANCE").as_deref() == Ok("1") {
         cfg.journal.enabled = true;
+        cfg.features.delete_permanently = true;
     }
     if std::env::var("TEALDRIVE_HOME_ACCEPTANCE").as_deref() == Ok("1") {
         cfg.roots.clear();

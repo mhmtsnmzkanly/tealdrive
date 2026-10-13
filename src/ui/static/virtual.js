@@ -3,7 +3,7 @@ import { t, text as uiText } from "/static/i18n.js";
 export async function openVirtualDialog({ client, account, onSaved }) {
   const budget = await client.admin.quota.getBudget();
   const native = budget.enforcement === "user_quota",
-    minimum = native ? 4096 : 1,
+    minimum = budget.minimumQuotaBytes ?? (native ? 4096 : 1),
     step = native ? 1024 : 1;
   const prior = document.activeElement,
     dialog = document.createElement("dialog");
@@ -61,7 +61,9 @@ export async function openVirtualDialog({ client, account, onSaved }) {
     password.minLength = 12;
     password.maxLength = 1024;
   }
-  const available=budget.availableBytes??Math.max(0,budget.remainingBytes-(budget.usedBytes??0));
+  const available =
+    budget.availableBytes ??
+    Math.max(0, budget.remainingBytes - (budget.usedBytes ?? 0));
   const allocation =
     account?.quotaBytes ??
     Math.max(minimum, Math.floor(available / 4 / step) * step);

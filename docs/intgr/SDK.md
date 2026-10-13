@@ -213,3 +213,18 @@ const linux = await api.admin.systemUsers.accountsPage({limit: 100, enrolled: fa
 ```
 
 Sonuç `{items, nextCursor, hasMore}`. Limit1..200 (varsayılan100), filter en fazla128 UTF-8 byte, cursor256 byte; kontrol karakterleri yasak. Filter username içinde SQLite ASCII case-insensitive eşleşmedir; Unicode case-folding iddiası yoktur. Status active/suspended/revoked/deleted; enrolled boolean. Filtre ve canlı yetki SQL LIMIT öncesi uygulanır. Cursor son public username'dir, yetki token'ı değildir; eşzamanlı değişen kayıtlar için snapshot garantisi yoktur. Sanal admin yalnız kendi çocuklarını görür, sistem hesabı yönetimi yapamaz. `virtualUsers.list()` eski array sözleşmesini korur; seçenek verilirse yeni backend ile filtreli ilk sayfanın array'ini döndürür. Tüm sayfalar için listPage kullanın. Capability `authentication.account_pagination`; destek yoksa seçenekler sessiz atılmaz. Linux aday listesindeki registered bilgisi mevcut sayfanın dışında kalan kayıtların yeniden onaylanmasını önler.
+
+## Kendi işlem geçmişi sözleşmesi
+
+```javascript
+const page = await api.files.audit.list({
+  limit: 100, action: 'write', status: 'success', rootId: 'home',
+  path: 'projects/', from: 0, to: Math.floor(Date.now() / 1000),
+});
+const matched = await api.files.audit.list({requestId: operationResult.requestId});
+if (page.hasMore) {
+  const next = await api.files.audit.list({limit: 100, action: 'write', cursor: page.nextCursor});
+}
+```
+
+Typed AuditQuery/AuditRecord/AuditPage; result `{items,nextCursor,hasMore}`. Limit1..200 default100; path source/target case-sensitive substring (256UTF-8 bytes), rootId128, action32 ASCII alnum, cursor160; controls/unknown options rejected. from/to inclusive Unix epoch seconds, from<=to. requestId UUID traces OperationResult to protected helper event. Pending/success/failed/unknown distinct; bytes/mode request recorded, plaintext file contents/credentials absent. Same filters across cursor pages; live listing is not a snapshot. No accountId/UID override; helper derives own scope and current hidden-path policy. Legacy array endpoints unaffected. `getInfo().authentication.auditHistory` will be enabled after metadata/log quota/UI integration; at this intermediate stage SDK FEATURE_DISABLED is intentional, backend development acceptance uses explicit Root journal mode. No fake successful history/undo.

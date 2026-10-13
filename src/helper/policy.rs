@@ -46,6 +46,7 @@ pub fn restrict(
     let mut config = snapshot.config.clone();
     config.virtual_accounts = ceiling.virtual_accounts.clone();
     config.web_accounts = ceiling.web_accounts.clone();
+    config.journal = ceiling.journal.clone();
     config.access_policy.extend_ceiling(&ceiling.access_policy);
     config.access_policy.validate()?;
     for root in &mut config.roots {
@@ -219,6 +220,20 @@ mod tests {
             restrict(&PolicySnapshot::new(config), &ceiling),
             Err(TealDriveError::PermissionDenied)
         );
+    }
+    #[test]
+    fn snapshot_cannot_disable_or_change_protected_journal_limits() {
+        let mut ceiling = AppConfig::default();
+        ceiling.journal.enabled = true;
+        ceiling.journal.undo_max_hours = 6;
+        let mut snapshot = ceiling.clone();
+        snapshot.journal.enabled = false;
+        snapshot.journal.max_entries_per_account = 100;
+        snapshot.journal.max_total_entries = 100;
+        snapshot.journal.max_record_bytes = 32768;
+        snapshot.journal.undo_max_hours = 24;
+        let restricted = restrict(&PolicySnapshot::new(snapshot), &ceiling).unwrap();
+        assert_eq!(restricted.journal, ceiling.journal);
     }
     #[test]
     fn privileged_policy_cannot_be_disabled_by_snapshot() {

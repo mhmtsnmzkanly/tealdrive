@@ -11,7 +11,12 @@ const fs = require("node:fs");
   const file = process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE;
   if (fs.statSync(file).mode & 0o077)
     throw Error("Private secret file required");
-  const browser = await chromium.launch({ headless: true });
+  const originHost = process.env.TEALDRIVE_TEST_ORIGIN_HOST;
+  if (originHost && new URL(process.env.TEALDRIVE_TEST_URL).hostname !== originHost)
+    throw Error("Origin resolver host must match the explicit test URL");
+  const browser = await chromium.launch({ headless: true,
+    args: originHost ? [`--host-resolver-rules=MAP ${originHost} 127.0.0.1`] : [],
+  });
   try {
     const page = await browser.newPage();
     const errors = [];

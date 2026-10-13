@@ -21,8 +21,8 @@ case "${1:-}" in
     ;;
   live)
     case "${2:-}" in
-      ui-auth|ui-credentials|sdk-access|sdk-enrollment|sdk-suspend) tealdrive_script=$2 ;;
-      *) echo 'Choose an explicit live test: ui-auth, ui-credentials, sdk-access, sdk-enrollment, sdk-suspend.' >&2; exit 2 ;;
+      ui-auth|ui-credentials|sdk-access|sdk-enrollment|sdk-suspend|production-files) tealdrive_script=$2 ;;
+      *) echo 'Choose an explicit live test: ui-auth, ui-credentials, sdk-access, sdk-enrollment, sdk-suspend, production-files.' >&2; exit 2 ;;
     esac
     : "${TEALDRIVE_TEST_URL:?Explicit dedicated test URL required}"
     : "${TEALDRIVE_TEST_USERNAME:?Dedicated test account required}"

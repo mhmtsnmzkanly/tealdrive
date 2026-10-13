@@ -309,5 +309,8 @@
   "archive": "archive",
   "extract": "extract",
   "createFolder": "createFolder",
-  "Undo preference unavailable": "Undo preference unavailable"
+  "Undo preference unavailable": "Undo preference unavailable",
+  "File exceeds the server upload limit ({limit}).": "File exceeds the server upload limit ({limit}).",
+  "Upload cancelled.": "Upload cancelled.",
+  "Storage is full or the account quota has been reached.": "Storage is full or the account quota has been reached."
 }

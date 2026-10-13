@@ -309,5 +309,8 @@
   "archive": "Arşiv oluşturma",
   "extract": "Arşiv açma",
   "createFolder": "Klasör oluşturma",
-  "Undo preference unavailable": "Geri alma tercihi alınamadı"
+  "Undo preference unavailable": "Geri alma tercihi alınamadı",
+  "File exceeds the server upload limit ({limit}).": "Dosya sunucunun yükleme sınırını ({limit}) aşıyor.",
+  "Upload cancelled.": "Yükleme iptal edildi.",
+  "Storage is full or the account quota has been reached.": "Depolama dolu veya hesap kotasına ulaşıldı."
 }

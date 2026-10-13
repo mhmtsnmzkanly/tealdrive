@@ -716,21 +716,33 @@
   }
 
   // --- Upload Flow ---
+  let uploadController = null;
   async function handleFileUpload(file) {
     if (!file || state.uploading) return;
     state.uploading = true;
+    uploadController = new AbortController();
+    document.getElementById('uploadCancelBtn').disabled = false;
+    el.uploadProgressBar.style.width = '0%';
+    el.uploadPercent.textContent = '0%';
     el.uploadProgressContainer.classList.remove('hidden');
     el.uploadFileName.textContent = file.name;
     try {
       const client = await getAuthClient();
-      await client.files.upload({rootId:state.currentRoot,directory:state.currentPath,file,onProgress:progress=>{
+      await client.files.upload({rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
         const percentage = progress.totalBytes ? Math.round(100*progress.transferredBytes/progress.totalBytes) : 100;
         el.uploadProgressBar.style.width = `${percentage}%`;
         el.uploadPercent.textContent = `${percentage}%`;
       }});
       showToast('Upload completed','success'); loadDirectory(state.currentPath);
-    } catch (error) { showToast(error.message,'error'); }
-    finally { state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value=''; }
+    } catch (error) {
+      const messages = {
+        FILE_TOO_LARGE: t('File exceeds the server upload limit ({limit}).', {limit:formatBytes(authClient?.getInfo().limits.max_in_flight_upload)}),
+        ABORTED: t('Upload cancelled.'),
+        DISK_FULL: t('Storage is full or the account quota has been reached.'),
+      };
+      showToast(messages[error.code] || error.message,'error');
+    }
+    finally { uploadController=null;state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value=''; }
   }
 
   // --- Session & HTTP Auth ---
@@ -874,7 +886,12 @@
     catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
     finally{event.target.disabled=false;}
   };
+  let loginInProgress = false;
   async function performLogin(username, password) {
+    if (loginInProgress) return;
+    loginInProgress = true;
+    const submit = document.getElementById('loginSubmitBtn');
+    submit.disabled = true;
     el.loginError.classList.add('hidden');
     el.passwordInput.value='';
     try {
@@ -920,6 +937,7 @@
       }
     } finally {
       password=''; el.passwordInput.value=''; el.webPasswordConfirm.value='';
+      loginInProgress=false; submit.disabled=false;
     }
   }
 
@@ -1171,6 +1189,10 @@
       });
     };
 
+    document.getElementById('uploadCancelBtn').onclick = (event) => {
+      event.target.disabled = true;
+      uploadController?.abort();
+    };
     el.uploadBtn.onclick = () => el.fileInput.click();
     el.fileInput.onchange = (e) => {
       if (e.target.files && e.target.files[0]) {

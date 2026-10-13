@@ -40,3 +40,7 @@ Yetki kapsamı regression testi ve tam library testi passed:588 başarılı,1 a�
 ### Panel adı ve servis kimliği
 
 Root-only virtual admin provisioning `tealdrive` panel adına dar bir istisna tanır. Generated NSS adı/home/UID hala tdv_UID; servis NSS hesabı benimsenmez. Normal virtual kullanıcı oluşturma, Linux approval ve PAM enrollment servis adını reddetmeye devam eder. Diğer servis adlarına istisna yok. İsim collision istisnası yalnız Root create_admin yolundadır. Regression testi passed;590 library test toplamında589passed/1ignored.
+
+### UI aktarım/giriş ilk iyileştirmesi
+
+Yükleme progress sıfırlama ve AbortController üzerinden iptal düğmesi eklendi. Boyut hatası sunucunun gerçek byte sınırını kullanıcıya gösterir; TR/EN iptal ve disk dolu mesajları eklendi. Login submit işlem boyunca disabled; eşzamanlı ikinci login gönderilmez, başarısızlık sonrası tekrar etkinleşir. Browser codec, permission/login-secret/concurrent-submit, shutdown ve SDK integration testleri passed. Üretim release değişmedi. Derleme cache591MiB, disk95GiB boş; eski34GiB cache davranışı incremental/debug kapalı tutularak önlendi.

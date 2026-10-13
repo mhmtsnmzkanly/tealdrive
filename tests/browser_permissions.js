@@ -74,5 +74,20 @@ setupEvents();
     };
     await performLogin('alice','test-secret');
     assert.equal(el.passwordInput.value,'');
+    assert.equal(document.getElementById('loginSubmitBtn').disabled,false);
   }
+  let releaseLogin;
+  let loginCalls=0;
+  globalThis.fetch=async()=>{
+    loginCalls++;
+    await new Promise(resolve=>{releaseLogin=resolve;});
+    return {ok:false};
+  };
+  const first=performLogin('alice','test-secret');
+  assert.equal(document.getElementById('loginSubmitBtn').disabled,true);
+  await Promise.resolve(); await Promise.resolve();
+  await performLogin('alice','second-secret');
+  assert.equal(loginCalls,1,'double submit must not send a second login');
+  releaseLogin(); await first;
+  assert.equal(document.getElementById('loginSubmitBtn').disabled,false);
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -382,3 +382,7 @@ Gerçek Root/PAM/Chromium application quota fixture passed: own dialog/filter, S
 ## 2026-10-13 — Root journal ceiling regression
 
 Snapshot enabled=false + değiştirilmiş max_entries/max_total/max_record_bytes/undo_max testinde restricted.journal Root config ile birebir eşleşti. helper policy3 unit passed; fmt/Clippy -D warnings passed. Bu düzeltme file operation client snapshot ile protected journal bypass edilmesini önler.
+
+## 2026-10-13 — Watchdog thread confinement
+
+Explicit Root kernel test User nobody UID/GID65534 için world-readable dış dosyaya DAC baseline erişimini doğruladı; Landlock sonrası yeni thread ve onun child thread'i dış dosyayı okuyamadı, izinli iç dosyayı okuyabildi ve PR_GET_NO_NEW_PRIVS=1. Private worker valid/tampered/expired/replayed delegation ve Root600 file denial tekrar passed. Helper142 unit passed/1 ignored; fmt/Clippy -D warnings passed. Normal worker yalnız sandbox sonrası watchdog oluşturur; Root supervisor watchdog privileged control tarafında kalır.

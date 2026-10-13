@@ -286,3 +286,7 @@ Kota doluyken yalnız Root-feature/policy izinli live permanent delete bounded s
 ## D055 — Journal ayarı server snapshot'ından türetilemez
 
 2026-10-13: PolicySnapshot restrict artık journal alanını tamamen Root ceiling'den alır. Server kendi config kopyasında enabled=false veya farklı kayıt boyutu/count/undo limitleri göndererek protected kayıt zorunluluğunu veya quota maliyetini değiştiremez. Helper otoritesi server capability ilanından bağımsızdır. Runtime web patch journal alanı sunmaz.
+
+## D056 — User worker watchdog thread confinement sonrasında başlar
+
+2026-10-13: Kernel Landlock politikası mevcut sibling thread'lere otomatik uygulanmaz; yalnız sonradan oluşturulan descendants miras alır. Standalone helper watch flag'i önce kaydeder; invocation decode sonrası Root supervisor için watch başlar, Worker için UID/GID drop ve Landlock sonrası başlar. Private worker confinement öncesi ve identity resolution sonrası tek thread zorunludur; güvenli olmayan multi-thread fallback yok. Fresh process/watch-parent pipe modeli korunur. Kaynak: [Linux Kernel Landlock inheritance](https://docs.kernel.org/userspace-api/landlock.html#inheritance).

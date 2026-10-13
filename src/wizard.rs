@@ -476,6 +476,21 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         }
         ["account", "approve", name] => approve_linux(name, false),
         ["account", "approve", name, "--allow-nologin"] => approve_linux(name, true),
+        ["account", "scope", id, scope @ ("global" | "tenant")] => {
+            root()?;
+            let account = store()?.set_panel_scope(&Authority::Root, id, *scope == "global")?;
+            let mut cfg = config()?;
+            cfg.account_policy
+                .admin_users
+                .retain(|name| name != &account.username);
+            if *scope == "global" {
+                cfg.account_policy
+                    .admin_users
+                    .push(account.username.clone());
+            }
+            save_account_config(&cfg)?;
+            print(&account)
+        }
         ["account", role @ ("admin" | "user"), id] => {
             root()?;
             let mut store = store()?;

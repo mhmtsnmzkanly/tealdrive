@@ -72,7 +72,9 @@ where
     };
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
-        || account.is_some_and(|account| account.role != crate::accounts::store::Role::Admin)
+        || account.is_some_and(|account| {
+            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+        })
     {
         return (
             StatusCode::FORBIDDEN,
@@ -147,7 +149,9 @@ where
     };
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
-        || account.is_some_and(|account| account.role != crate::accounts::store::Role::Admin)
+        || account.is_some_and(|account| {
+            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+        })
     {
         return (
             StatusCode::FORBIDDEN,
@@ -278,7 +282,9 @@ where
     };
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
-        || account.is_some_and(|account| account.role != crate::accounts::store::Role::Admin)
+        || account.is_some_and(|account| {
+            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+        })
     {
         return (
             StatusCode::FORBIDDEN,

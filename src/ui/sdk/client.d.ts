@@ -239,6 +239,8 @@ export interface AccountMetadata {
   home: string;
   kind: "linux" | "virtual";
   role: "user" | "admin";
+  /** Root-assigned global management scope; tenant admin role alone is insufficient. */
+  globalAdmin?: boolean;
   ownerAdminId: string | null;
   status: "active" | "suspended" | "revoked" | "deleted";
   loginEnabled: boolean;

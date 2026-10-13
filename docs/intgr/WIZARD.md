@@ -108,3 +108,13 @@ sudo tealdrive-wizard tls status
 ```
 
 Root-only, read-only: PEM çifti ve güvenli izinler doğrulanır; public certificate fingerprint/tarihler ve30gün yenileme uyarısı gösterilir. Yeni server sürümü60s aralıkla valid TLS çiftini reload eder; yanlış çift/mode/symlink mevcut çalışan sertifikayı değiştirmez. Bu kod henüz canlı kurulumda yayınlanmadı. Proxy trust yenileme ayrıca gereklidir; TRANSPORT_SECURITY.md içindeki sırayı uygulayın.
+
+## Yeni aşama: yönetici kapsamı (source sürümü)
+
+```sh
+# Mevcut RoleAdmin hesabının yönetim kapsamı; yalnız Root:
+sudo tealdrive-wizard account scope ACCOUNT_ID global
+sudo tealdrive-wizard account scope ACCOUNT_ID tenant
+```
+
+Hesap türü/home/UID/GID değişmez. Tenant rolü korunur; general scope ayrıca Root DB ve policy roster ile atanır. Eski oturumlar generation değişimiyle iptal edilir. `account admin/user` Linux rol komutlarıdır; virtual RoleAdmin'i RoleUser'a çevirmek için kullanılmaz. `virtual admin create tealdrive BUDGET REQUEST_UUID` Root-only panel alias'ını ayrı tdv_UID kimliğiyle oluşturabilir; Linux tealdrive service enrollment kapalı kalır. Bu yeni komutlar henüz installed production binary'de yayınlanmadı.

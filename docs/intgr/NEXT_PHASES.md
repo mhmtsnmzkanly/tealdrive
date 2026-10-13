@@ -31,7 +31,7 @@ SDK bind HTTP reddi, ağ hatası ve bind başarılı/session401 durumlarında ki
 
 ### Genel yönetim kapsamı
 
-Hesap türüne bağlı Linux-only genel admin denetimi kaldırıldı. Genel panel yönetimi için iki şart birlikte zorunludur: protected DB RoleAdmin ve Root-owned account_policy.admin_users listesinde açık ad. Bu listeye dahil olmayan virtual RoleAdmin tenant kapsamında kalır; RoleUser listeye yazılsa bile admin olamaz. Root Wizard account admin ACCOUNT_ID komutu sanal admin için de bu kapsamı açıkça atar. Server runtime overlay bu listeyi değiştiremez. Kullanıcı dosya UID/GID kimliği değişmez; Root yetkisi webden kritik yapılandırma düzenleme anlamına gelmez. Yeni DB şeması veya kullanıcıya açılan role claim gerekmedi.
+Hesap türüne bağlı Linux-only genel admin denetimi kaldırıldı. Genel panel yönetimi için protected DB RoleAdmin, protected panel_scope=global ve Root-owned account_policy.admin_users listesinde açık ad birlikte zorunludur. Bu listeye dahil olmayan virtual RoleAdmin tenant kapsamında kalır; RoleUser listeye yazılsa bile admin olamaz. Linux rol komutu sanal hesap için kullanılmaz; Root Wizard account scope ACCOUNT_ID global|tenant komutu bu kapsamı atar. Server runtime overlay bu listeyi değiştiremez. Kullanıcı dosya UID/GID kimliği değişmez; Root yetkisi webden kritik yapılandırma düzenleme anlamına gelmez. Yeni DB şeması veya kullanıcıya açılan role claim gerekmedi.
 
 Bu değişiklik source aşamasındadır; henüz canlı sürüme geçilmedi. Servis adıyla aynı panel adı için Root provisioning istisnası ayrıca dar kapsamda uygulanacak; normal self-registration/service filtreleri gevşetilmeyecek.
 
@@ -72,3 +72,11 @@ Araç gerçek onaylı tealdrive-test hesabının cloned auth DB'sini kullanır; 
 ### API cache güvenliği
 
 Bütün /api/ cevapları,401/403 ve file download dahil,private,no-store ve Vary:Cookie alır. SDK HTTP/bind/download fetch cache:no-store kullanır. Bu kişisel cevapların browser/proxy cache yazımını önler; eski mobil401 olayının kesin cache kaynaklı olduğu iddia edilmez. WS/auth ve SDK testleri geçti. Proxy operatörü bu başlıkları zorla override eden cache rule kullanmamalı.
+
+### Protected yönetim kapsamı
+
+Root scope ataması mevcut security_state tablosundaki panel_scope:ACCOUNT_ID kaydıyla korunur; yeni dosya veya schema-version değişikliği yok. Eski Linux RoleAdmin kayıtlarının davranışı korunur; yeni virtual RoleAdmin varsayılan tenant. `account scope ID global|tenant` scope/generation değişimini tek DB transaction'ında yapar, eski grants/proofs geçersiz kalır. RoleUser scope yükseltemez; web komutu yok. Root config roster ikinci sınır olarak korunur. Gateway Validate cevabı effective global_admin flag'ini Root'un güncel roster'ıyla sınırlar; stale Server config scope revocation'ı uzatamaz. Genel admin Root kritik tavanlarını, signing key veya DB'yi yazamaz.
+
+592library tests:591passed/1explicit PAM ignored. Scope regression: virtual kimliği/UID/home değişmeden Root global ataması, tenant'a geri dönüş, eski generation reddi, RoleUser ve self-authority scope ataması reddi. Production admin/homes bu aşamada değiştirilmedi.
+
+Protected SQLite gerçek Root kabulü3test geçti: WAL/private UID erişim reddi, eşzamanlı bütçeler, explicit migration/backup/proof invalidation ve kalıcı login sayaçları. WS-auth+SDK integration geçti. Clippy all-targets -Dwarnings passed.

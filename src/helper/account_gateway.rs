@@ -425,7 +425,7 @@ fn management_authority(
     if actor.role != Role::Admin {
         return Err(GatewayFailure::Forbidden);
     }
-    if config.account_policy.is_admin(&actor.username) {
+    if actor.global_admin && config.account_policy.is_admin(&actor.username) {
         Ok(Authority::Root)
     } else if kind == AccountKind::Virtual {
         Ok(Authority::Account {
@@ -1002,10 +1002,12 @@ fn dispatch(
             })
         }
         AccountCommand::Validate(grant) => {
-            let account = store
+            let mut account = store
                 .verify_grant(&grant, &caller, at)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
+            // Server caches must never extend a Root-revoked management scope.
+            account.global_admin &= config.account_policy.is_admin(&account.username);
             Ok(AccountReply::Validated(account_view(store, account)?))
         }
         AccountCommand::ApproveLinux { grant, username } => {
@@ -1307,6 +1309,13 @@ mod tests {
             Ok(Authority::Root)
         ));
         actor.kind = AccountKind::Virtual;
+        actor.global_admin = false;
+        assert!(management_authority(&config, &actor, AccountKind::Linux).is_err());
+        assert!(matches!(
+            management_authority(&config, &actor, AccountKind::Virtual),
+            Ok(Authority::Account { .. })
+        ));
+        actor.global_admin = true;
         // Root explicitly grants global scope independently of storage identity.
         assert!(matches!(
             management_authority(&config, &actor, AccountKind::Linux),

@@ -62,6 +62,8 @@ pub struct Account {
     pub home: PathBuf,
     pub kind: AccountKind,
     pub role: Role,
+    #[serde(default)]
+    pub global_admin: bool,
     pub owner_admin_id: Option<String>,
     pub status: AccountStatus,
     pub login_enabled: bool,
@@ -171,9 +173,10 @@ pub(super) fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> 
         updated_at: row_u64(row, 15)?,
         deleted_at: row_optional_u64(row, 16)?,
         deny_enrollment: row.get(17)?,
+        global_admin: row.get(18)?,
     })
 }
-pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment";
+pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment,(role='admin' AND coalesce((SELECT value='global' FROM security_state WHERE key='panel_scope:'||accounts.id),kind='linux'))";
 pub(super) fn account(connection: &Connection, id: &str) -> Result<Account, StoreError> {
     connection
         .query_row(
@@ -349,6 +352,36 @@ impl AccountStore {
             )
             .optional()?)
     }
+    /// Root-only scope assignment. Storage identity and tenant-admin role stay intact.
+    pub fn set_panel_scope(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        global: bool,
+    ) -> Result<Account, StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target = account(&tx, id)?;
+        if target.role != Role::Admin || target.status != AccountStatus::Active {
+            return Err(StoreError::Forbidden);
+        }
+        tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("panel_scope:{id}"),if global {"global"} else {"tenant"}])?;
+        tx.execute(
+            "UPDATE accounts SET generation=generation+1,updated_at=?1 WHERE id=?2",
+            params![number(now())?, id],
+        )?;
+        tx.execute(
+            "DELETE FROM enrollment WHERE username=?1",
+            [target.username],
+        )?;
+        let result = account(&tx, id)?;
+        tx.commit()?;
+        Ok(result)
+    }
     pub fn set_role(
         &mut self,
         actor: &Authority,
@@ -373,6 +406,7 @@ impl AccountStore {
                 id
             ],
         )?;
+        tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("panel_scope:{id}"),if role == Role::Admin {"global"} else {"tenant"}])?;
         tx.execute(
             "DELETE FROM enrollment WHERE username=?1",
             [target.username],
@@ -814,6 +848,60 @@ impl AccountStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn root_scope_is_independent_of_virtual_identity_and_invalidates_old_authority() {
+        let mut store = AccountStore::memory();
+        let account = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "panel".into(),
+                    uid: 200000,
+                    gid: 200000,
+                    home: "/home/tealdrive/virtual-homes/tdv_200000".into(),
+                    kind: AccountKind::Virtual,
+                    role: Role::Admin,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+            )
+            .unwrap();
+        assert!(!account.global_admin);
+        let old = Authority::Account {
+            id: account.id.clone(),
+            generation: account.generation,
+        };
+        assert!(matches!(
+            store.set_panel_scope(&old, &account.id, true),
+            Err(StoreError::Forbidden)
+        ));
+        let global = store
+            .set_panel_scope(&Authority::Root, &account.id, true)
+            .unwrap();
+        assert!(global.global_admin);
+        assert_eq!(global.kind, AccountKind::Virtual);
+        assert_eq!(global.uid, account.uid);
+        assert_eq!(global.home, account.home);
+        assert_eq!(global.generation, account.generation + 1);
+        assert!(authorized(&store.connection, &old).is_err());
+        let authority = Authority::Account {
+            id: global.id.clone(),
+            generation: global.generation,
+        };
+        let tenant = store
+            .set_panel_scope(&Authority::Root, &account.id, false)
+            .unwrap();
+        assert!(!tenant.global_admin);
+        assert_eq!(tenant.role, Role::Admin);
+        assert!(authorized(&store.connection, &authority).is_err());
+        let ordinary = store
+            .create(&Authority::Root, linux("ordinary", 1000, Role::User))
+            .unwrap();
+        assert!(matches!(
+            store.set_panel_scope(&Authority::Root, &ordinary.id, true),
+            Err(StoreError::Forbidden)
+        ));
+    }
     fn linux(name: &str, uid: u32, role: Role) -> NewAccount {
         NewAccount {
             username: name.into(),

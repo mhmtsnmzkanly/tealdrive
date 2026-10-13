@@ -106,6 +106,7 @@ mod tests {
             home: "/home/alice".into(),
             kind: AccountKind::Linux,
             role: Role::User,
+            global_admin: false,
             owner_admin_id: None,
             status: AccountStatus::Active,
             login_enabled: true,

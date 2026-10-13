@@ -27,6 +27,7 @@ const BINARIES: [&str; 4] = [
 ];
 const UNIT: &str = "tealdrive.service";
 mod storage;
+mod tls;
 fn root() -> Result<()> {
     if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
         return Err(
@@ -600,6 +601,10 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         ["storage", "init", size] => {
             root()?;
             storage::init(bytes(size)?)
+        }
+        ["tls", "status"] => {
+            root()?;
+            tls::status()
         }
         ["storage", "status"] => {
             root()?;

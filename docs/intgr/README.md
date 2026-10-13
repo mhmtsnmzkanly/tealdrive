@@ -9,6 +9,7 @@ Yeni yetkilendirilmiş çekirdek geliştirme: [NEXT_PHASES.md](NEXT_PHASES.md). 
 | [HELPER.md](HELPER.md) / [SECURITY.md](SECURITY.md) | Root supervisor, User worker, kimlik/politika ve kernel sınırları |
 | [SERVER.md](SERVER.md) / [AUTH.md](AUTH.md) | HTTP/WS, PAM enrollment, web parola, session ve gateway |
 | [CONFIGURATION.md](CONFIGURATION.md) | Çalışan Root/overlay ayar ayrımı ve örnek |
+| [TRANSPORT_SECURITY.md](TRANSPORT_SECURITY.md) | Yeni TLS yenileme davranışı, proxy trust ve ek şifreleme tasarım sınırları |
 | [WIZARD.md](WIZARD.md) | Kurulum/güncelleme/onarım, hesap yönetimi ve ayrı ctl |
 | [STORAGE.md](STORAGE.md) / [QUOTA.md](QUOTA.md) | /home/tealdrive düzeni, SQLite metadata, native kota |
 | [SDK.md](SDK.md) / [STATE.md](STATE.md) | Public auth/files/admin API, managed/client state, events |

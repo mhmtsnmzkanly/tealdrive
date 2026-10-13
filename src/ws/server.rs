@@ -451,6 +451,30 @@ where
     }));
     let stop_accepting = shutdown.clone();
     let tls = crate::tls::load(&state.config.load().server).await?;
+    let tls_configuration = state.config.clone();
+    let _tls_refresh_task = tls.as_ref().map(|active| {
+        let active = active.clone();
+        let shutdown = shutdown.clone();
+        AbortTask(tokio::spawn(async move {
+            let mut timer = tokio::time::interval(Duration::from_secs(60));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            timer.tick().await;
+            loop {
+                tokio::select! {
+                    _ = shutdown.draining() => break,
+                    _ = timer.tick() => {
+                        let configuration = tls_configuration.load().server.clone();
+                        match crate::tls::load(&configuration).await {
+                            Ok(Some(updated)) => active.reload_from_config(updated.get_inner()),
+                            // Never downgrade a running TLS listener to plaintext.
+                            Ok(None) => {},
+                            Err(_) => eprintln!("TLS refresh rejected; retaining the last validated certificate and key."),
+                        }
+                    }
+                }
+            }
+        }))
+    });
     let service = build_router(state).into_make_service_with_connect_info::<SocketAddr>();
     let mut tls_stop_task = None;
     let server: std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>> =

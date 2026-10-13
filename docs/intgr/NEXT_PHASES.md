@@ -48,3 +48,7 @@ Yükleme progress sıfırlama ve AbortController üzerinden iptal düğmesi ekle
 ### Yükleme staging güvenliği
 
 Staging create_new+0600+NOFOLLOW/CLOEXEC ile açılır; umask yanlış olsa da kullanıcı verisi world-readable olmaz. Chunk reopen symlink izleyemez.11 upload lifecycle testi geçti; mode assertion eklendi. Büyük aktarım limiti bu committe artırılmadı.
+
+### Backend TLS ilk adım
+
+Root-owned PEM çiftini60s aralıkla doğrulayıp canlı rustls config'e yükleme eklendi. `tls status` gerçek kurulum sertifikasını/private-key çiftini doğruladı, public fingerprint/date ve30gün yenileme uyarısı verdi. İzole gerçek listener kabulü `cargo test --locked --test tls_refresh -- --ignored`:124.44s içinde geçti; invalid key son geçerli sertifikayı korudu, yeni çift restart olmadan yayınlandı, eski CA yeni self-signed kimliği reddetti. Production cert/key/Caddy değişmedi. Otomatik sertifika üretimi ve çift-trust rollout henüz tamamlanmadı. Tasarım ve sınırlar TRANSPORT_SECURITY.md içinde.

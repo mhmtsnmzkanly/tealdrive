@@ -100,3 +100,11 @@ sudo tealdrive-wizard diagnose
 `audit list 1..200` Root-only kontrol/yönetim geçmişidir. Kullanıcı dosya geçmişi ve undo CLI komutu yoktur; public SDK/UI üzerinden sunulur. `config set/edit`, `undo list` gibi eski taslak komutlar mevcut değildir. Parola komutları güvenli TTY kullanır; parola argv/env'ye verilmez. Root'un ilk admin rolü vermesi zorunludur, varsayılan admin yaratılmaz.
 
 Native mount ünitesi ve GC timer systemd altında kalır. Install timerı otomatik açmaz; diagnose/recovery kabulünden sonra operator enable eder. Bu sunucuda mount/servis/timer enabled ve gerçek restart/shutdown popup kabulü geçti.
+
+## Yeni aşama: TLS tanılama (source sürümü)
+
+```sh
+sudo tealdrive-wizard tls status
+```
+
+Root-only, read-only: PEM çifti ve güvenli izinler doğrulanır; public certificate fingerprint/tarihler ve30gün yenileme uyarısı gösterilir. Yeni server sürümü60s aralıkla valid TLS çiftini reload eder; yanlış çift/mode/symlink mevcut çalışan sertifikayı değiştirmez. Bu kod henüz canlı kurulumda yayınlanmadı. Proxy trust yenileme ayrıca gereklidir; TRANSPORT_SECURITY.md içindeki sırayı uygulayın.

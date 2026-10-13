@@ -386,3 +386,7 @@ Snapshot enabled=false + değiştirilmiş max_entries/max_total/max_record_bytes
 ## 2026-10-13 — Watchdog thread confinement
 
 Explicit Root kernel test User nobody UID/GID65534 için world-readable dış dosyaya DAC baseline erişimini doğruladı; Landlock sonrası yeni thread ve onun child thread'i dış dosyayı okuyamadı, izinli iç dosyayı okuyabildi ve PR_GET_NO_NEW_PRIVS=1. Private worker valid/tampered/expired/replayed delegation ve Root600 file denial tekrar passed. Helper142 unit passed/1 ignored; fmt/Clippy -D warnings passed. Normal worker yalnız sandbox sonrası watchdog oluşturur; Root supervisor watchdog privileged control tarafında kalır.
+
+## 2026-10-13 — Protected trash expiry ve audit-independent token
+
+Gerçek Root/PAM/Chromium application fixture:504h aged unchanged trash User worker tarafından silindi, changed contents korundu; CLI trash_cleaned1/trash_skipped1 ve expired operation logs2 doğrulandı. Own history/undo/UI, virtual quota/ledger, old504h log physical release ve fixture cleanup/helper policy restore aynı kabulde tekrar passed. Unit token successful record'i audit TTL sonrası da korudu; own token cap100 sonrası yeni intent atomik reddedildi ve Root journal orphan row oluşmadı. Lifecycle hours/work bounds doğrulandı. accounts31 unit passed, fmt/Clippy -D warnings, strict TypeScript, Rust1.85 all-target ve private worker MAC/UID denial passed. Legacy user-info purge production yüzeyinden çıkarıldı. Stage GC, protected auth/admin control log ve fiziksel migration devam ediyor.

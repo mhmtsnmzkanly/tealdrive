@@ -290,3 +290,7 @@ Kota doluyken yalnız Root-feature/policy izinli live permanent delete bounded s
 ## D056 — User worker watchdog thread confinement sonrasında başlar
 
 2026-10-13: Kernel Landlock politikası mevcut sibling thread'lere otomatik uygulanmaz; yalnız sonradan oluşturulan descendants miras alır. Standalone helper watch flag'i önce kaydeder; invocation decode sonrası Root supervisor için watch başlar, Worker için UID/GID drop ve Landlock sonrası başlar. Private worker confinement öncesi ve identity resolution sonrası tek thread zorunludur; güvenli olmayan multi-thread fallback yok. Fresh process/watch-parent pipe modeli korunur. Kaynak: [Linux Kernel Landlock inheritance](https://docs.kernel.org/userspace-api/landlock.html#inheritance).
+
+## D057 — Audit'ten bağımsız bounded trash cleanup token
+
+2026-10-13: Journal rotation veya TTL eski trash event'ini kaldırabileceği için GC authority ayrı trash_expiry_v1 token'ıdır. UUID Root operation ID'den gelir; signed worker artifact context tarafından kullanılır. Queue intent-before-FS, current scope ve actual after-state ile bounded tutulur; User writable trash info otorite değildir. Root CLI fresh Wizard worker User UID/GID+Landlock ile cleanup yapar. Değişmiş/denied veri needsReview ile korunur, otomatik retry yok. Undo/restore/delete ve36h physical account purge token'ı emekli eder. Root lifecycle hours audit TTL'den bağımsızdır; staging_root artifact adlandırma/24h config temeli eklendi, staging GC devam ediyor.

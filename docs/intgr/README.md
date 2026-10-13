@@ -19,6 +19,7 @@ Bu dizin hedef mimarinin yetkili geliştirme kaynağıdır. Kökteki plan.md/TAS
 | [AUTH.md](AUTH.md) | PAM/web parola, enrollment ve öz kayıt |
 | [QUOTA.md](QUOTA.md) | Havuz/admin bütçesi, helper kullanım ve uyarı |
 | [AUDIT.md](AUDIT.md) | Kullanıcı geçmişi, eski/yeni farklar, trash/undo |
+| [LIFECYCLE.md](LIFECYCLE.md) | Korumalı trash temizliği, token ve worker sınırları |
 | [UNDO.md](UNDO.md) | Uygulanmış koşullu geri alma, süre tercihi ve restore fence |
 | [SECURITY.md](SECURITY.md) | Ortak güven sınırları |
 | [TESTS.md](TESTS.md) | Temiz kurulum ve kabul testleri |

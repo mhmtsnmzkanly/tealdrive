@@ -414,3 +414,37 @@ fn preserve_permissions(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod noreplace_tests {
+    use super::*;
+    #[test]
+    fn destination_created_after_validation_is_never_overwritten() {
+        let home = std::env::temp_dir().join(format!("td-noreplace-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&home).unwrap();
+        std::fs::write(home.join("source"), b"source").unwrap();
+        let root = crate::config::AllowedRoot {
+            base_path: home.clone(),
+            ..Default::default()
+        };
+        assert!(!home.join("destination").exists());
+        // An external writer publishes after the application checked the target.
+        std::fs::write(home.join("destination"), b"external").unwrap();
+        let error = rename(
+            &root,
+            &RelativePath::new("source"),
+            &RelativePath::new("destination"),
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(home.join("source")).unwrap(), b"source");
+        assert_eq!(
+            std::fs::read(home.join("destination")).unwrap(),
+            b"external"
+        );
+        std::fs::remove_file(home.join("source")).unwrap();
+        std::fs::remove_file(home.join("destination")).unwrap();
+        std::fs::remove_dir(home).unwrap();
+    }
+}

@@ -62,7 +62,13 @@ pub fn rename_with_roots(
         );
     }
 
-    match fs::rename(&source.resolved_path, &target.resolved_path) {
+    let destination =
+        crate::config::RelativePath::new(if target.parent_relative_path.0.is_empty() {
+            target.filename.0.clone()
+        } else {
+            format!("{}/{}", target.parent_relative_path.0, target.filename.0)
+        });
+    match crate::helper::transaction::rename(root, &source.relative_path, &destination, false) {
         Ok(()) => HelperResponse::operation_done(request, "Renamed."),
         Err(error) => helper_error_from_io(request, error),
     }

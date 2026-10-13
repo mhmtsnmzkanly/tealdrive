@@ -55,13 +55,14 @@ pub fn move_file_with_roots(
         Err(e) => return helper_error_from_tealdrive(request, e),
     };
 
-    let target_path =
+    let _target_path =
         match resolve_safe_target_path(&source.root.canonical_base, &target_validated.0, request) {
             Ok(p) => p,
             Err(resp) => return resp,
         };
 
-    match fs::rename(&source.resolved_path, &target_path) {
+    match crate::helper::transaction::rename(root, &source.relative_path, &target_validated, false)
+    {
         Ok(()) => HelperResponse::operation_done(request, "Moved."),
         Err(e) => helper_error_from_move_io(request, e),
     }

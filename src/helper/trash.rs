@@ -131,7 +131,6 @@ pub fn move_file_to_trash_with_roots(
     }
 
     let trash_id = uuid::Uuid::new_v4().to_string();
-    let trash_file_path = trash_files_dir.join(&trash_id);
     let info_path = trash_info_dir.join(format!("{}.msgpack", trash_id));
 
     let display_name = source
@@ -186,7 +185,26 @@ pub fn move_file_to_trash_with_roots(
         );
     }
 
-    if let Err(e) = fs::rename(&source.resolved_path, &trash_file_path) {
+    let original_parent = RelativePath::new(
+        source
+            .relative_path
+            .0
+            .rsplit_once('/')
+            .map_or("", |(parent, _)| parent),
+    );
+    let moved = crate::helper::access::with_alias(
+        RelativePath::new(".tealdrive-trash/files"),
+        original_parent,
+        || {
+            crate::helper::transaction::rename(
+                root,
+                &source.relative_path,
+                &RelativePath::new(format!(".tealdrive-trash/files/{trash_id}")),
+                false,
+            )
+        },
+    );
+    if let Err(e) = moved {
         let _ = fs::remove_file(&info_path);
         return helper_error_from_trash_io(request, e);
     }
@@ -354,7 +372,7 @@ pub fn restore_file_from_trash_with_roots(
 
     let trash_relative = RelativePath::new(format!(".tealdrive-trash/files/{trash_id}"));
     if let Err(error) =
-        crate::helper::access::with_alias(trash_relative.clone(), original_relative, || {
+        crate::helper::access::with_alias(trash_relative.clone(), original_relative.clone(), || {
             crate::helper::access::preflight_tree(
                 root,
                 &trash_relative,
@@ -364,7 +382,18 @@ pub fn restore_file_from_trash_with_roots(
     {
         return helper_error_from_tealdrive(request, error);
     }
-    match fs::rename(&trash_file_path, &original_path) {
+    let original_parent = RelativePath::new(
+        original_relative
+            .0
+            .rsplit_once('/')
+            .map_or("", |(parent, _)| parent),
+    );
+    let restored = crate::helper::access::with_alias(
+        RelativePath::new(".tealdrive-trash/files"),
+        original_parent,
+        || crate::helper::transaction::rename(root, &trash_relative, &original_relative, false),
+    );
+    match restored {
         Ok(()) => {}
         Err(e) => return helper_error_from_trash_io(request, e),
     }

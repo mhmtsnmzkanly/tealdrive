@@ -49,6 +49,11 @@ def inner(base):
     invoke(wizard, 'install', '--bundle', str(bundle), ok=False)
     invoke(wizard, 'config', 'validate')
     invoke(wizard, 'diagnose')
+    for action in ('start','reload','restart','stop'):
+        invoke(home / 'bin/tealdrive-ctl', action)
+    with sqlite3.connect(home / 'auth/accounts.db') as db:
+        actions = {json.loads(value)['action'] for (value,) in db.execute("SELECT value FROM security_state WHERE key GLOB 'control_v1:*'")}
+        assert {'Service_start','Service_reload','Service_restart','Service_stop'} <= actions
     # A real dedicated quota filesystem inside this mount/PID namespace.
     assert invoke(wizard, 'storage', 'status', ok=False).returncode != 0
     marker = home / 'virtual-homes/preserved.txt'

@@ -266,6 +266,48 @@ fn local(command: AccountCommand) -> Result<AccountReply> {
         .map_err(|_| "Local helper operation was denied or unavailable.".into())
 }
 pub fn control(args: Vec<String>) -> Result<()> {
+    let action = args.first().map(String::as_str).unwrap_or("status");
+    if args.len() > 1 || !matches!(action, "start" | "stop" | "restart" | "reload") {
+        return control_inner(args);
+    }
+    root()?;
+    let caller = crate::accounts::grants::CallerBinding::capture()?;
+    let limits = config().map(|cfg| cfg.control_audit).unwrap_or_default();
+    let intent = (|| {
+        let mut store = store()?;
+        Ok::<_, Box<dyn std::error::Error>>(store.begin_control(
+            &limits,
+            &caller,
+            &format!("Service_{action}"),
+            None,
+            None,
+            crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+        )?)
+    })();
+    let intent = match intent {
+        Ok(record) => Some(record),
+        // Root must be able to stop a broken or exhausted installation for repair.
+        Err(_) if action == "stop" => None,
+        Err(error) => return Err(error),
+    };
+    let result = control_inner(args);
+    if let Some(record) = intent {
+        if let Ok(mut store) = store() {
+            let _ = store.finish_control(
+                &record,
+                result.is_ok(),
+                if result.is_ok() {
+                    None
+                } else {
+                    Some("ServiceCommandFailed")
+                },
+                crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+            );
+        }
+    }
+    result
+}
+fn control_inner(args: Vec<String>) -> Result<()> {
     let operation = args.first().map(String::as_str).unwrap_or("status");
     if args.len() > 1 {
         return Err("Usage: tealdrive-ctl start|stop|restart|reload|status".into());

@@ -55,7 +55,7 @@ Public Cloudflare HTTPS200 ve gerçek Chromium login/logout geçti. Önceki403 s
 
 `/srv/tealdrive-test`ten gerçek NSS home'a27entry, kalıcı User UID ile no-replace kopyalandı.26regular file SHA256 eşleşti; kullanıcının oluşturduğu `Web test.md`60bayt korundu. Eski kaynak ve Root-private rollback tutulur. Sonraki home değişikliklerinin üzerine eski yedek körlemesine restore edilmez.
 
-Eski public test/candidate server/helper kopyaları kaldırıldı; setuid bitleri önce indirildi. Dört yeni `/usr/local/bin` symlinki tek aktif `/home/tealdrive/bin` sürümüne gider. Reusable kabul araçları `tools/dev`, canlı browser kaynakları `tests/live`, release/migration operasyon araçları `tools/ops` altında. Tek kullanımlık geçici edit scripti ve test fixture çıktıları temizlendi; dependencies/build cache, operational logs/private backup ve gerçek kullanıcı verisi korunmuştur. Eski plan/tasarım notları `docs/intgr/history` altında etiketlenerek saklandı.
+Eski public test/candidate server/helper kopyaları kaldırıldı; setuid bitleri önce indirildi. Dört yeni `/usr/local/bin` symlinki tek aktif `/home/tealdrive/bin` sürümüne gider. Reusable kabul araçları `tools/dev`, canlı browser kaynakları `tests/live`, release/migration operasyon araçları `tools/ops` altında. Tek kullanımlık geçici edit scripti ve test fixture çıktıları temizlendi; Node dependency cache, operational logs/private backup ve gerçek kullanıcı verisi korunmuştur. Son kullanıcı talebiyle Rust build cache ve eski test fixture çıktıları ayrıca temizlenmiştir. Eski plan/tasarım notları `docs/intgr/history` altında etiketlenerek saklandı.
 
 Aktif ayarlar ve metadata `/home/tealdrive` altında; systemd/PAM/PATH entegrasyonları OS dizinlerinde kalır. Rollback merkezi `/root/tealdrive-runtime-backups/final-migration-20261013` Root700. İçinde config/unit/Caddyfile, DB/key metadata ve kullanıcı/binary yedekleri bulunur; sır değerleri repoya alınmadı.
 
@@ -85,3 +85,7 @@ sudo tealdrive-wizard gc
 ```
 
 Root ilk admin/sanal admin adımları [WIZARD.md](WIZARD.md), sıfırdan kurulum [DEPLOYMENT.md](../DEPLOYMENT.md), güncel ayarlar [CONFIGURATION.md](CONFIGURATION.md). Mevcut kullanıcı normal dosya yöneticisini domain üzerinden test edebilir.
+
+## 7. Teslim sonrası kapsamlı geliştirme temizliği
+
+Kullanıcının ek talebiyle cargo target cache (46739file/34.5GiB logical),36218test directory ve532tmp file kaldırıldı. Live binaries ve sealed rollback manifest eşleşmesi doğrulandı; production dosyalarına dokunulmadı. Faydalı kaynaklar dev/ops/test alanlarında kalır. Eski6rollback private legacy-development-backups altında toplandı; generic eski audit korunarak public tmp dışına alındı. Açık FD/runtime UID/symlink guard testleri ve son public browser login geçti. Ayrıntılı kayıt [CLEANUP.md](../../tools/dev/CLEANUP.md).

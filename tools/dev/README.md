@@ -134,3 +134,16 @@ Son test gerçek tealdrive.service'i restart eder; yalnız ayrılmış hesabı k
 Operasyon yardımcıları ayrı [tools/ops](../ops/README.md) altındadır.
 
 `TEALDRIVE_BACKEND_TLS_ACCEPTANCE=1 python3 tools/dev/backend-tls-check.py`: production değiştirmeden13107/13108 üzerinde private Caddy/fake same-name certificate; yanlış backend502 ve0HTTP teslimi. Dedicated production cert public dosyası gerekir.
+
+## Test artıklarını temizleme
+
+```sh
+# Root-only dry-run; known /tmp UUID fixtures, default age>=1h:
+sudo python3 tools/dev/clean-artifacts.py
+# Test süreçlerini bitirdikten sonra apply:
+sudo python3 tools/dev/clean-artifacts.py --apply
+# Repo build/cache ayrı; önce installed/rollback binarylerini doğrulayın:
+cargo clean
+```
+
+Cleaner runtime UID staging, open FD/cwd/exe paths, mounted trees ve arbitrary /tmp names üzerinde çalışmaz. Source/test scriptlerini veya operational backups'ı silmez. Güncel sonuç [CLEANUP.md](CLEANUP.md) içindedir. `node_modules` küçük ve browser kabulü için kullanışlı olduğu için korundu; package-lock üzerinden yeniden kurulabilir.

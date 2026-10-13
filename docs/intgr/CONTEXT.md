@@ -33,3 +33,5 @@ Caddy yalnız resmî Cloudflare CIDR'lerinden CF-Connecting-IP kabul eder, X-Rea
 Sistem entegrasyon istisnaları PAM ve systemd dosyalarıdır. Eski deploy/operasyon yedekleri otomatik silinmedi; kullanıcı verisi veya güvenlik kaydı geliştirme çıktısı sayılmadı. Tüm önceki bağlam [history arşivinde](history/CONTEXT-before-final-2026-10-13.md) korunur.
 
 Backend sertifikası policy/origin-cert.pem Root644; private TLS key tls/origin-key.pem Root:tealdrive0640. Caddy yalnız bu sertifikayı trust pool ile doğrular ve SNI tealdrive-origin.local kullanır; skip-verify yoktur. Böylece servis dururken sıradan OS kullanıcısının loopback portu taklit etmesi backend kimliğini sağlayamaz. Sertifika1yıl geçerlidir; süresi dolmadan Root cert/key ve Caddy trust pool birlikte yenilenir.
+
+Teslim sonrası temizlik: target cache ve /tmp test artıkları silindi. Eski6rollback /root/tealdrive-runtime-backups/legacy-development-backups altında; LOCATIONS.json eşleme dosyası Root600. Root backup parent700. Aktif binary/config/DB/key/userdata ve private password dosyaları aynıdır.

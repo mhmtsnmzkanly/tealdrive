@@ -1,5 +1,7 @@
 # Geliştirme temizliği kaydı
 
+Önceki tarihli kayıtlar tarihsel durumu gösterir; en güncel sonuç aşağıdaki son bölümde yer alır.
+
 2026-10-12. Güncel test kaynakları `tests/live/`, ortak runner/dependency lock `tools/dev/` altında korundu ve gerçek Chromium ile bu yeni konumdan çalıştırıldı.
 
 ## Kaldırılan eski dosyalar
@@ -36,3 +38,14 @@ Bu kayıt bütün proje işlerinin tamamlandığını göstermez; final rollout 
 Aktif eski /usr/local/bin/tealdrive-test-server ve tealdrive-candidate-server, /usr/local/libexec/tealdrive-test-helper ve tealdrive-candidate-helper public konumdan kaldırıldı. Önce setuid kaldırıldı; Root700 final-migration/retired-binaries altında executable rollback kopyaları korundu. Dört yeni PATH linki /home/tealdrive/bin altına gider.
 
 Yeniden kullanılabilir kabul kaynakları tests/live ve tools/dev; operasyon yardımcıları tools/ops altında ayrıldı. Wizard temp namespace dizinleri otomatik temizlendi. Geçici tek-kullanımlık /tmp/td-range-edit.py kaldırılır; yeni private operational audit/backup veya gerçek kullanıcı dosyaları temizleme hedefi yapılmadı. Legacy SRV orijinali migration rollback için korunur. Tarihsel tasarım notları docs/intgr/history altında etiketlenmiştir.
+
+## Kullanıcı talebiyle kapsamlı artık temizliği — 2026-10-13
+
+- `cargo clean`:46739build file, Cargo raporuyla34.5GiB logical çıktı kaldırıldı; öncesinde target allocated kullanım yaklaşık31GiB idi. Canlı4binary bağımsız regular/nlink1 dosya ve sealed rollback manifest hash eşleşmesi doğrulandı. Source/Cargo.lock ve kurulu binaryler korunur; sonraki build cache yeniden oluşturur.
+- `/tmp`36218known UUID test fixture directory ve532temporary file kaldırıldı. Runtime UID uploadları, açık FD/cwd/exe referansları, mounts ve symlink top-level öğeler cleanup hedefi değildir. FD-safe recursive removal kullanıldı.
+- Cleaner negative/positive kabulü: open FD kaldı; UID995 dosyası kaldı; recursive fixture temizlenirken dış symlink sentinel hedefi kaldı. Son dry-run seçilen artık0.
+- Generic eski `/tmp/tealdrive-audit.jsonl` silinmedi, Root-only archive içine taşındı.6old rollback directory `/root/tealdrive-runtime-backups/legacy-development-backups` altında toplandı. Root600 LOCATIONS.json eski→yeni path eşlemesini içerir. Parent runtime-backups Root700 yapıldı.
+- Reusable `tools/dev/clean-artifacts.py` eklendi; dry-run varsayılan, apply explicitRoot ve allowlist. Existing tests/live, dev kabul kaynakları ve ops migration/release araçları korunur. Node dependencies19MiB, lockfiles, historical design notes ve operational credentials/DB/config/log/user data korunur.
+- Cleanup sonrası public Chromium login/socket/role boundary/logout geçti; service/Caddy active. Rust kaynak davranışı değiştirilmediği için31GiB cache'i yeniden oluşturacak gereksiz full rebuild yapılmadı.
+
+Disk son ölçüm:118GiB filesystem,20GiB used/94GiB available. Önceki genel30–31GiB alan geri kazanıldı; du/Cargo logical byte sayımı farklı ölçümlerdir.

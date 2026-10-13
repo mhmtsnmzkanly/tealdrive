@@ -2,3 +2,7 @@
 
 /tools/dev/node_modules/
 /tools/dev/results/
+
+# Python-generated development artifacts
+__pycache__/
+*.py[cod]

@@ -8,6 +8,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("login rate limited")]
+    RateLimited,
     #[error("invalid account input")]
     InvalidInput,
     #[error("account state conflict")]

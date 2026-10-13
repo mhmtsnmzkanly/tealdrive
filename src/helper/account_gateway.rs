@@ -163,6 +163,7 @@ pub enum AccountReply {
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum GatewayFailure {
+    RateLimited,
     Disabled,
     Forbidden,
     InvalidCredentials,
@@ -173,6 +174,7 @@ pub enum GatewayFailure {
 impl From<StoreError> for GatewayFailure {
     fn from(error: StoreError) -> Self {
         match error {
+            StoreError::RateLimited => Self::RateLimited,
             StoreError::InvalidCredentials | StoreError::NotFound => Self::InvalidCredentials,
             StoreError::Forbidden | StoreError::InvalidInput => Self::Forbidden,
             StoreError::Conflict => Self::Conflict,
@@ -626,10 +628,21 @@ fn dispatch(
             Ok(AccountReply::AccountUpdated(updated))
         }
         AccountCommand::Login(request) => {
+            let reservation = store
+                .reserve_login(
+                    &request.username,
+                    request.ip.as_deref(),
+                    &config.rate_limit,
+                    at,
+                )
+                .map_err(GatewayFailure::from)?;
             let account = store
                 .verify_password(&request.username, &request.password)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
+            store
+                .finish_login(reservation)
+                .map_err(GatewayFailure::from)?;
             let grant = store
                 .issue_grant(
                     &account.id,
@@ -645,6 +658,14 @@ fn dispatch(
             })
         }
         AccountCommand::BeginEnrollment(request) => {
+            let reservation = store
+                .reserve_login(
+                    &request.username,
+                    request.ip.as_deref(),
+                    &config.rate_limit,
+                    at,
+                )
+                .map_err(GatewayFailure::from)?;
             let existing = store
                 .find_username(&request.username)
                 .map_err(GatewayFailure::from)?;
@@ -673,6 +694,9 @@ fn dispatch(
             if snapshot(authenticated)? != before {
                 return Err(GatewayFailure::Forbidden);
             }
+            store
+                .finish_login(reservation)
+                .map_err(GatewayFailure::from)?;
             let proof = store
                 .begin_enrollment(&before, caller, at, 300)
                 .map_err(GatewayFailure::from)?;
@@ -875,12 +899,18 @@ fn dispatch(
                 .verify_grant(&grant, &caller, at)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
+            let reservation = store
+                .reserve_login(&account.username, None, &config.rate_limit, at)
+                .map_err(GatewayFailure::from)?;
             let verified = store
                 .verify_password(&account.username, &current_password)
                 .map_err(GatewayFailure::from)?;
             if verified.id != account.id || verified.generation != account.generation {
                 return Err(GatewayFailure::Forbidden);
             }
+            store
+                .finish_login(reservation)
+                .map_err(GatewayFailure::from)?;
             store
                 .set_password(
                     &crate::accounts::store::Authority::Account {

@@ -231,3 +231,61 @@ fn explicit_migration_preserves_accounts_and_backs_up_before_invalidating_proofs
     drop(again);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+#[ignore = "requires root for protected persistent login counters"]
+fn persistent_login_limits_survive_reopen_and_serialize_parallel_helpers() {
+    assert_eq!(unsafe { libc::geteuid() }, 0);
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join(format!(".limits-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = dir.join("accounts.db");
+    drop(AccountStore::initialize(&path).unwrap());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+    let threads: Vec<_> = (0..12)
+        .map(|_| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let mut store = AccountStore::open(&path).unwrap();
+                barrier.wait();
+                store
+                    .reserve_login(
+                        "account",
+                        Some("127.0.0.1"),
+                        &tealdrive::config::RateLimitConfig {
+                            max_login_failures: 3,
+                            lockout_duration_seconds: 30,
+                        },
+                        1000,
+                    )
+                    .is_ok()
+            })
+        })
+        .collect();
+    assert_eq!(
+        threads
+            .into_iter()
+            .filter_map(|t| t.join().ok())
+            .filter(|v| *v)
+            .count(),
+        3
+    );
+    let mut reopened = AccountStore::open(&path).unwrap();
+    let cfg = tealdrive::config::RateLimitConfig {
+        max_login_failures: 3,
+        lockout_duration_seconds: 30,
+    };
+    assert!(matches!(
+        reopened.reserve_login("account", None, &cfg, 1029),
+        Err(StoreError::RateLimited)
+    ));
+    reopened.reserve_login("account", None, &cfg, 1030).unwrap();
+    drop(reopened);
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        std::fs::remove_file(entry.unwrap().path()).unwrap();
+    }
+    std::fs::remove_dir(&dir).unwrap();
+}

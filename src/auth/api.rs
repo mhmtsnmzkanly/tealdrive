@@ -227,9 +227,12 @@ where
                 use crate::helper::account_gateway::{
                     AccountCommand, AccountReply, GatewayFailure,
                 };
-                match authenticator
-                    .account_command(command.unwrap_or(AccountCommand::Login(auth_req)))
-                {
+                let mut command =
+                    command.unwrap_or_else(|| AccountCommand::Login(auth_req.clone()));
+                if let AccountCommand::BeginEnrollment(request) = &mut command {
+                    request.ip = auth_req.ip.clone();
+                }
+                match authenticator.account_command(command) {
                     Ok(AccountReply::Authenticated { account, grant }) => Ok(Ok((
                         crate::auth::AuthSuccess {
                             username: account.username,
@@ -242,6 +245,7 @@ where
                         Some(grant),
                     ))),
                     Ok(AccountReply::Enrollment(proof)) => Ok(Err(proof)),
+                    Err(GatewayFailure::RateLimited) => Err(AuthError::RateLimited),
                     Err(GatewayFailure::Unavailable | GatewayFailure::Disabled) => {
                         Err(AuthError::AuthBackendUnavailable)
                     }
@@ -267,6 +271,21 @@ where
                     .into_response();
             }
             Err(err) => {
+                if err == AuthError::RateLimited {
+                    let _ = state.audit_sink.emit(&AuditEvent::login_failure(
+                        RequestId::new(),
+                        &payload.username,
+                        AuditReason::RateLimited,
+                    ));
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        Json(AuthErrorResponse {
+                            error: "Too many failed login attempts. Please try again later.".into(),
+                            code: "RATE_LIMITED".into(),
+                        }),
+                    )
+                        .into_response();
+                }
                 if err == AuthError::AuthBackendUnavailable {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -1049,6 +1068,11 @@ where
             }
             StatusCode::UNAUTHORIZED.into_response()
         }
+        Ok(Err(GatewayFailure::RateLimited)) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({"code":"RATE_LIMITED"})),
+        )
+            .into_response(),
         Ok(Err(GatewayFailure::Forbidden)) => StatusCode::FORBIDDEN.into_response(),
         Ok(Err(GatewayFailure::Conflict)) => StatusCode::CONFLICT.into_response(),
         _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),

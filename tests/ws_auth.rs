@@ -91,6 +91,19 @@ async fn exercise(web_mode: bool) {
         receive(&mut ws).await.header.message_type,
         MessageType::ProtocolReady
     );
+    if web_mode {
+        send(
+            &mut ws,
+            MessageType::AuthLogin,
+            serde_json::json!({"username":"rate-limited","password":"any"}),
+        )
+        .await;
+        let denied: serde_json::Value =
+            tealdrive::protocol::codec::decode_msgpack(&receive(&mut ws).await.payload).unwrap();
+        assert_eq!(denied["code"], "RATE_LIMITED");
+        assert_eq!(denied["status"], 429);
+        assert_eq!(denied["authenticated"], false);
+    }
     send(
         &mut ws,
         MessageType::AuthLogin,
@@ -223,6 +236,9 @@ impl tealdrive::auth::Authenticator for GatewayFixture {
             expires_at: now + 3600,
         };
         match command {
+            AccountCommand::Login(request) if request.username == "rate-limited" => {
+                Err(GatewayFailure::RateLimited)
+            }
             AccountCommand::BeginEnrollment(request) if request.password == "linux-fixture" => {
                 Ok(AccountReply::Enrollment(EnrollmentProof {
                     id: "fixture-proof-secret".into(),

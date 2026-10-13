@@ -100,6 +100,8 @@ pub enum AuthFailure {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum AuthError {
+    #[error("login rate limited")]
+    RateLimited,
     #[error("invalid credentials")]
     InvalidCredentials,
     #[error("account locked")]
@@ -121,6 +123,7 @@ pub enum AuthError {
 impl AuthError {
     pub fn failure_kind(&self) -> AuthFailure {
         match self {
+            Self::RateLimited => AuthFailure::InvalidCredentials,
             Self::InvalidCredentials => AuthFailure::InvalidCredentials,
             Self::AccountLocked => AuthFailure::AccountLocked,
             Self::AccountExpired => AuthFailure::AccountExpired,

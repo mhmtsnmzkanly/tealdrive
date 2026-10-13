@@ -1,6 +1,6 @@
 # Doğrulanmış geri alma
 
-Root `[journal] enabled=true` ve web hesapları açıksa `/api/undo` ile SDK `files.undo` kullanılabilir. Kendi başarılı chmod, rename, move ve trash işlemleri kapsam içindedir. Kalıcı silme ve içerik üzerine yazma geri alınmaz. Gömülü UI bağlantısı ayrı geliştirme aşamasıdır.
+Root `[journal] enabled=true` ve web hesapları açıksa `/api/undo` ile SDK `files.undo` kullanılabilir. Kendi başarılı chmod, rename, move ve trash işlemleri kapsam içindedir. Kalıcı silme ve içerik üzerine yazma geri alınmaz. Gömülü UI History and undo düğmesi kendi geçmişi/adayları, filtreler, old/new mode, süre tercihi ve ayrı geri alma onayı sunar.
 
 ```javascript
 const preferences = await API.files.undo.getPreferences();

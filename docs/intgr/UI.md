@@ -132,3 +132,7 @@ sudo tealdrive-ctl reload
 ```
 
 Kaynak dizin Root tarafından incelenmiş Root-owned olmalıdır. CLI source'u kullanıcı upload'ından otomatik onaylamaz. Asset'ler `/static/RELATIVE_NAME` üzerinden sunulur; örneğin `/static/assets/main.js`. Custom JS `/sdk/v1/tealdrive.js` import eder. CSP scriptself/evalinline kapalı, connectself, workernone. ServiceWorker/dedicatedWorker kapalıdır; paket fixedSDK namespace'i kalıcı worker üzerinden de değiştiremez. Root onayı scriptin iyi niyetini kanıtlamaz; aynı-origin customcode imzalı kullanıcının yetkileriyle çalışabilen trusted application code'dur.
+
+## Kendi işlem geçmişi ve geri alma
+
+Root journal capability varsa History and undo düğmesi açılır. Native dialog yalnız own history/undo SDK kullanır; limit50 first/next sayfa, path/action/status filtreleri, actual old/new mode, tarih ve undo status/error gösterir. Geri alma seçimi ayrı onay ister; iptal mutasyon yapmaz. Süre tercihi null→Root upper veya1..max ve CASrevision ile kaydedilir. Dosya adı/exception HTML yapılmaz; TR/EN yalnız presentation labels. Inflight kapanış sonrası stale DOM yanıtları epoch ile engellenir, odak launcher'a döner. Başarısız uygulanmış undo sonrası aday listesi yenilenir; eski aktif button ile sahte retry önerilmez. SDK managed state başarılı undo sonrası helper ile doğrulanır; yenileme hatası dosya işlemini başarısız saymaz, state stale olur. [UNDO.md](UNDO.md) güncel backend sınırlarıdır.

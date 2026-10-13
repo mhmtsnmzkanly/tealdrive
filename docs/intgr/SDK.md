@@ -2,7 +2,7 @@
 
 SDK, dosya yöneticisi arayüzünün **işlem ve bağlantı katmanıdır**. UI geliştiricisi binary protokol, oturum, request ID, upload parçaları, filtre/sıralama veya hata çeviri kodlarını yeniden yazmaz. SDK DOM üretmez; React/Vue/vanilla JS ile kullanılabilir.
 
-Kaynak: `src/ui/sdk/client.js`. Tipler: `src/ui/sdk/client.d.ts`. Server bunları binary'den `/sdk/v1/tealdrive.js` ve `/sdk/v1/tealdrive.d.ts` olarak sunar; custom UI override edemez. API adları `auth / files / admin`, camelCase. Geliştirme devam ediyor; aşağıdaki destek tablosu uygulanmış ile bekleyen altyapıyı ayırır.
+Kaynak: `src/ui/sdk/client.js`. Tipler: `src/ui/sdk/client.d.ts`. Server bunları binary'den `/sdk/v1/tealdrive.js` ve `/sdk/v1/tealdrive.d.ts` olarak sunar; custom UI override edemez. API adları `auth / files / admin`, camelCase. Aşağıdaki tablo çalışan yüzeyi gösterir; gerçek destek Root ayarları ve handshake capability değerleriyle belirlenir.
 
 ## İlk kullanım
 
@@ -42,7 +42,7 @@ HTTPS/WSS sertifika/şifrelemesini tarayıcı yapar; handshake JS kripto değild
 | Admin settings ve Linux user picker | Mevcut endpointlerle uygulandı |
 | PAM first-enrollment + ayrı web parola login + nonce logout | Uygulandı; proof server WS'de, credentials WS'den; private grant user API'de yok |
 | Password change/self-revoke, policy, virtual management | Uygulandı; gerçek helper/UID/PAM/Chromium kabulü |
-| Kullanıcı geçmişi ve undo | Root journal açıkken protected backend/typed SDK uygulanmıştır; gömülü geçmiş UI bağlantısı sürüyor |
+| Kullanıcı geçmişi ve undo | Root journal açıkken protected backend, typed SDK ve gömülü geçmiş/undo UI tamamlandı |
 
 Bu tablo işin bitiş raporu değildir. Son sütundaki backendler tamamlanmadan destek varmış gibi UI'de sunulmaz. Public sözleşme yeni SDK feature'ı için tasarlanmıştır; legacy wire API'nin bozularak yeniden adlandırılması değildir.
 
@@ -234,3 +234,5 @@ Typed AuditQuery/AuditRecord/AuditPage; result `{items,nextCursor,hasMore}`. Lim
 ## Koşullu geri alma
 
 `getInfo().authentication.undo` Root journal ve web hesapları açıkken true. `files.undo.list(AuditQuery)` typed UndoPage/UndoCandidate döndürür; `apply({operationId,expectedState})` Root kayıt ve gerçek dosya doğrulamasından geçer. `getPreferences`/`setPreferences({hours,expectedRevision})` kendi süre tercihidir; null Root üst sınırını izler. Event `files.changed` operation=undo ile gelir. Kullanım, hata/claim/crash davranışı ve gerçek sınırlar [UNDO.md](UNDO.md) içindedir.
+
+HTTP download/preview yanıtındaki `x-tealdrive-request-id`, protected range kaydının requestId'sidir. Akış tüketildikten sonra `files.audit.list({requestId:response.headers.get('x-tealdrive-request-id')})` ile ilişkilendirilebilir. bytesRead/rangeNextOffset helper teslimini ifade eder; tarayıcı diske kaydetme veya tam indirme kanıtı değildir.

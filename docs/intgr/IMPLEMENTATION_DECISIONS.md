@@ -312,3 +312,21 @@ Kota doluyken yalnız Root-feature/policy izinli live permanent delete bounded s
 HTTP download/preview, aynı helper request UUID/account generation/root/path ve ardışık offset için bir protected kaydı günceller; her64KiB parça için yeni8KiB kota kaydı açmaz. Sıfır uzunluklu metadata probe kayda girmez. Root home lock altında pending intent yeniden yazılır; bekleyen/başarısız/tekrarlanan offset, başka path veya5dakikadan fazla kesinti continuation olarak kabul edilmez. Kayıttaki bytesRead/rangeNextOffset helper→server teslimidir; tamamlanmış tarayıcı indirmesi ya da diske kaydetme garantisi değildir. Arada dosyayı başka bir süreç değiştirebilir; indirmenin snapshot tutarlılığı garantisi verilmez. Virtual ledger aynı protected dosyayı güvenli FD ile yeniden açar ve tek rezervasyonu kullanır.
 
 Yeni Wizard kurulumu journal'ı açık oluşturur; mevcut konfigürasyonlar otomatik değiştirilmez. Split panelde trash retention Root lifecycle saat değerinden salt okunur gösterilir; legacy gün ayarının değiştirildiği izlenimi verilmez.
+
+## D062 — Fiziksel kurulum ve son operasyon sınırları
+
+Servis NSS home /home/tealdrive; Root config/key/SQLite ve uygulama binaryleri merkezde. Systemd/PAM ve trusted PATH symlinkleri zorunlu OS entegrasyon istisnasıdır. İlk native image1GiB/pool512MiB seçildi; maksimum kullanıcı log rezervasyonları ve Root retired logs için operasyonel pay bırakıldı. Mevcut Linux hesabı RoleUser ve web parolası korundu, sanal admin otomatik yaratılmadı. Legacy sensitive/hide ve10GiB uygulama tavanı canlı migration'da korunmuştur; yeni kurulum varsayılanıyla karıştırılmaz.
+
+27legacy entry no-replace User UID ile kopyalandı,26regular file hash doğrulandı; kaynak ve private rollback korunur. Aktif eski setuid helper kopyaları kaldırıldı. Root-tokenı olmayan legacy trash otomatik purge edilmez.
+
+PATH install/repair/uninstall yalnız Root-owned tam hedef symlinklerini yönetir, unrelated executable çakışması fail-closed. ctl start/restart/reload/stop protected Root intent/result tutar; Root emergency stop, bozuk/dolu DB'de audit olmadan çalışabilir, bu istisna web yüzeyine verilmez. HTTP download request kimliği central context→helper→response header x-tealdrive-request-id ile ortaktır.
+
+Canlı home-installed server aynı Root helper policy'yi kullandığı için global policy acceptance driver eşzamanlı çalışmayı reddeder. İzole Wizard mount/PID testi ve gerçek production restart testi ayrıdır.
+
+## D063 — Test ortamı ile gerçek kurulumun ayrımı
+
+Live home mode roots=[] yaptığı için eski bare-helper testleri host config'ini okuyup NotImplemented yerine PermissionDenied aldı. Üretim politikası test uğruna gevşetilmedi: unsupported dispatcher testi açık AppConfig fixture'ı kullanır; length framing testi UID0 reddini doğrular. Gerçek ticket replay testi NSS home template'ini gerçek login kimliğine materialize eder. Son general suite588passed/1explicitPAMignored; aynı PAM kabulü ayrıca Root/private fixture ile passed.
+
+## D064 — Aynı hostta güvenilir backend kimliği
+
+Uygulama farklı Linux kullanıcılarına hizmet verdiği için unprivileged13100 portu, server kapalıyken başka yerel UID tarafından bind edilebilir. IP=loopback tek başına backend kimlik doğrulaması değildir. Mevcut standart direct Rustls TLS etkinleştirildi; Caddy dedicated Root-managed sertifikayı tls_trust_pool file ve tls_server_name ile doğrular. Özel kripto veya skip-verify kullanılmaz. Public cert Root644 policy altında, key Root:tealdrive0640 TLS altında; signing key/DB hâlâ Root600/700. Caddy/backend hop artık HTTPS; Root config transport değişimi için restart yapıldı. Certificate süresi1yıl, yenileme operator sorumluluğudur. Resmî yapılandırma [Caddy reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#the-http-transport).

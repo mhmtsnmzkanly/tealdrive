@@ -1,8 +1,8 @@
 # TealDrive HELPER geliştirme sözleşmesi
 
-> **Durum:** Protected identity/grants, home/politika yönetimi, ayrı sanal UID/GID/native kota ve Root supervisor→user worker ayrımı uygulanmıştır. Journal/undo bağlantısı devam eder. Aşağıdaki eski hedef şema örnekleri çalışan config yerine geçmez; kesin durum PLAN.md ve TEST_RESULTS.md içindedir.
+> **Durum:** Protected identity/grants, home/politika yönetimi, ayrı sanal UID/GID/native kota ve Root supervisor→user worker ayrımı uygulanmıştır. Journal/undo ve protected lifecycle tamamlandı. Aşağıdaki eski hedef şema örnekleri çalışan config yerine geçmez; kesin durum PLAN.md ve TEST_RESULTS.md içindedir.
 
-Ortak motor root/global + kullanıcı root/admin/personal yasaklarını birleştirir; config snapshot helper root yasaklarını silemez. Gizli öğe doğrudan read/stat/download'da NotFound, list/search/recursive archive'da yok. Parent move/rename, final extraction target, restore ve trash delete tekrar kontrol edilir. Hardlinkli normal dosyalar default erişilemez. Şimdilik root TOML yönetir; web yönetim protokolü ayrıca tamamlanacak.
+Ortak motor root/global + kullanıcı root/admin/personal yasaklarını birleştirir; config snapshot helper root yasaklarını silemez. Gizli öğe doğrudan read/stat/download'da NotFound, list/search/recursive archive'da yok. Parent move/rename, final extraction target, restore ve trash delete tekrar kontrol edilir. Hardlinkli normal dosyalar default erişilemez. Root kritik tavanı TOML/CLI ile; yetkili admin ve kullanıcı kendi sınırlı politikalarını protected gateway ile yönetir.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 

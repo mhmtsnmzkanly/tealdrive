@@ -1,3 +1,5 @@
+> Bu rapor2026-10-11 tarihinin arşividir. Güncel teslim/kurulum ve test durumu [FINAL_REPORT.md](intgr/FINAL_REPORT.md) içindedir.
+
 # Düzeltme ve mevcut durum raporu
 
 Tarih: 2026-10-11. Proje: TealDrive 0.1.0.

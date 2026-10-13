@@ -1,3 +1,5 @@
+> Yeni kurulumda Wizard tarafından üretilen tam config ve [güncel ayrım](intgr/CONFIGURATION.md) esas alınır. deployment/config.toml/helper.toml statik-root legacy örnekleridir. AppConfig alanları ve uyumluluk aşağıdadır.
+
 # Configuration
 
 Use [docs/deployment/config.toml](deployment/config.toml) and

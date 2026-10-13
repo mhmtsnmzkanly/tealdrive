@@ -50,7 +50,7 @@ cargo build --locked --bins --example admin_acceptance_fixture
 TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 tools/dev/check.sh admin
 ```
 
-Root-only, explicit opt-in. Driver UUID adlarıyla üç geçici Linux UID/GID/home oluşturur, yalnız iki hesabı protected DB'de bootstrap eder; ayrı server127.0.0.1:13102 çalıştırır. Asıl server config/binary ve mevcut kullanıcı metadata'sını değiştirmez. Primary helper policy'ye test admin/roots geçici eklenir ve öz kayıt kapatılır; byte-identical eski dosya finally'de döner. Aynı helper'ı kullanan adayın yeni enrollment talepleri test boyunca bu geçici politika ile değerlendirilir. Caddy eski helper kullandığından etkilenmez.
+Root-only, explicit opt-in. Driver UUID adlarıyla üç geçici Linux UID/GID/home oluşturur, yalnız iki hesabı protected DB'de bootstrap eder; ayrı server127.0.0.1:13102 çalıştırır. Asıl server config/binary ve mevcut kullanıcı metadata'sını değiştirmez. Primary helper policy'ye test admin/roots geçici eklenir ve öz kayıt kapatılır; byte-identical eski dosya finally'de döner. Aynı helper'ı kullanan adayın yeni enrollment talepleri test boyunca bu geçici politika ile değerlendirilir. Canlı geçişten sonra Caddy aynı helper kullanır. Driver home-installed server çalışıyorsa politika fixture'ını reddeder; offline/ayrı ortamda çalıştırın.
 
 Chromium public SDK→HTTP→setuid helper yolunu kullanır; admin suspend/enable, canlı socket kapanışı, yeniden login reddi, eski cookie'nin geri açılmaması, gerçek kullanıcı UID'siyle dosya erişimi, CSRF/role/kind sınırları doğrulanır. Driver durdurduğu process yalnız kendi fixture server'ıdır; cleanup yalnız kendi UUID usernames/UIDs/DB rows/home'larını siler. Bütün DB'yi eski backup'a döndürmez. Dışarıdan helper policy değişirse onun üzerine yazmaz; root-private original dosyasını bırakarak hata verir. SIGKILL/power-loss için finally garantisi yoktur; private manifest/backup ile root onarımı gerekir.
 
@@ -113,3 +113,24 @@ Direct TLS ve production'dan ayrı Caddy proxy kabulü: admin/home fixture'a `TE
 Custom UI acceptance: admin/home fixture'a `TEALDRIVE_UI_PACKAGE_ACCEPTANCE=1` ekleyin. Root-owned uniquepackage ve server13106; global theme activation yapılmaz. CLIcheck, sameSDKauthfiles, assetallowlist, incompatible/override fallback ve `/ui/default` browser testi.
 
 `sudo tools/dev/check.sh proxy-admin`: Caddy-only read-only service UID/TCP+Unix isolation and Root control probe; no config/credentials output. Setup [CADDY_ADMIN.md](../../docs/deployment/CADDY_ADMIN.md). Caddy olmayan kurulumlarda gerekli değildir.
+
+## Canlı sürümün son kabulü
+
+```sh
+export TEALDRIVE_TEST_URL=https://tdrive.novastrum.dev
+export TEALDRIVE_TEST_USERNAME=tealdrive-test
+export TEALDRIVE_TEST_WEB_PASSWORD_FILE=/root/tealdrive-candidate-web-password
+# Gerçek public Cloudflare yolu:
+tools/dev/check.sh live ui-auth
+# Public DNS'i atlayıp aynı güvenilir sertifika/domain ile doğrudan origin:
+export TEALDRIVE_TEST_ORIGIN_HOST=tdrive.novastrum.dev
+tools/dev/check.sh live ui-auth
+# Root-only: tek UUID dosyası, CRUD/conflict/undo/audit, gerçek service restart/popup:
+TEALDRIVE_PRODUCTION_ACCEPTANCE=1 tools/dev/check.sh live production-files
+```
+
+Son test gerçek tealdrive.service'i restart eder; yalnız ayrılmış hesabı kullanın. Dosya fixture'ı gerçek sahibi UID ile finally'de kaldırılır; protected audit facts silinmez. TLS sertifikası doğrulaması kapatılmaz. Native/full-policy fixture kurulumdan önce boş özel alanda çalıştırılmıştır; artık canlı helper politikasını değiştirmek için production server önce durmalıdır. Wizard namespace testi `/usr/local/bin` dahil ayrı bind mount kullanır.
+
+Operasyon yardımcıları ayrı [tools/ops](../ops/README.md) altındadır.
+
+`TEALDRIVE_BACKEND_TLS_ACCEPTANCE=1 python3 tools/dev/backend-tls-check.py`: production değiştirmeden13107/13108 üzerinde private Caddy/fake same-name certificate; yanlış backend502 ve0HTTP teslimi. Dedicated production cert public dosyası gerekir.

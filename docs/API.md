@@ -1,6 +1,8 @@
+> Yeni entegrasyon için [public SDK](intgr/SDK.md), [tipler](../src/ui/sdk/client.d.ts) ve [örnekler](../sdk-api.js) kullanılır. Aşağıdaki HTTP tablosunun PAM login kısmı legacy uyumluluktur. Web enrollment/password/login `/ws/auth` ve one-use cookie bridge üzerinden, file/admin işlemleri SDK üzerinden çağrılır. `/api/audit`, `/api/undo`, `/api/undo/preferences` protected own-account kapsamındadır; ayrıntılar intgr/AUDIT.md ve UNDO.md içindedir.
+
 # HTTP API
 
-All routes are served by the backend behind Caddy. Authentication is an HttpOnly
+All routes are served by the backend with direct TLS or an optional TLS proxy. Authentication is an HttpOnly
 session cookie (`tealdrive_session` by default); it is Secure and SameSite=Strict
 by default. Use HTTPS for those defaults. JSON errors and HTTP status describe
 failures; do not infer success from a completed fetch alone.
@@ -8,7 +10,7 @@ failures; do not infer success from a completed fetch alone.
 | Method | Route | Behavior |
 |---|---|---|
 | GET | `/api/health` | Liveness response; does not check PAM or helper readiness |
-| POST | `/api/login` | JSON `username`, `password`; PAM authentication; sets cookie |
+| POST | `/api/login` | Legacy PAM mode only; web-account mode uses SDK WS authentication |
 | GET | `/api/session` | Authentication state, identity, `is_admin`, stable CSRF token and roots |
 | POST | `/api/logout` | Remove session and expire cookie; requires CSRF when authenticated |
 | GET | `/api/download?root_id=home&path=file.txt` | Authenticated attachment stream; single HTTP Range supported |

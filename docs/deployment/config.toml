@@ -1,3 +1,4 @@
+# Legacy static-root compatibility example; new install uses Wizard-generated home config.
 # Replace both drive.example.com and alice before installation.
 # The service account must own the parent directory to persist UI settings.
 [server]

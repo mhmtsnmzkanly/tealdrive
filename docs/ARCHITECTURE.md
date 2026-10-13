@@ -1,128 +1,104 @@
 # Architecture
 
-## Trust boundaries
+The application is four binaries plus embedded SDK/UI assets. Root authority and
+user content handling are separated. Caddy is optional.
 
 ```mermaid
-flowchart LR
-    B[Browser] -->|HTTPS / WSS| C[Caddy]
-    C -->|loopback HTTP / WS| S[Unprivileged Axum server]
-    S -->|bounded MessagePack IPC| H[Dedicated setuid helper]
-    P[Root-owned helper policy and signing key] --> H
-    H --> A[PAM and NSS authentication]
-    H --> U[Verify ticket; initgroups; setresgid; setresuid]
-    U --> L[no_new_privs and Landlock]
-    L --> F[One configured root under user Unix permissions]
+flowchart TD
+  B[Browser UI or custom SDK client] -->|HTTPS/WSS| S[Unprivileged server]
+  S -->|Bounded typed IPC| H[Root helper supervisor]
+  P[Root config, key, SQLite metadata] --> H
+  H --> A[PAM/NSS and grant authority]
+  H -->|Private signed short-lived delegation| W[Fresh worker process]
+  W --> U[Permanent UID/GID drop; supplementary groups; no_new_privs]
+  U --> L[Mandatory Landlock and descriptor-based path access]
+  L --> F[Verified account home and Unix permissions]
+  R[Root Wizard] --> P
+  R --> O[Fixed OS provisioning/storage operations]
+  C[Separate ctl] --> T[Fixed systemd service]
 ```
 
-The server refuses to start as UID 0. Static UI assets, configuration, audit logs
-and temporary upload staging belong to the service process; managed files belong
-to the helper boundary. Production authentication uses the helper rather than an
-in-process mock. The `pam-auth` Cargo feature is retained for compatibility;
-PAM is loaded dynamically at runtime, not gated by that feature.
+## Identity and authority
 
-The fixed `/etc/tealdrive/helper.toml` and `/etc/tealdrive/helper.key` are checked
-for root ownership, non-writable parents and safe modes. The signing key is exactly
-32 random bytes. No helper environment variable may override these in elevated
-mode. A successful PAM/account check issues an HMAC-SHA256 ticket bound to username,
-UID/GID, invoking service UID, nonce and expiry. Commands verify the ticket before
-changing identity. Root identities are refused. A non-setuid developer helper may
-operate only as its actual OS account; it cannot impersonate another user.
+`/home/tealdrive/policy` and `auth/accounts.db` are Root controlled. Server reads
+its public critical config and a constrained service-owned working overlay; it
+cannot open the account DB or signing key. Helper verifies the kernel caller,
+current NSS identity, account generation/nonce, policy and ceilings independently.
+The service account is nologin and is not a panel identity.
 
-Supplementary groups are initialized from NSS before all real/effective/saved IDs
-are dropped. The helper then sets `PR_SET_NO_NEW_PRIVS` and requires Landlock ABI 3.
-There is no weaker fallback when the kernel sandbox cannot be installed. `openat2`
-opens use `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. Landlock restricts path-based
-operations to the selected root, including when a pathname changes after validation.
-Chmod acts on an opened descriptor. Root paths and their parents must be stable,
-real directories managed by the host administrator.
+Linux enrollment proves the OS password through PAM once and chooses an Argon2id
+web password. Password/proof/grant values are not browser storage or audit data.
+Grants bind to service UID, process ID/start time and boot ID. Logout revokes one
+nonce; password/revoke/suspend/role/policy changes invalidate account generations.
+Virtual identities have distinct locked/nologin UID/GID and web passwords; virtual
+self-revoke is denied and administration is tenant scoped.
 
-## Policy and operation lifecycle
+## Filesystem execution
 
-Every operation uses a cloned configuration snapshot and SHA-256 revision.
-The helper independently validates the snapshot. In elevated mode it intersects
-permissions with its root-owned ceiling: exact root id/path match, restrictive
-read-only/web-root flags, feature conjunctions, minimum limits/quotas, and combined
-sensitive-file restrictions. Successful responses return the revision for client
-verification. Reloading server configuration cannot widen the helper ceiling.
-File policy is also checked in the server to return useful errors early.
+The Root supervisor handles protected metadata/coordination and narrow management
+commands. User file content and archive parsing occur only in the permanently
+dropped fresh worker. Private delegation includes the operation, configuration,
+caller and freshness, protected by a standard HMAC implementation. No general
+shell/UID/home selector is exposed. Root DB/key handles are closed before worker
+execution; the worker cannot reacquire saved Root IDs.
 
-Each WebSocket processes messages sequentially. A shared semaphore admits at most
-eight authentication/filesystem jobs to blocking workers. A worker concurrently
-drains helper stdout and writes stdin; deadlines cover the whole IPC exchange.
-Cancellation kills and reaps the helper. IPC requests/responses are capped at 8 MiB.
+Worker starts single-threaded, drops identity and installs mandatory Landlock
+before starting its cancellation thread. Descendants inherit restrictions.
+Path access uses verified directory FDs/openat2 beneath the selected home and
+rejects symlink escapes. Chmod uses a pinned descriptor, including mode000 recovery
+on supported kernels. No weaker sandbox fallback is offered.
 
-Session leases monitor revocation/expiry at 250 ms intervals. Each WebSocket message
-and HTTP download chunk also checks the session. Logout removes the session,
-cancels its ongoing work and cleans temporary transfers. Sessions are in memory:
-server restart logs everyone out. There is no multi-server session replication.
+Hidden-path restrictions apply to discovery and direct API access, including
+recursive/alias/trash/archive operations. Landlock confines the whole selected
+home; it is not an inode secrecy system for policy-hidden entries inside that
+home. External SSH/program access and arbitrary code execution do not become
+subject to the helper's logical API policy. User-owned active projects can execute
+modified files outside the helper; the UI warns about active writers and chmod.
 
-## Files and storage
+## Consistency, quotas and history
 
-HTTP downloads probe and read files in bounded 64 KiB helper ranges. Large downloads
-are streamed without reading the complete file into the server. Each range starts a
-helper process; this favors simple identity isolation over throughput. A file may
-change between range reads; downloads are not snapshot-consistent.
+Root/admin/personal rules are combined by restriction. A server snapshot cannot
+turn off Root journal/lifecycle/control audit. Mutation coordination uses shared
+home locks, staged writes and no-replace publication where appropriate. Read/save
+revision includes content and metadata; stale writes are rejected. External
+writers can still race with capture/publication, so a general transaction/snapshot
+across arbitrary applications is not claimed.
 
-Uploads are sequenced and acknowledged. The service stages chunks in a private
-temporary file, verifies size and any supplied SHA-256, then sends a bounded final
-commit to the helper. The default file limit is 1 MiB, with a 3 MiB configuration
-maximum to leave space for MessagePack/IPC overhead. There is no upload resume.
+SQLite stores identities, roles, allocation and protected history; file contents
+remain in user homes. Virtual native UID quota includes real Root-private
+user-charged ledger files. Application quota coordinates helper operations but
+cannot enforce writes by outside processes. Root pool and admin reservations use
+SQLite transactions; deleted identity lifecycle preserves tombstones/retired UID
+fences. See QUOTA.md and STORAGE.md in intgr for the actual measurement scope.
 
-Quota accounting acquires an exclusive `flock` on the root directory before scanning
-usage and holds it through commit/rollback. This serializes cooperating helper
-writers across users. Copy, save, upload, compression and extraction stage output
-in the destination parent and publish with descriptor-relative `renameat2` only
-on success. New destinations use `RENAME_NOREPLACE`; text save replaces atomically.
-Failed outputs are removed while the quota lock is held. TAR/Gzip and ZIP finalization
-errors prevent publication. ZIP/TAR traversal ignores forbidden descendants and
-symlinks; extraction rejects unsafe, hidden or sensitive paths and link entries.
+Protected operation intents precede tracked file operations. Results preserve
+success/failure/unknown truth; logging failure does not fabricate rollback. HTTP
+range chunks aggregate helper-delivered bytes under one request/record/ledger.
+Root control records capture auth/management/CLI intents without credential values;
+central JSONL also records HTTP/security context. This is not an OS-wide audit
+system, nor proof that a browser saved delivered bytes.
 
-Quota counts logical regular-file sizes including trash. Direct OS writes do not
-participate in the lock and require a filesystem quota for absolute host-wide
-limits. Process kills or host crashes can leave private transaction files: publication
-is atomic but automatic orphan recovery/crash durability is not implemented.
+Undo supports move/rename/trash/chmod only when the Root record, time/epoch,
+current policy and expected filesystem state still agree. Restore rotates undo
+epoch and invalidates old sessions. Cleanup trusts Root tokens rather than dates
+in writable trash metadata; changed/unsupported objects are preserved for review.
 
-## Runtime configuration and observability
+## Transport, SDK and shutdown
 
-`ArcSwap` publishes validated snapshots. Partial patches preserve omitted fields.
-Persistent patches serialize mutations, write a private temporary file, sync and
-rename it, then publish the new in-memory configuration. Errors are reported rather
-than silently ignored. File watching observes the parent directory so atomic
-replacement remains visible. Watcher, admin reload and SIGHUP synchronize session
-settings, helper timeout and login limiter.
+SDK uses one WS-first handshake/auth connection and a one-use HttpOnly cookie
+bridge. TLS/WSS encryption and certificates are standard browser/server handling,
+not custom JavaScript cryptography. The SDK renders no DOM, validates options,
+exports method/event/result types and supports managed or client-owned state.
+Storage contains user/origin/generation-scoped location preference, never secrets
+or file contents; restored paths are helper validated.
 
-The audit sink is a synchronous mutex-protected JSONL file. Login, session/WebSocket,
-administrative lifecycle and all dispatched file commands are recorded. Command
-start and outcome are separate events; HTTP and WebSocket downloads also report
-transfer completion or interruption. See AUDIT.md for coverage and limits.
-Asynchronous log delivery is not provided. Errors are safe client
-messages, not OS path dumps. Configurable in-process rotation renames whole files,
-reopens the active descriptor and prunes numeric archives by count and age under
-the writer mutex. Target changes are prepared before config persistence/publication;
-failed preparation/persistence preserves the live sink. Cleanup occurs during writes.
-A complete event is retained even if it alone exceeds the configured size.
+Direct TLS and exact-origin trusted loopback TLS proxy modes are supported.
+Custom UI is an immutable Root-approved manifest/package; SDK cannot be overridden,
+and the embedded rescue route remains available. Package code is trusted code
+that can act as the signed-in user.
 
-## Server shutdown lifecycle
-
-`Shutdown` serializes admission with draining and counts HTTP response bodies,
-upgraded WebSocket connections and blocking helper jobs independently. A streaming
-response remains counted until consumed/dropped; dropping an HTTP handler does
-not hide its outstanding blocking job. Existing HTTP streams may acquire job
-tracking during draining; new requests and new WebSocket commands are rejected.
-
-SIGTERM/SIGINT triggers Axum graceful shutdown and connection draining. After
-30 seconds a shared cancellation signal reaches session leases and helper jobs;
-five seconds are reserved for cleanup. WebSocket context ownership includes an
-RAII upload guard, including while dispatch runs on a blocking thread. Outbound
-WebSocket sends can be interrupted by forced cancellation. A final bounded HTTP
-wait and shutdown audit fsync precede process exit. See DEPLOYMENT.md for systemd
-settings and forced-termination limitations.
-
-The helper client keeps stdin open beyond the request write, until completion.
-The helper watchdog observes pipe hangup without consuming protocol bytes. This
-provides cancellation across the permanent UID switch, where the server may lack
-permission to signal the child. Growing-output writers check cancellation and
-transaction publication checks it again. The watchdog exits a stuck helper after
-one second; the client waits/reaps the child and joins its pipe worker threads.
-The watchdog performs no managed filesystem operations; filesystem operations
-remain in the kernel-confined helper execution thread.
+Shutdown stops new admissions, drains active bodies/WS/helpers, sends a structured
+notice, then cancels outstanding jobs at a bounded deadline. Helper stdin EOF
+cancellation remains effective after UID drop. systemd KillMode=mixed and45s stop
+deadline provide final cleanup. Browser preserves unsaved text; power loss/SIGKILL
+cannot guarantee delivery of the notification or graceful completion.

@@ -1,6 +1,6 @@
 # TealDrive AUTH geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Çalışan uygulama ve kabul sonuçları PLAN.md/TEST_RESULTS.md içindedir. Aşağıdaki gereksinim notları ve eski hedef şema örnekleri, çalışan API/config referansının yerine geçmez; güncel referans CONFIGURATION.md, SDK.md ve WIZARD.md dosyalarıdır.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 

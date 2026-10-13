@@ -28,3 +28,5 @@ sudo tools/dev/check.sh proxy-admin
 ```
 
 Kabul: service TCP2019 connection refused, private Unix socket permission denied, Root Unix/config200; systemctl reload ve doğrudan yerel Caddy origin HTTPS200. Yalnız admin directive değiştiği byte karşılaştırmasıyla doğrulandı; domain/backend yönlendirmesi aynı kaldı. Bu sunucunun Cloudflare edge isteği403 aldı, yerel TLS origin200: dış Cloudflare erişim politikası final ağ kabulünde ayrıca değerlendirilecek; bu test dış erişime200 garantisi değildir. Runtime rollback kopyası Root700 /root/tealdrive-runtime-backups/caddy-admin-stage-20261013 altında, config600.
+
+Final migration sonrası2026-10-13: Caddyfile Root:caddy0640 sahipliği korundu; gerçek systemctl reload geçti. Private admin isolation yeniden geçti. Public Cloudflare HTTPS200 ve Chromium login/logout, origin HTTPS/WSS/file/restart kabulü geçti. Önceki403 son kontrolde tekrarlanmadı. Güncel backend13100; ilk admin aşamasındaki upstream13000 artık aktif değildir.

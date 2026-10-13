@@ -406,3 +406,15 @@ Root/PAM/Chromium application kabulünde private24h as-of sentetik Root token ve
 ## 2026-10-13 — HTTP range audit ve son birleşik kabul
 
 Journal birim testleri5/5: iki ardışık parça tek Root kaydında6bayt; pending/replay/farklı path reddi; içerik kayda girmez. Clippy all-targets/Dwarnings geçti. Tam Root opt-in Chromium/PAM/native ext4 kabulü geçti:100000bayt gerçek HTTP download tek own-history kaydında; TLS/WSS/customUI/CRUD/chmod/undo/CAS/tenant isolation, subordinate ID dışlama, Root virtual admin, native log kotası,504saat log ve trash,24saat staging,36saat account purge/resume, protected auth/control audit. Fixture temizlendi, Root helper policy geri yüklendi, mevcut üretim korunmuştur.
+
+## Final release/systemd kabulü — 2026-10-13
+
+Son general588library passed/1PAM ignored; PAM ayrı Root private fixture'da passed. Normal helper binary/integration passed. Explicit guarded Root migration/SQLite/concurrency/counters3, chmod0001, descendants1, worker1, sameUIDticket1, runtimeSettings1, real-helper lifecycle/cancellation2 passed. fmt/ClippyDwarnings/Rust1.85alltargets/release/strictTypeScript passed. İki host-dependent bare-helper testi live roots=[] ortamında başarısız olmuştu; runtime policy gevşetilmeden açık fixture ile düzeltildi ve tam suite tekrar passed.
+
+Wizard namespace PATH conflict/nooverwrite/repair/uninstall ve4ctl protected intent testleri passed. Gerçek final-release install/update sonrası4binary SHA256 source build ile eşleşti; mevcut Linux identity/role/web-password-hash backup ile aynı. NSS servicehome doğru; native mount/service/timer enabled/active, gc success.26legacy regular file hash ve original browser file60B korundu.
+
+Production Chromium HTTPS/WSS, secure HttpOnly cookie, original file read, create/save/stale-revision denial, streaming download, HTTP requestId→protected record, chmod/undo, systemd restart/shutdown popup/unsaved input/relogin passed. Direct origin ve public Cloudflare browser login passed. Caddy systemd reload ve private admin isolation passed.
+
+Backend standard Rustls TLS+dedi­cated CA trust etkinleştirildi. Verified backend health200, origin200, plaintext000/rejected. Isolated Caddy same-name fake certificate502 ile reddetti; fake backend0HTTP request. Sertifika doğrulaması kapatılmadı. Final production CRUD/restart kabulü bu topology ile yeniden passed. Private key Root:tealdrive0640; public cert Root644; expiration2027-10-13T21:06:35UTC.
+
+Production UUID fixture files0; Wizard temp dirs0; shared-policy driver live server varken mutation başlamadan reddetti. Private rollback/audit/user source verileri cleanup olarak silinmedi.

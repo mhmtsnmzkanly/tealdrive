@@ -1,62 +1,24 @@
-# TealDrive uygulama ve kabul planı
+# TealDrive uygulama planı — kapanış
 
-[Dizin](README.md) · [Karar günlüğü](IMPLEMENTATION_DECISIONS.md) · [Test kanıtları](TEST_RESULTS.md)
+2026-10-13. [Bitiş raporu](FINAL_REPORT.md), [kabul kanıtları](TEST_RESULTS.md), [karar günlüğü](IMPLEMENTATION_DECISIONS.md).
 
-Bu dosya güncel uygulama durumudur. Bileşen belgelerindeki “hedef şema” parçaları tamamlanmış özellik sayılmaz. Her bağımsız değişiklik ayrı commit ve uygun testle tamamlanır. Canlı Caddy servisi kabul/migration bitene kadar eski kurulumda korunur.
-
-## Tamamlanan temel işler
-
-| İş | Durum / kanıt |
+| Aşama | Sonuç |
 |---|---|
-| UI kaynaklarını dosyalara ayırma, aktif uygulama ve chmod uyarıları, parola alanı temizliği | Tamamlandı; deterministic + gerçek Chromium |
-| CSP dış script kullanımı, auth/IPC parola tamponlarını zeroize | Tamamlandı |
-| WS-first handshake/login ve tek kullanımlık HttpOnly cookie bridge | Tamamlandı; gerçek TCP/Chromium/PAM |
-| Helper list extension/filter/sort/pagination | Tamamlandı; filter pagination öncesi |
-| Content+metadata revision, çakışan edit reddi, mode/owner/ACL korunumu | Tamamlandı; unsaved editor input korunur |
-| FD tabanlı helper quota ölçümü ve yüzde uyarısı | Mevcut config-root düzeninde tamamlandı; DB tahsis bağlantısı bekliyor |
-| SDK auth/files/admin çekirdeği, tipler, state, storage, observers, progress/abort ve HTTP hata sözleşmesi | Tamamlandı; bazı gelecekteki backend capability'leri kapalı |
-| Root config + sınırlı service-writable settings overlay, atomik persist/reload | Tamamlandı; root dosyası byte-identical kabul testi |
-| Ortak access_policy, katman yasakları, gizli öğelerde NotFound, recursive/alias/trash kontrolleri | Tamamlandı; gerçek setuid/browser negatif test |
-| SQLite metadata/Argon2id/kota tahsis/nesil/backup temeli | Tamamlandı; root account gateway eklendi, server/WS/SDK/UI auth bağlantısı tamamlandı; yönetim uçları bekliyor |
-| Persistent nonce/enrollment ve process-bound PAM ticket | Tamamlandı; root migration ve gerçek setuid replay reddi test edildi |
-| /home/tealdrive yol seçimi, güvenli legacy fallback | Tamamlandı; fiziksel kurulum/migration bekliyor |
-| Audit retention_hours=504 ve eski retention_days uyumu | Tamamlandı; trash/undo/account GC bundan ayrıdır |
+| Protected kimlik/gateway ve hesap yönetimi | Tamamlandı; PAM-first enrollment/web parola, Root DB, grant/NSS denetimi |
+| Oturum/revoke/suspend yaşam döngüsü | Tamamlandı; generation+nonce, aktif WS/helper lease iptali, sanal self-revoke reddi |
+| Öz kayıt ve Root uygunluğu | Tamamlandı; own-UID Wizard ve web enrollment, Root/system/service filtreleri |
+| NSS home ve katmanlı politikalar | Tamamlandı; Root/admin/kişisel yasak, gizli discovery/direct access ve CAS |
+| Sanal UID/GID/native kota/bütçeler | Tamamlandı; locked/nologin, subordinate range güvenliği, ayrı filesystem, tenant izolasyonu |
+| Wizard ve bağımsız ctl | Tamamlandı; install/update/repair/rollback/backup/restore/uninstall, trusted PATH linkleri |
+| SDK ve UI | Tamamlandı; auth/files/admin, tipli options/results/events, filter/pagination/state/observers/transfer, TR/EN |
+| TLS ve Root-approved custom UI | Tamamlandı; direct TLS, güvenilir TLS proxy, immutable paket, gömülü rescue, SDK override yasağı |
+| Protected audit/journal/undo | Tamamlandı; own history, gerçek metadata, koşullu undo ve tercihler, HTTP range aggregation |
+| Kalıcı login sayaçları ve lifecycle | Tamamlandı; bounded counters,504h audit/trash,24h staging,36h deleted virtual cleanup |
+| Fiziksel migration ve canlı kabul | Tamamlandı; /home/tealdrive, native mount/systemd/timer, Caddy HTTPS/WSS, dosya koruma |
+| Belge ve geliştirme araçları temizliği | Tamamlandı; eski hedefler history arşivinde, dev/ops ayrımı, private rollback korunur |
 
-## Şimdiki geliştirme sırası
+Teslimde bilinen sınırlar [FINAL_REPORT.md](FINAL_REPORT.md) içindedir. Bunlar gizlenmiş başarı iddiası değildir: dış writer snapshot garantisi, her OS/filesystem quota formatının introspection'ı, Root-tokenı olmayan legacy trash'in otomatik silinmesi, ek uygulama şifrelemesi/MFA/SSH kapatma ve uzun süreli üretim yük testi bu teslimin sunduğu işlevler değildir.
 
-1. **Protected kimlik ve yönetim gateway'i.** Auth komutları/helper NSS kontrolleri uygulandı; server/WS/SDK/UI enrollment ve operation grant bağlantısı tamamlandı. Self-revoke/password change helper→HTTP→SDK→UI tamamlandı; kayıtlı hesap listesi ve erişim açma/askıya alma uçları eklendi. Kayıt öncesi Linux admin onayı ve sistem/sanal erişim yönetimi UI tamamlandı; public admin→gerçek OS hesap/PAM/Chromium kabulü geçti. Virtual provisioning/silme/kota/politika yönetimi ve Root Wizard rol atama kaldı. DB hesabı + NSS UID/GID/home doğrulaması; root rolü/deny/kayıt tavanları; PAM veya PAM sonrası web-password modeli. DB'yi server açmaz. SDK yeni capability'leri yalnızca gerçek backend tamamlanınca açar.
-2. **Bilet ve oturum yaşam döngüsü.** Hesap ID/generation ve aktif session nonce; logout nonce iptali, self-revoke tüm web erişimini iptal eder. Sanal self-revoke yasak. Suspend/delete aktif oturum ve helper lease'lerine uygulanır. Root-owned rolü server claim'i genişletemez. Eski ticket/session uyumu explicit migration davranışıyla çözülür.
-3. **Enrollment ve öz kayıt.** İlk PAM kanıtı tek kullanımlık, kısa ömürlü ve caller/kimlik bağlamına bağlı. Linux parolası kalıcı tutulmaz. Mevcut web-parolalı hesap Linux parolasıyla sessiz reset edilemez. Wizard gerçek UID'nin kendi kaydını açar; deny/suspend üstün gelir.
-4. **Home kökleri ve hesap politikası yönetimi.** Otomatik home template/config, HTTP/session/download/preview/WS ve bağımsız helper bağlantısı tamamlandı; gerçek çoklu Linux UID/PAM/Chromium kabulü geçti. Root/admin/kişisel protected policy store + helper/server/SDK/UI yüzeyi tamamlandı; gerçek PAM/Chromium/CAS/revoke kabulü geçti. Root CLI/Wizard migration bağlantısı Wizard aşamasında tamamlanacak. Gerçek home helper/NSS/DB'den; kullanıcı path/UID seçmez. Root/admin/kişisel kurallar protected gateway'den değiştirilir. Config-root'tan home moduna geçiş izinleri sessiz genişletmez.
-5. **Sanal OS kimlikleri ve gerçek quota enforcement.** OS provisioning/helper/DB/SDK/UI, application/native quota, budget/pending reservation/CAS ve gerçek UID/kernel/Chromium kabulü tamamlandı. Root virtual admin provisioning, native-sync,36h child purge ve crash-resume kabulü tamamlandı; Native storage init/status/mount ve kapasite denetimi namespace kabulü tamamlandı; mevcut fiziksel kurulum migration ve genel trash/audit/undo lifecycle kaldı. Ayrı nologin UID/GID, locked OS password; root pool→admin budget→child allocation. Kullanım helper ölçümü; eşzamanlı rezervasyon ve budget azaltma için kullanım denetimi. Linux OS kotası ayrı.
-6. **Wizard.** Çekirdek CLI ve bağımsız ctl, own UID PAM init/revoke/policy, Root approve/role/config/budget/native sync, metadata backup/restore ve binary rollback tamamlandı; namespace clean-install/update/repair/uninstall ve gerçek UID/PAM/TTY testleri geçti. Root virtual admin provisioning/pending list-safe cancel/native-sync/36h child purge ve timer şablonları tamamlandı; Native storage kurulumu ve boot dependency şablonu kabulü tamamlandı; mevcut kurulum migration ve gerçek systemd son kabulü kaldı. Ayrı binary; install/update/repair/uninstall, init/revoke, account/policy/quota, service start/stop/restart/reload, check/doctor/backup. Root-required ile own-user komutları ayrılır. Temiz kurulum, migration, nosuid/noexec ve rollback kabulü.
-7. **SDK tamamlama ve UI entegrasyonu.** Yeni auth/admin/policy/history/undo uçlarının gerçek testleri; bütün methods/options/results/events tipleri ve okunabilir cookbook/sdk-api.js. Gömülü UI auth/files/admin ortak SDK, files DOM adapter, managed browser state, TR/EN i18n ve kalıcı kota uyarısı tamamlandı; gerçek Chromium CRUD/conflict/upload/chmod/reload/dil/hesap ayrımı kabulü geçti. Metadata pagination/filter ve tenant-scope kabulü tamamlandı; audit/undo backend/SDK/UI bağlantısı tamamlandı; son SDK sözleşme incelemesi kaldı.
-8. **TLS/custom UI.** DirectTLS/requireTLS/Rootkey paths, strictlocalproxy, transport restart boundary ve gerçekHTTPS/WSS/cookie/shutdown/unsafe-key/proxy kabulü tamamlandı. Rootapproved immutable manifest/paket/CLIactivation/embedded rescue ve gerçek customSDK/fallback kabulü tamamlandı. Caddy zorunlu değil; direct TLS cert/key + require_tls, proxy TLS ve açık yerel HTTP. Güvenli reload/restart sınırları. Root-approved manifest/paket, same-origin assets, SDK override yok ve embedded fallback.
-9. **Audit/journal/undo.** Root supervisor/User worker privsep ve forged/replayed delegation reddi tamamlandı. Protected operation intent/result ve gerçek RootDB/Chromium kabulü tamamlandı; own history/typed SDK/current-policy visibility, actual metadata, sanal native/application log kota ve504h physical GC tamamlandı; protected undo backend/SDK/tercih/restore fence tamamlandı; gömülü geçmiş/undo UI tamamlandı; protected trash expiry/queue/changed-state preservation tamamlandı; staging GC tamamlandı; protected security/control audit tamamlandı; HTTP range own-history aggregation ve son fiziksel migration/kabul devam ediyor. Eski/yeni mode ve doğrulanmış işlem verisi, kullanıcı kendi audit geçmişi, merkezi güvenlik logu. Move/rename/trash-delete/chmod için beklenen duruma bağlı undo. Kullanıcı log quota muhasebesi ve bounded cleanup.
-10. **Kalıcı güvenlik sayaçları ve yaşam döngüsü.** Helper protected DB hesap/IP/global login rezervasyonları ve restart/paralel bağlantı kabulü tamamlandı; genel504 saat, deleted virtual36 saat, undo user1..server-max (server-max default24). Admin delete root izni default kapalı. Dosya retention sonunda silinir, suspend silmez.
-11. **Son kabul ve canlı geçiş.** Tam test/Clippy/fmt/release/MSRV, kernel/root/PAM/SDK/browser/TLS/proxy/iki hesap izolasyonu; temiz install/update/repair/restore/offline, mevcut dosyaları koruyan migration. Belgeler/commitler/detaylı bitiş raporu.
+Kesin kararlar: sanal hesap başına UID/GID; Root kritik tavan/admin çalışma ayarı/kullanıcı kişisel tercih; uygun own-account öz kayıt varsayılan açık; kullanıcı içeriği FS'de, tahsis DB'de; browser state kullanıcı+origin+generation kapsamında; TLS yerine özel JS kripto yok; undo user1..Rootmax(default24h); sanal own-log kota muhasebesi; bütçe kullanım/tahsis altına sessiz indirilmez.
 
-## Kesin kararlar
-
-- Sanal hesap başına ayrı Linux UID/GID; yalnız web, OS parola locked/nologin.
-- Root kritik tavan; admin çalışma ayarı; kullanıcı yalnız kendi tercihi/kısıtı. Yasakların birleşimi genişletilemez.
-- Öz kayıt varsayılan açık, yalnız uygun hesap ve kendisi; root/admin deny üstün.
-- `.ssh` ve sistem sır alanları panelden görünmez/erişilemez. `.env` yeni home profilinde açık; legacy sensitive ayarı migration'da açıkça dönüştürülür.
-- Kullanıcı dosyası SQLite'a konmaz. Kota allocation DB'de, kullanım helper'da.
-- SDK isteğe bağlı managed state; kullanıcı/origin namespace browser storage; secret/content yok; path restore tekrar doğrulanır. Helper kalıcı UI-state tutmaz.
-- Ek application encryption ana özelliklerden sonra; TLS yerine özel JS kripto yapılmaz.
-- Kendi kripto/iletişim algoritması icat edilmez; mevcut standart implementasyonlar kullanılır.
-- 24 saat kullanıcıya dayatılmış sabit tercih değildir; server undo üst sınırının varsayılanıdır.
-- Sanal kullanıcı operation log byte'ları application kotasına dahil; Linux merkezi logları sistem bütçesinde. Quota uyarısı default80, yapılandırılabilir.
-- Root bütçeyi kullanım/tahsis altına sessiz düşürmez; ölçüm ve açık yeniden tahsis gerekir.
-
-## Güvenlik kabul kapıları
-
-- Home erişimi ortak erişim politikası/NSS/generation doğrulaması tamamlanmadan açılmaz.
-- DB/keys/roles root kontrolünde; web veya runtime dosyası Root authority iddia edemez.
-- Yeni enroll/virtual/undo capability tamamlanmadan FEATURE_DISABLED kalır; sahte başarı yok.
-- Root veya kullanıcı verisi taşıma/silme test fixture'ı ile gerçek kullanıcı verisi karıştırılmaz.
-- Kernel confinement veya zorunlu TLS kurulamazsa geniş izinli fallback yapılmaz.
-- Path politikası dış Linux sahibinin SSH ile rename'ini veya tüm dış writer yarışlarını engelleyen inode etiketi olarak sunulmaz.
-
-MFA, SSH kapatma, kullanıcı uygulamalarının süreç yönetimi ve çalışan proje tespiti bu kapsamda değildir. Admin hesap sayısı, UID aralığı ve operasyon üst sınırlarında gerekli teknik seçimler IMPLEMENTATION_DECISIONS.md'ye gerekçesiyle kaydedilir.
+İlk kurulum ve kullanım [DEPLOYMENT.md](../DEPLOYMENT.md), güncel sunucu [CONTEXT.md](CONTEXT.md). Önceki kısmi durumlar history altında tutulur; eski plan.md/TASARIM.md yeniden oluşturulmaz.

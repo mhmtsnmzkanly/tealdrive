@@ -196,6 +196,35 @@ let checkpoint = "startup";
       }),
     );
     for (const account of created) {
+      for (const path of ["/etc/subuid", "/etc/subgid"]) {
+        const ranges = fs
+          .readFileSync(path, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => line.split(":"));
+        if (
+          ranges.some(
+            ([owner, start, count]) =>
+              owner === "tdv_" + account.uid ||
+              (!["root", "0"].includes(owner) &&
+                account.uid >= Number(start) &&
+                account.uid < Number(start) + Number(count)),
+          )
+        )
+          throw Error(
+            "Virtual identity can be mapped by another user namespace",
+          );
+        if (
+          !ranges.some(
+            ([owner, start, count]) =>
+              ["root", "0"].includes(owner) &&
+              account.uid >= Number(start) &&
+              account.uid < Number(start) + Number(count),
+          )
+        )
+          throw Error("Virtual ID range lacks Root reservation");
+      }
       const passwd = execFileSync(
         "/usr/bin/getent",
         ["passwd", "tdv_" + account.uid],
@@ -404,6 +433,7 @@ let checkpoint = "startup";
         metadataPagination: true,
         idempotentCreate: true,
         separateUidGid: true,
+        subordinateIdsExcluded: true,
         lockedNologin: true,
         unixIsolation: true,
         quotaBudget: true,

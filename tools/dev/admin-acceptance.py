@@ -57,6 +57,7 @@ def main():
     with sqlite3.connect(DB) as initial:
         pool_original = initial.execute('SELECT limit_bytes FROM quota_pool WHERE id=1').fetchone()[0]
         cursor_original = initial.execute("SELECT value FROM security_state WHERE key='virtual_uid_cursor'").fetchone()
+    subid_original={pathlib.Path(path):pathlib.Path(path).read_bytes() if pathlib.Path(path).exists() else None for path in ('/etc/subuid','/etc/subgid')}
     virtual_parent = pathlib.Path('/home/tealdrive/virtual-homes')
     parent_created = False
     mounted = False
@@ -120,6 +121,9 @@ def main():
             run(['/usr/sbin/chpasswd'], input=(name + ':' + linux_password + '\n').encode(), stdout=subprocess.DEVNULL)
             users.append(dict(username=name, role=role, password=password, linuxPassword=linux_password, bootstrap=bootstrap))
         atomic(manifest, json.dumps(dict(users=users, config_dir=str(config_dir), audit_path=str(audit))).encode())
+        if virtual:
+            with sqlite3.connect(DB) as initial:
+                initial.execute("DELETE FROM security_state WHERE key='virtual_uid_cursor'")
         run([str(ROOT / 'target/debug/examples/admin_acceptance_fixture'), str(manifest)], cwd=ROOT)
         applied = (config_dir / 'helper.toml').read_bytes()
         atomic(HELPER_CONFIG, applied, original_mode)
@@ -409,7 +413,7 @@ def main():
             if cursor_original is None:
                 connection.execute("DELETE FROM security_state WHERE key='virtual_uid_cursor'")
             else:
-                connection.execute("UPDATE security_state SET value=? WHERE key='virtual_uid_cursor'", (cursor_original[0],))
+                connection.execute("INSERT INTO security_state(key,value) VALUES('virtual_uid_cursor',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (cursor_original[0],))
         connection.commit()
         connection.close()
         if mounted:
@@ -423,6 +427,17 @@ def main():
             if current.pw_uid != identity.pw_uid or current.pw_dir != '/home/' + name:
                 raise RuntimeError('OS fixture identity changed; refusing cleanup')
             run(['/usr/sbin/userdel', '-r', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if virtual:
+            for path,original_bytes in subid_original.items():
+                current=path.read_bytes()
+                cleaned=current if b'0:1000000:100000' in (original_bytes or b'').splitlines() else b''.join(line for line in current.splitlines(keepends=True) if line.strip()!=b'0:1000000:100000')
+                if cleaned!=(original_bytes or b''):
+                    raise RuntimeError('Subordinate ID file changed externally; preserving safe reservation and refusing overwrite')
+                if original_bytes is None:
+                    path.unlink()
+                else:
+                    metadata=path.stat()
+                    atomic(path,original_bytes,metadata.st_mode & 0o777)
         if HELPER_CONFIG.read_bytes() != original:
             raise RuntimeError('Helper policy restoration failed')
         for path in audit.parent.glob(audit.name + '*'):

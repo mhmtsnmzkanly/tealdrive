@@ -228,6 +228,7 @@ fn allocate(store: &AccountStore, cfg: &AppConfig) -> Result<u32, StoreError> {
         .optional()?;
     let min = cfg.web_accounts.virtual_min_uid;
     let max = cfg.web_accounts.virtual_max_uid;
+    let blocked = super::subids::prepare(min, max)?;
     let start = match raw {
         Some(raw) => raw.parse::<u32>().map_err(|_| StoreError::InvalidInput)?,
         None => min,
@@ -235,10 +236,26 @@ fn allocate(store: &AccountStore, cfg: &AppConfig) -> Result<u32, StoreError> {
     if start < min || start > max {
         return Err(StoreError::InvalidInput);
     }
-    for offset in 0..1024u64.min(u64::from(max - min) + 1) {
-        let uid = min + ((u64::from(start - min) + offset) % (u64::from(max - min) + 1)) as u32;
+    let segments = super::subids::free_segments(min, max, &blocked);
+    let candidates = segments
+        .iter()
+        .filter(|(_, end)| *end >= start)
+        .flat_map(|(first, end)| (*first).max(start)..=*end)
+        .chain(
+            segments
+                .iter()
+                .filter(|(first, _)| *first < start)
+                .flat_map(|(first, end)| *first..=(*end).min(start - 1)),
+        )
+        .take(1024);
+    for uid in candidates {
         let retired:bool=store.connection.query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE uid=?1) OR EXISTS(SELECT 1 FROM security_state WHERE key=?2) OR EXISTS(SELECT 1 FROM security_state WHERE CASE WHEN key LIKE 'virtual_create_v1:%' THEN json_extract(value,'$.uid')=?1 ELSE 0 END)",params![uid,format!("virtual_uid_retired:{uid}")],|r|r.get(0))?;
-        if !retired && free_id(uid)? {
+        if !retired
+            && !blocked
+                .iter()
+                .any(|(start, end)| (*start..=*end).contains(&uid))
+            && free_id(uid)?
+        {
             let next = if uid == max { min } else { uid + 1 };
             store.connection.execute("INSERT INTO security_state(key,value) VALUES('virtual_uid_cursor',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[next.to_string()])?;
             return Ok(uid);
@@ -639,6 +656,10 @@ fn ensure_os_identity(cfg: &AppConfig, uid: u32, quota: u64) -> Result<PathBuf, 
             &[
                 "--no-create-home",
                 "--no-log-init",
+                "--key",
+                "SUB_UID_COUNT=0",
+                "--key",
+                "SUB_GID_COUNT=0",
                 "--uid",
                 &uid_text,
                 "--gid",

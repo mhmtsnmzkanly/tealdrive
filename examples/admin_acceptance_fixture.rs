@@ -119,6 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .retain(|pattern| pattern != ".env" && pattern != ".env.*");
     }
     if std::env::var("TEALDRIVE_VIRTUAL_ACCEPTANCE").as_deref() == Ok("1") {
+        cfg.web_accounts.virtual_min_uid = 1_000_000;
+        cfg.web_accounts.virtual_max_uid = 1_099_999;
         cfg.virtual_accounts.enabled = true;
         cfg.virtual_accounts.allow_admin_delete = true;
         cfg.virtual_accounts.max_inodes = 64;

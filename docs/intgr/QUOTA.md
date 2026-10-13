@@ -106,3 +106,7 @@ max_inodes = 100000
 ```
 
 `web_accounts.enabled` + Root explicit home template gerekir. Root pool/admin budget CLI kontrolündedir; panel kendi çocuk tahsisini yönetir. DB quota/reservations; helper kullanım (application logical, native allocated) ölçer. Native FS provision/init Wizard'a bağlanacaktır. UI/caller UID/GID/home/shell/role belirleyemez. Native missing limit fail-closed. Meta/temporary filesystem space used; native mode counts inode/block allocation.
+
+## Uygulanan sanal log muhasebesi
+
+Root-private `.tealdrive-audit/<account-id>` aynı sanal filesystem üzerindedir. File UID ilgili virtual user, mode400; parentRoot700. Owner UID bile dosyayı okuyup değiştiremez. Native allocated blocks/inodes kernel UID kotasında, application helper home+reserved ledger length toplamında sayılır. Default8192byte/event sonuç rezervasyonu için fiziksel padding içerir. Root DB/security metadata bu değerin dışında sistem bütçesidir. Log reserve tutarı current Root policy'den gelir, user seçmez. Budget/quota küçültme home+log altına inemez. Sınırlı permanent-delete systemReserve exception dolu kotada alan açılmasını sağlar; policy/feature bypass değildir. Root hourly GC504h expired logs gerçek disk alanını serbest bırakır.

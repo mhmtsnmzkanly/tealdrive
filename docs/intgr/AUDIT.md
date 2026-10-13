@@ -63,3 +63,7 @@ Root supervisor before/after operasyon kayıtları accounts.db içindedir; versi
 ## Gözlenen metadata
 
 Chmod kaydı requestedMode yanında actual oldMode/newMode içerir; aynı pinned inode fstat'ı kullanılır. before/after ObservedFileState (optional, eski kayıtta null) device/inode decimal string, kind/mode/uid/gid/size/nlink/time, opaque digest ve mevcutsa content/tree digest taşır. Chmod contents'i değiştirmediğinden permission undo condition metadata/identity'dir; geçici chmod ile sır okumak veya mode000 dosyanın içeriğini açmak yok. Move/rename/trash hash'leri User worker read permission ve current policy altında bounded64MiB/10000node/depth64. Incomplete fingerprint tam veri gibi değerlendirilmez.
+
+## Çalışan quota ledger ve history capability
+
+Own history API/SDK artık Root `[journal] enabled=true` ve web-account modelinde authentication.audit_history=true ilan eder. Direct backend/native/application/own-scope/policy testleri geçti. Old configs defaultfalse kalır; undo API/UI devam ediyor. `logReserveBytes` ve `logStorage` userQuota/systemBudget/systemReserve ayrımını gösterir. Padded ledger copy/rootDB primary intent-result aynı event ID'dir; plaintext file contents yok. Root account/global count cap ve kontrollü rotation/504h GC uygulanır. Linux logs sistem bütçesinde, virtual events gerçek UID kotasında. Delete-after36h log UIDRoot'a aktarılır, Root policy kalan retention'a göre temizler.

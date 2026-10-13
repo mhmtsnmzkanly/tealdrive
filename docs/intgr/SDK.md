@@ -41,7 +41,8 @@ HTTPS/WSS sertifika/şifrelemesini tarayıcı yapar; handshake JS kripto değild
 | Managed/client state, browser storage | Uygulandı; kullanıcı namespace; path restore yeniden doğrulanır |
 | Admin settings ve Linux user picker | Mevcut endpointlerle uygulandı |
 | PAM first-enrollment + ayrı web parola login + nonce logout | Uygulandı; proof server WS'de, credentials WS'den; private grant user API'de yok |
-| Password change/self-revoke, policy/history/undo/virtual management | SDK yüzeyi tanımlı; ilgili backend capability açılmadan FEATURE_DISABLED; devam eden plan |
+| Password change/self-revoke, policy, virtual management | Uygulandı; gerçek helper/UID/PAM/Chromium kabulü |
+| Kullanıcı geçmişi ve undo | Yüzey tanımlı; backend tamamlanana kadar FEATURE_DISABLED |
 
 Bu tablo işin bitiş raporu değildir. Son sütundaki backendler tamamlanmadan destek varmış gibi UI'de sunulmaz. Public sözleşme yeni SDK feature'ı için tasarlanmıştır; legacy wire API'nin bozularak yeniden adlandırılması değildir.
 
@@ -200,3 +201,15 @@ await api.admin.settings.reload();
 ```
 
 URL üretmek dosyanın varlığını/iznini garanti etmez; request helper'a gider. `download()` hâlâ Response stream döndürür; büyük dosyayı gereksiz blob'a çevirmeniz gerekmez. Settings changes mevcut backend snake_case patch şemasındadır; persist varsayılantrue eski API uyumunu korur, false runtime-only. `inspect` camelCase config + split/legacy mode döndürür; Root kritik ayarı patch edilemez. RootSummary hiddenFilesAllowed optional eski sunucu uyumuyla eklenmiştir. WebSocket close1001/Server shutting down bilgisi SDK'da shutdown event'ine dönüşür; normal ağ kaybı shutdown sayılmaz.
+
+## Kayıtlı hesaplarda sayfalama
+
+```javascript
+const first = await api.admin.virtualUsers.listPage({limit: 100, filter: 'project', status: 'active'});
+if (first.hasMore) {
+  const next = await api.admin.virtualUsers.listPage({limit: 100, filter: 'project', status: 'active', cursor: first.nextCursor});
+}
+const linux = await api.admin.systemUsers.accountsPage({limit: 100, enrolled: false});
+```
+
+Sonuç `{items, nextCursor, hasMore}`. Limit1..200 (varsayılan100), filter en fazla128 UTF-8 byte, cursor256 byte; kontrol karakterleri yasak. Filter username içinde SQLite ASCII case-insensitive eşleşmedir; Unicode case-folding iddiası yoktur. Status active/suspended/revoked/deleted; enrolled boolean. Filtre ve canlı yetki SQL LIMIT öncesi uygulanır. Cursor son public username'dir, yetki token'ı değildir; eşzamanlı değişen kayıtlar için snapshot garantisi yoktur. Sanal admin yalnız kendi çocuklarını görür, sistem hesabı yönetimi yapamaz. `virtualUsers.list()` eski array sözleşmesini korur; seçenek verilirse yeni backend ile filtreli ilk sayfanın array'ini döndürür. Tüm sayfalar için listPage kullanın. Capability `authentication.account_pagination`; destek yoksa seçenekler sessiz atılmaz. Linux aday listesindeki registered bilgisi mevcut sayfanın dışında kalan kayıtların yeniden onaylanmasını önler.

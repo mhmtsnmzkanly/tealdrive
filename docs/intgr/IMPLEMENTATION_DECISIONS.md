@@ -236,3 +236,7 @@ rustls/ring + axum-server0.7.3; kendi crypto/anahtar protokolü yok. Root TLS pa
 ## D043 — Root-approved immutable UI snapshot ve sabit kurtarma namespace'i
 
 UI package sadece Root; all-declared-assets validation, optional SHAmap, bounded16MiB snapshot. Missing/incompatible/unsafe package whole embedded fallback; valid-package undeclaredasset404. Critical static_dir webpatch bütün modlarda kapalı. Versioned Rootdirectory copy +Rootserverconfig activation; helper key/DB unchanged. `/ui/default` route custom package'den bağımsız builtin assets/locale imports ile çalışır. SDK namespace override yasak, fallback `/sdk/*` unknownpath404. CSP connectself/workernone; ServiceWorker ile fixedSDK interception yapılmaz. Custom JS trusted same-origin applicationcode olduğu için manifest integrity iyi niyet garantisi değildir.
+
+## D044 — Metadata sayfalama ve canlı tenant sınırı
+
+2026-10-13: Username keyset cursor, bounded limit ve SQL ön-filtre; cursor yetki taşımaz. Eski array API korunur, yeni SDK page metotları açık sonuç sözleşmesi sunar. Root CLI tüm kayıtları bounded sayfalarla tarar. Linux adayların registered bilgisi sayfalama/filtreleme nedeniyle yanlış yeniden onay seçeneği üretmez. Purge tombstone'ları native sync/diagnose sırasında kaldırılmış NSS kimliği olarak hata sayılmaz. Sanal admin bütçesi kendi kullanımını da düşen availableBytes ile gösterilir.

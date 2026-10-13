@@ -330,3 +330,7 @@ Shared SDK UI fixture `TEALDRIVE_UI_FILES_ACCEPTANCE=1` koşusuna TR/EN testi ek
 ## Root custom UI paketi kabulü — 12 Ekim 2026
 
 `TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE=1 TEALDRIVE_HOME_ACCEPTANCE=1 TEALDRIVE_UI_PACKAGE_ACCEPTANCE=1 TEALDRIVE_ADMIN_ACCEPTANCE_PHASE=ui tools/dev/check.sh admin` geçti: uniqueRoot-owned SHAmanifest package, CLIcheck, customHTML/script fixedSDK auth+UID file list; undeclaredasset404; activecustom sırasında `/ui/default` fullSDK/browserfilelist; incompatibleSDKmajor wholefallback; manifestSDKoverride reject/fixedSDK intact.13106 server/privatepackage/audit fixture cleanup; permanentUI/serverconfig/helperpolicy untouched. Normal567 unit passed/1 ignored +integrations, Clippy-Dwarnings/MSRV1.85 passed. Asset8MiB/total16MiB bound mevcut source şemasıdır; özel packagecode Roottrust gerektirir.
+
+## 2026-10-13 — Hesap metadata sayfalama kabulü
+
+Normal paket568 unit passed/1 PAM ignored; bütün normal integration grupları geçti. fmt ve Clippy all-targets -D warnings passed. Gerçek Root/PAM/Chromium/native quota kabulü: Linux kayıt yenileme, suspend/enable, ayrı UID/GID, nologin/locked hesap, sanal adminin kendi tenant'ı, filtreli limit1 devam sayfası ve eski array uyumu passed. Sanal admin UI bütçe dialog'u da test edildi; eski undefined ticket hatası giderildi. Fixture cleanup ve helper policy restore passed; production değiştirilmedi. Testte sayfalı yanıtın items alanı okunacak şekilde assertion düzeltildi. SDK UTF-8 byte sınırını backend ile aynı uygular.

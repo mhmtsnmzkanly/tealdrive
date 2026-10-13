@@ -1,6 +1,6 @@
 # TealDrive HELPER geliştirme sözleşmesi
 
-> **Durum:** Revision/atomik edit, quota ölçümü ve ortak access_policy motoru uygulandı. Çalışan şema [CONFIGURATION](../CONFIGURATION.md#shared-path-access-policy). Aşağıdaki helper identity/database/home/users.d örnekleri hedef şemadır; hesap yönetimi ve home geçişi henüz tamamlanmadı.
+> **Durum:** Protected identity/grants, home/politika yönetimi, ayrı sanal UID/GID/native kota ve Root supervisor→user worker ayrımı uygulanmıştır. Journal/undo bağlantısı devam eder. Aşağıdaki eski hedef şema örnekleri çalışan config yerine geçmez; kesin durum PLAN.md ve TEST_RESULTS.md içindedir.
 
 Ortak motor root/global + kullanıcı root/admin/personal yasaklarını birleştirir; config snapshot helper root yasaklarını silemez. Gizli öğe doğrudan read/stat/download'da NotFound, list/search/recursive archive'da yok. Parent move/rename, final extraction target, restore ve trash delete tekrar kontrol edilir. Hardlinkli normal dosyalar default erişilemez. Şimdilik root TOML yönetir; web yönetim protokolü ayrıca tamamlanacak.
 
@@ -218,3 +218,9 @@ Gizlenen dosya/dizin webden hiç yokmuş gibi davranır: Liste/search dışı do
 ## Uygulanan hesap policy gateway'i
 
 Protected DB policy records Root/admin/personal deny katmanlarını saklar. Root-only config ceiling ve DB katmanları helper'da snapshot restrict öncesi birleştirilir. PolicyGet/Set komutları canlı process-bound grant/NSS/role/kind/owner denetimlidir; web Root katmanını seçemez. Personal yalnız kendisine, admin yalnız yetkili scope'a yazar. Değişiklik atomik generation artırır ve pending enrollment proof'larını temizler. Bozuk policy fail-closed. TOML kullanıcı kuralları Root-owned kalır. Bkz. D035 ve TEST_RESULTS policy kabulü.
+
+## Root supervisor ve dosya worker'ı
+
+Setuid Operation önce protected grant/NSS/home/policy/native quota doğrular ve mutation directory lock'unu alır. Sonra aynı helper executable'ı fresh process olarak çalıştırır; watch thread sonrasında unsafe fork callback içinde dosya/DB işi yapılmaz. Worker özel Root-created pipe, kernel parent UID/EUID, parent PID, expiry ve domain-separated standart HMAC-SHA256 delegation doğrular. Server Worker invocation/config/UID uydurarak bu yolu kullanamaz; key hiçbir IPC payload'ına gönderilmez. Parent executable'ını ptrace benzeri okuma izniyle doğrulamak yerine protected key ve özel pipe kullanılır; ek CAP_SYS_PTRACE gerektirmez.
+
+Worker bütün UID/GID değerlerini kalıcı düşürür, Landlock uygular ve dosyayı o kullanıcı olarak işler. Root DB/key/directory FD'leri CLOEXEC; dosya worker'ına verilmez. Root supervisor kullanıcı içerik işlemini kendi Root yetkisiyle yürütmez; lock'u response alınana kadar tutar. Parent exit/cancellation pipe EOF ile worker'a gider; mevcut cooperative cancellation/watchdog korunur. Root auth/yönetim komutları tek helper; dosya Operation geçici supervisor+worker iki süreç kullanır. Binary sayısı değişmez, worker aynı helper binary'dir; per-user daemon değildir. Bu ayrım Root-only journal'ın kullanıcı dosyalarına Root olarak erişmeden saklanabilmesi için temeldir; henüz history/undo capability açılmaz.

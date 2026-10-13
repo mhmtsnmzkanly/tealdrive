@@ -1289,21 +1289,29 @@ export class TealDriveClient {
     return this._bindAuthentication(result);
   }
   async _bindAuthentication(result) {
-    const bind = await this._fetch("/api/session/bind", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: result.bind_token }),
-    });
-    if (!bind.ok) {
+    try {
+      const bind = await this._fetch("/api/session/bind", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: result.bind_token }),
+      });
+      if (!bind.ok) {
+        fail("SESSION_BIND_FAILED");
+      }
+      await this._getSession();
+      if (!this._session) fail("SESSION_BIND_FAILED");
+      if (this._mode === "managed" && this._session.roots.length)
+        await this._refreshState();
+      return freeze(clone(this._session));
+    } catch (error) {
+      // The socket has already authenticated. Never reuse it for AuthLogin
+      // when the HTTP cookie bridge or session confirmation failed.
+      this._session = null;
       this.disconnect();
-      fail("SESSION_BIND_FAILED");
+      if (error?.code === "SESSION_BIND_FAILED") throw error;
+      fail("SESSION_BIND_FAILED", { cause: error });
     }
-    await this._getSession();
-    if (!this._session) fail("SESSION_BIND_FAILED");
-    if (this._mode === "managed" && this._session.roots.length)
-      await this._refreshState();
-    return freeze(clone(this._session));
   }
   async _mutateCredentials(url, body) {
     this._require(true);

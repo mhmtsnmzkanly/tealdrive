@@ -662,6 +662,31 @@ globalThis.crypto = webcrypto;
   await enrolling.auth.login({ username: "new-user", password: "right" });
   await enrolling.auth.revokeSelf();
   assert.equal(enrolling._session, null);
+  for (const failure of ["missing-cookie", "network-error", "bind-denied"]) {
+    session = null;
+    const broken = createClient({
+      WebSocket: Socket, location, storage, timeoutMs: 100,
+      fetch: async (url, options) => {
+        if (url === "/api/session/bind") {
+          if (failure === "network-error") throw new TypeError("Network failure");
+          if (failure === "bind-denied") return {ok: false, status: 401};
+          session = null;
+        }
+        return fetch(url, options);
+      },
+    });
+    await broken.handshake();
+    await assert.rejects(
+      broken.auth.login({username: "alice", password: "right"}),
+      (e) => e.code === "SESSION_BIND_FAILED",
+    );
+    assert.equal(broken._socket, null);
+    assert.equal(broken._session, null);
+    await assert.rejects(
+      broken.auth.login({username: "alice", password: "right"}),
+      (e) => e.code === "HANDSHAKE_REQUIRED",
+    );
+  }
   assert.ok(TealDriveError);
 })().catch((e) => {
   if (e.stack)

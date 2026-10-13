@@ -65,6 +65,7 @@ pub struct AppConfig {
     pub quota_warning_percent: u8,
     pub server: ServerConfig,
     pub audit: AuditConfig,
+    pub journal: crate::accounts::journal::JournalConfig,
     pub proxy: crate::client_ip::ProxyConfig,
     pub session: SessionConfig,
     pub security: SecurityConfig,
@@ -95,6 +96,7 @@ impl Default for AppConfig {
             quota_warning_percent: 80,
             server: ServerConfig::default(),
             audit: AuditConfig::default(),
+            journal: crate::accounts::journal::JournalConfig::default(),
             proxy: crate::client_ip::ProxyConfig::default(),
             session: SessionConfig::default(),
             security: SecurityConfig::default(),
@@ -172,6 +174,9 @@ impl AppConfig {
             return Err(TealDriveError::Validation);
         }
         self.web_accounts.validate()?;
+        self.journal
+            .validate()
+            .map_err(|_| TealDriveError::Validation)?;
         self.virtual_accounts.validate(self.web_accounts.enabled)?;
         if self.virtual_accounts.enforcement == crate::accounts::virtuals::Enforcement::UserQuota
             && self

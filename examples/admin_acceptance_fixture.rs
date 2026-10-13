@@ -96,6 +96,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    if std::env::var("TEALDRIVE_JOURNAL_ACCEPTANCE").as_deref() == Ok("1") {
+        cfg.journal.enabled = true;
+    }
     if std::env::var("TEALDRIVE_HOME_ACCEPTANCE").as_deref() == Ok("1") {
         cfg.roots.clear();
         cfg.home_template = Some(tealdrive::policy::home::default_template());

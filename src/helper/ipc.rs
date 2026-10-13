@@ -806,12 +806,70 @@ pub fn run_secure_helper<R: Read, W: Write>(
                     .map_err(|_| TealDriveError::PermissionDenied)?;
                 }
             }
-            let available = reservation.as_ref().and_then(|r| r.available);
-            let mut response = if elevated {
-                crate::helper::worker::spawn(&request, &config, available)?
+            let journal = if config.journal.enabled
+                && crate::accounts::journal::tracked(request.command)
+            {
+                match authenticated_account.as_ref() {
+                    Some(account) => {
+                        let begun = (|| {
+                            let mut store = crate::accounts::store::AccountStore::open(
+                                std::path::Path::new(crate::layout::ACCOUNTS),
+                            )?;
+                            let record = store.begin_operation(
+                                account,
+                                &request,
+                                &config.journal,
+                                crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                            )?;
+                            Ok::<_, crate::accounts::store::StoreError>((store, record))
+                        })();
+                        match begun {
+                            Ok(pair) => Some(pair),
+                            Err(error) => {
+                                return write_helper_response(
+                                    writer,
+                                    &crate::helper::listing::helper_error(
+                                        &request,
+                                        if matches!(
+                                            error,
+                                            crate::accounts::store::StoreError::QuotaExceeded
+                                        ) {
+                                            crate::errors::ErrorKind::DiskFull
+                                        } else {
+                                            crate::errors::ErrorKind::InternalError
+                                        },
+                                        "Protected history unavailable; operation not started.",
+                                        "journal_unavailable",
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    None => None,
+                }
             } else {
-                crate::helper::worker::execute(&request, &config, available)?
+                None
             };
+            let available = reservation.as_ref().and_then(|r| r.available);
+            let outcome = if elevated {
+                crate::helper::worker::spawn(&request, &config, available)
+            } else {
+                crate::helper::worker::execute(&request, &config, available)
+            };
+            let journal_result = journal.map(|(mut store, record)| {
+                store.finish_operation(
+                    &record,
+                    outcome.as_ref().ok(),
+                    &config.journal,
+                    crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                )
+            });
+            let mut response = outcome?;
+            if journal_result.is_some_and(|result| result.is_err()) && response.success {
+                // Files already changed; do not report a fabricated rollback/failure.
+                response.safe_message =
+                    Some("Operation completed; protected history result is pending.".into());
+            }
             response.policy_revision = policy.map(|p| p.revision);
             write_helper_response(writer, &response)
         }

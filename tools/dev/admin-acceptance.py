@@ -198,6 +198,21 @@ def main():
             print(json.dumps(dict(purgeResume=True, retention36h=True, uidDroppedPurge=True, hiddenSymlinkOutsidePreserved=True, deletedQuotaReleased=True, retiredUidFence=True)))
         if os.environ.get('TEALDRIVE_LOCAL_WIZARD_ACCEPTANCE') == '1':
             run([sys.executable, str(ROOT / 'tools/dev/local-wizard-acceptance.py'), str(manifest)], cwd=ROOT)
+        if os.environ.get('TEALDRIVE_JOURNAL_ACCEPTANCE') == '1':
+            with sqlite3.connect(DB) as state:
+                records=[]
+                for user in users:
+                    account=state.execute('SELECT id FROM accounts WHERE username=?',(user['username'],)).fetchone()
+                    if account:
+                        records += [json.loads(row[0]) for row in state.execute('SELECT value FROM security_state WHERE key LIKE ?',('operation_v1:'+account[0]+':%',))]
+            if len(records)<5 or not any(r['status']=='success' for r in records) or not any(r['status']=='failed' for r in records):
+                raise RuntimeError('Missing protected helper intent/results')
+            encoded=json.dumps(records)
+            if any(user[key] in encoded for user in users for key in ('password','linuxPassword')):
+                raise RuntimeError('Credentials appeared in protected journal')
+            if any(r['status']=='pending' for r in records):
+                raise RuntimeError('Completed fixture has unexplained pending journal')
+            print(json.dumps(dict(protectedHelperJournal=True,successAndFailure=True,noCredentialJournal=True)))
         audit_text = audit.read_text()
         if any(user[key] in audit_text for user in users for key in ('password', 'linuxPassword')):
             raise RuntimeError('Fixture credentials appeared in audit')
@@ -272,6 +287,7 @@ def main():
                         connection.execute('DELETE FROM session_grants WHERE account_id=?', (child[0],))
                         for prefix in ('account_policy_v1:', 'virtual_quota_sync_v1:', 'virtual_purged_v1:', 'virtual_purge_intent_v1:'):
                             connection.execute('DELETE FROM security_state WHERE key=?', (prefix + child[0],))
+                        connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+child[0]+':%',))
                         connection.execute('DELETE FROM accounts WHERE id=?', (child[0],))
                     for uid in virtual_uids:
                         connection.execute('DELETE FROM security_state WHERE key=?', ('virtual_uid_retired:' + str(uid),))
@@ -280,6 +296,7 @@ def main():
                     connection.execute('DELETE FROM admin_budgets WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM session_grants WHERE account_id=?', (row[0],))
                 connection.execute('DELETE FROM security_state WHERE key=?', ('account_policy_v1:' + row[0],))
+                connection.execute('DELETE FROM security_state WHERE key LIKE ?', ('operation_v1:'+row[0]+':%',))
                 connection.execute('DELETE FROM accounts WHERE id=?', (row[0],))
             connection.execute('DELETE FROM enrollment WHERE username=?', (name,))
         if virtual:

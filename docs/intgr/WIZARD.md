@@ -215,3 +215,7 @@ Disable/suspend giriş engelidir; veri silmez, aktif oturum/biletleri iptal eder
 
 
 Root UI komutları eklendi: `ui check <root-owned-directory>`, `ui install --bundle <directory>`, `ui disable`. UI install source snapshot'ını `/home/tealdrive/ui/packages/` altında Root755 dirs/Root644 files ile kurar; SHA map ve declared files yeniden doğrulanır; yalnız server critical config'teki seçili path atomik değişir. Helper policy/key/account DB'ye dokunmaz. Root config reload transport aynıysa UI seçimini uygular; default `/ui/default` her zaman mevcuttur.
+
+## Dedicated native storage
+
+Root: `storage init <size>` yeni ext4/usrquota image ve boot mount dependency; `storage status` gerçek kernel support/capacity; `storage mount` güvenli mevcut image remount; `storage sync` DB-derived UID limits. Init/mount offline'dır. Nonempty mountpoint, mevcut image/unit veya sanal kimlik/intent init'i reddeder. Kota desteği olmadan geniş izinli fallback yok. Komutlar [STORAGE.md](STORAGE.md) altında ayrıntılıdır.

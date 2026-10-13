@@ -1,6 +1,6 @@
 # TealDrive STORAGE geliştirme sözleşmesi
 
-> **Durum:** SQLite/Argon2id metadata deposu ve root-only açma/online backup altyapısı uygulandı (`src/accounts/`). Helper auth, enrollment, Wizard ve web yönetim bağlantıları devam ediyor; çalışan PAM akışı henüz bu depoya geçirilmedi. Aşağıdaki merkezi dizin ve users.d örnekleri hedef kurulum yapısıdır.
+> **Durum:** Protected SQLite/Argon2id, PAM enrollment/web parola, Root Wizard/ctl, home/politika, sanal UID/GID/native kota yönetimi uygulanmıştır. Bileşen bazında kesin kabul durumu PLAN.md ve TEST_RESULTS.md içindedir; users.d/audit/undo gibi hedef parçalar çalışan özellik sayılmaz.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
@@ -46,7 +46,7 @@ Kota kullanım kaynağı helper; [QUOTA.md](QUOTA.md). Kullanıcı loglarını k
     └── <account-id-b>/                 ilgili sanal UID:GID; 0700
 ```
 
-İzinler hedef ilkeleri gösterir; ACL ve servis kısıtları Wizard tarafından denetlenir. Root korumalı bütün ebeveynler yazmaya kapalıdır; symlink veya güvensiz sahiplik reddedilir. TLS anahtarını servis okumalıdır; helper imza anahtarını okuyamaz. Ayrı binary sayısı hedefte üçtür.
+İzinler hedef ilkeleri gösterir; ACL ve servis kısıtları Wizard tarafından denetlenir. Root korumalı bütün ebeveynler yazmaya kapalıdır; symlink veya güvensiz sahiplik reddedilir. TLS anahtarını servis okumalıdır; helper imza anahtarını okuyamaz. Dört binary vardır: server, helper, wizard ve bağımsız ctl.
 
 Gerçek kullanıcının home'u taşınmaz:
 
@@ -113,3 +113,21 @@ Session grants accountID/generation + gerçek caller UID/parent PID/start-time/b
 Enrollment raw token DB'de değil SHA256 özetiyle tutulur, max300s, tek kullanımlık ve caller/NSS snapshot'a bağlı. Linux parola veya Linux parola hash'i saklanmaz. Existing enrolled hesapta sessiz PAM reset yasak; kendi Linux self-revoke sonrası re-init mümkün, administrative deny/suspend/revoke bunu kapatır. Tamamlama sırasında OS kimliği ve root eligibility gateway'de yeniden çözülecek.
 
 Schema1 startup tarafından otomatik yükseltilmez. Explicit root migration private online backup alır, transaction içinde schema2'ye geçer, pending eski proof'ları iptal eder ve account generation artırır. UID/home/role/password/budget korunur. Schema2 normal open sonrası gateway hazır olana kadar bu primitive'ler network auth capability açmaz.
+
+## Root tarafından ayrı native kota diski kurulumu
+
+```bash
+sudo tealdrive-ctl stop
+sudo tealdrive-wizard storage init 1GiB
+sudo tealdrive-wizard storage status
+# Root helper/server config'te virtual_accounts.enforcement = "user_quota" seçin.
+# İlk komutun poolCapacityBytes çıktısını aşmayın; disk metadata/headroom tahsis edilmez.
+sudo tealdrive-wizard pool set 800MiB
+sudo tealdrive-wizard storage sync
+```
+
+`storage init` yalnız yeni, boş ve sanal kimlik/provision intent bulunmayan kurulumda çalışır. `/home/tealdrive/storage/virtual-pool.ext4` Root600, önceden posix_fallocate ile gerçek disk blokları ayrılmış ext4/usrquota imajıdır; minimum128MiB ve4096-byte hizalı. Image sparse overcommit yapılmaz. Host/root disk yeniden mount edilmez. Virtual homes ayrı loop filesystem olarak nodev/nosuid/noexec/usrquota bağlanır. FD tabanlı kernel quota sorgusu başarılı olmadan tamamlanmış sayılmaz. Boot mount unit ve tealdrive.service dependency drop-in Root tarafından yazılır; native disk yokken servis bağımlılığı başarılı başlamaz. Bu adım sanal hesabı veya provisioning yetkisini otomatik açmaz, Root pool/budget ataması ayrıdır.
+
+`storage mount` yalnız doğrulanmış var olan image'ı bağlar; formatlamaz, nonempty mountpoint altındaki verileri örtmez. `storage status` gerçek mounted filesystem/kernelquota/capacity/free bilgisini verir. Root native pool set bu capacity sınırını uygular. Root tarafından önceden hazırlanmış ayrı quota filesystem de status/pool denetiminde kullanılabilir; onun boot mount yönetimi Root'a aittir. Root, image ve quota diskini diğer Root işlemleriyle doldurursa kullanıcı tahsisi disk kapasitesi garantisi değildir.
+
+Format/mount sonrası başarısızlıkta image veri kaybını önlemek için otomatik silinmez; Root teşhis/onarım gerekir. Fallocate ilk adımının hatasında sadece yeni ve henüz formatlanmamış dosya temizlenir. Uninstall, veri/image ve mount dependency'lerini korur. Online Wizard metadata backup image/user contents backup'ı değildir; bu disk ayrıca offline/uygun snapshot yöntemiyle yedeklenmelidir.

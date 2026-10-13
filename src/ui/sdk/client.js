@@ -710,6 +710,7 @@ export class TealDriveClient {
     const response = await this._fetch(url, {
       method,
       credentials: "same-origin",
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         ...(method === "GET"
@@ -1293,6 +1294,7 @@ export class TealDriveClient {
       const bind = await this._fetch("/api/session/bind", {
         method: "POST",
         credentials: "same-origin",
+      cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: result.bind_token }),
       });
@@ -1803,6 +1805,7 @@ export class TealDriveClient {
     });
     const response = await this._fetch("/api/download?" + query, {
       credentials: "same-origin",
+      cache: "no-store",
       signal: options.signal,
     });
     if (!response.ok) {

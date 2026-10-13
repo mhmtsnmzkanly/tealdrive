@@ -378,7 +378,31 @@ where
             state.clone(),
             shutdown_admission::<H>,
         ))
+        .layer(axum::middleware::from_fn(private_api_cache))
         .with_state(state)
+}
+
+async fn private_api_cache(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let private = request.uri().path().starts_with("/api/");
+    let mut response = next.run(request).await;
+    if private {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("private, no-store"),
+        );
+        response.headers_mut().insert(
+            axum::http::header::PRAGMA,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+        response.headers_mut().append(
+            axum::http::header::VARY,
+            axum::http::HeaderValue::from_static("Cookie"),
+        );
+    }
+    response
 }
 
 pub async fn run_server<H>(

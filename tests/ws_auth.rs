@@ -47,6 +47,26 @@ async fn exercise(web_mode: bool) {
         tealdrive::rate_limit::login::InMemoryLoginRateLimiter::new(5),
     );
     let app = build_router(state.clone());
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/session")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        unauthenticated.headers()["cache-control"],
+        "private, no-store"
+    );
+    assert!(unauthenticated
+        .headers()
+        .get_all("vary")
+        .iter()
+        .any(|value| value == "Cookie"));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {

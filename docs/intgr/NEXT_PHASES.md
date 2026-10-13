@@ -68,3 +68,7 @@ python3 tools/dev/core-transfer-acceptance.py
 ```
 
 Araç gerçek onaylı tealdrive-test hesabının cloned auth DB'sini kullanır; tüm home/policy/bin/runtime/auth mount'ları private namespace içindedir. Fixture ve credentials kopyaları finally cleanup edilir, live config/home/DB değişmez. Kaynak binaries target/debug altında önceden hazırlanır.
+
+### API cache güvenliği
+
+Bütün /api/ cevapları,401/403 ve file download dahil,private,no-store ve Vary:Cookie alır. SDK HTTP/bind/download fetch cache:no-store kullanır. Bu kişisel cevapların browser/proxy cache yazımını önler; eski mobil401 olayının kesin cache kaynaklı olduğu iddia edilmez. WS/auth ve SDK testleri geçti. Proxy operatörü bu başlıkları zorla override eden cache rule kullanmamalı.

@@ -44,3 +44,7 @@ Root-only virtual admin provisioning `tealdrive` panel adına dar bir istisna ta
 ### UI aktarım/giriş ilk iyileştirmesi
 
 Yükleme progress sıfırlama ve AbortController üzerinden iptal düğmesi eklendi. Boyut hatası sunucunun gerçek byte sınırını kullanıcıya gösterir; TR/EN iptal ve disk dolu mesajları eklendi. Login submit işlem boyunca disabled; eşzamanlı ikinci login gönderilmez, başarısızlık sonrası tekrar etkinleşir. Browser codec, permission/login-secret/concurrent-submit, shutdown ve SDK integration testleri passed. Üretim release değişmedi. Derleme cache591MiB, disk95GiB boş; eski34GiB cache davranışı incremental/debug kapalı tutularak önlendi.
+
+### Yükleme staging güvenliği
+
+Staging create_new+0600+NOFOLLOW/CLOEXEC ile açılır; umask yanlış olsa da kullanıcı verisi world-readable olmaz. Chunk reopen symlink izleyemez.11 upload lifecycle testi geçti; mode assertion eklendi. Büyük aktarım limiti bu committe artırılmadı.

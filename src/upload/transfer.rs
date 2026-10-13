@@ -1,5 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use sha2::{Digest, Sha256};
@@ -121,7 +122,13 @@ pub fn upload_begin_request(
     let negotiated_chunk_size = request.chunk_size.min(config.limits.max_chunk_size).max(1);
     let staging_path = std::env::temp_dir().join(temp_name.as_str());
 
-    fs::File::create(&staging_path).map_err(|_| TealDriveError::Internal)?;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&staging_path)
+        .map_err(|_| TealDriveError::Internal)?;
 
     let active_upload = ActiveUpload {
         transfer_id,
@@ -168,6 +175,7 @@ pub fn upload_chunk_request(
 
     let mut file = OpenOptions::new()
         .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&active_upload.staging_path)
         .map_err(|_| TealDriveError::Internal)?;
 
@@ -413,6 +421,16 @@ mod tests {
         let req = begin_req("hello.txt", data.len() as u64, 10, Some(sha256.clone()));
         let (mut active, begin_resp) =
             upload_begin_request(&user(), req, &config, &engine).expect("begin ok");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&active.staging_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "staged user content must be private independently of the service umask"
+        );
         assert_eq!(begin_resp.chunk_size, 10);
         assert_eq!(begin_resp.transfer_id, active.transfer_id);
 

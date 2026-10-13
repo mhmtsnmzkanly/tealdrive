@@ -362,3 +362,7 @@ Normal575 unit passed/1 ignored, normal integration, fmt/Clippy -D warnings, Rus
 ## 2026-10-13 — Canlı Caddy yönetim izolasyonu
 
 Önce service UID995 Caddy TCP/admin config200 ve dns credential field present bool doğrulandı; secret değerleri çıkarılmadı. Private Unix socket sonrası service TCP denied(ECONNREFUSED), Unix denied(EACCES), Root Unix config200. Systemctl reload ve local origin HTTPS200 passed; Caddyfile yalnız admin directive farkı. Harici CF edge403 olduğu ayrı kaydedildi. Reusable read-only tools/dev/proxy-admin-check.py passed; private runtime rollback/validate/reload logs Root600 outsideGit.
+
+## 2026-10-13 — Actual mode ve expected-state gözlemi
+
+Normal577 unit passed/1 ignored; fmt/Clippy -D warnings, Rust1.85 all-target ve strict TypeScript passed. Unit same-size content edit ve deep child edit digest değişimini doğruladı; hidden .ssh doğrudan snapshot reddi ve parent tree fingerprint'in incomplete olması doğrulandı. Snapshot tree enumeration maxnode sınırı list allocate edilirken uygulanır; leaf read buffer heap/zeroizing64KiB, recursion stack büyümesi önlendi. Gerçek UID/PAM/Chromium root journal: chmod old/new ve after.mode gerçek metadata, rename/move/trash before-after inode continuity, own history/filter/policy ve credential exclusion passed. Fixture cleanup/root policy restore passed. Chmod metadata-only expected condition geçici permission probe gerektirmez; içerik snapshot sadece move/rename/trash kapsamındadır. Undo apply/ledger/GC/UI entegrasyonu henüz sürüyor.

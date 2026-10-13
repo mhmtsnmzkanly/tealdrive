@@ -21,6 +21,12 @@ const fs=require('node:fs');
   await page.fill('#passwordInput',fs.readFileSync(process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE,'utf8').trim());
   await page.click('#loginForm button[type=submit]');
   await page.waitForSelector('#loginModal.hidden',{state:'attached'});
+  if(process.env.TEALDRIVE_EXPECT_GLOBAL==='True'){
+   if(await page.locator('#settingsBtn').isDisabled())throw Error('Virtual global settings disabled');
+   const statuses=await page.evaluate(async()=>[(await fetch('/api/admin/config')).status,(await fetch('/api/admin/accounts/system')).status]);
+   if(statuses.some(status=>status!==200))throw Error('Virtual global management denied');
+  }
+
   const result=await page.evaluate(async()=>{
    const {createClient}=await import('/sdk/v1/tealdrive.js');
    const client=createClient({timeoutMs:120000});await client.handshake();
@@ -67,6 +73,23 @@ const fs=require('node:fs');
    client.disconnect();
    return {uploadBytes:upload.bytesWritten,downloadBytes:total,progressEvents:progress.length,range:true,cancelled,rejected};
   });
+
+  if(process.env.TEALDRIVE_EXPECT_GLOBAL==='True'){
+   const {execFileSync}=require('node:child_process');
+   const id=fs.readFileSync(process.env.TEALDRIVE_PANEL_ACCOUNT_ID_FILE,'utf8').trim();
+   execFileSync('/home/tealdrive/bin/tealdrive-wizard',['account','scope',id,'tenant'],{stdio:'ignore'});
+   const revoked=await page.evaluate(async()=>(await fetch('/api/admin/config')).status);
+   if(revoked!==401)throw Error('Old global session survived scope revocation');
+   await context.clearCookies();await page.reload();
+   await page.fill('#usernameInput',process.env.TEALDRIVE_TEST_USERNAME);
+   await page.fill('#passwordInput',fs.readFileSync(process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE,'utf8').trim());
+   await page.click('#loginForm button[type=submit]');
+   await page.waitForSelector('#loginModal.hidden',{state:'attached'});
+   if(!(await page.locator('#settingsBtn').isDisabled()))throw Error('Tenant retained global settings');
+   const status=await page.evaluate(async()=>(await fetch('/api/admin/config')).status);
+   if(status!==403)throw Error('Tenant accessed global configuration');
+   result.scopeRevocation=true;
+  }
   await page.click('#logoutBtn');
   console.log('PASS large transfer '+JSON.stringify(result));
  }finally{await browser.close();}

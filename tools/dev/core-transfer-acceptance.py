@@ -15,6 +15,44 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
     run(['/usr/bin/mount','--make-rprivate','/'])
     for source,target in [('bin','/home/tealdrive/bin'),('policy','/home/tealdrive/policy'),('auth','/home/tealdrive/auth'),('runtime','/home/tealdrive/data/runtime'),('config','/home/tealdrive/config'),('home',manifest['home'])]:
         run(['/usr/bin/mount','--bind',str(base/source),target])
+
+    if manifest.get('virtualAdmin'):
+        run(['/usr/bin/mount','--bind',str(base/'etc'),'/etc'])
+        run(['/usr/bin/mount','--bind',str(base/'storage'),'/home/tealdrive/storage'])
+        image=base/'storage/acceptance.ext4'
+        with image.open('xb') as volume:
+            image.chmod(0o600);os.posix_fallocate(volume.fileno(),0,128*1024*1024)
+        run(['/usr/sbin/mke2fs','-q','-t','ext4','-F','-O','quota','-E','quotatype=usrquota',str(image)])
+        run(['/usr/bin/mount','-o','loop,nodev,nosuid,noexec,usrquota',str(image),'/home/tealdrive/virtual-homes'])
+        os.chmod('/home/tealdrive/virtual-homes',0o711)
+        run(['/home/tealdrive/bin/tealdrive-wizard','pool','set','64MiB'])
+        # Root TTY password input with verified echo disabled; no argv/env secret.
+        import pty, select, termios, uuid
+        pid,terminal=pty.fork()
+        if pid==0:
+            os.execv('/home/tealdrive/bin/tealdrive-wizard',['tealdrive-wizard','virtual','admin','create','tealdrive','64MiB',str(uuid.uuid4())])
+        output=b'';sent=0;deadline=time.monotonic()+30
+        try:
+            while time.monotonic()<deadline:
+                ready,_,_=select.select([terminal],[],[],.2)
+                if ready:
+                    try:data=os.read(terminal,65536)
+                    except OSError:break
+                    if not data:break
+                    output+=data
+                prompt=b'New virtual admin web password: ' if sent==0 else b'Confirm web password: '
+                if sent<2 and prompt in output:
+                    if termios.tcgetattr(terminal)[3]&termios.ECHO:raise RuntimeError('Secret prompt has echo enabled')
+                    os.write(terminal,(base/'password').read_bytes().strip()+b'\n');sent+=1
+            _,status=os.waitpid(pid,0)
+            if os.waitstatus_to_exitcode(status)!=0 or sent!=2:raise RuntimeError('Virtual admin provisioning failed')
+        finally:os.close(terminal)
+        account=json.loads(output[output.index(b'{'):].decode())
+        run(['/home/tealdrive/bin/tealdrive-wizard','account','scope',account['id'],'global'])
+        (base/'panel-account-id').write_text(account['id'])
+        manifest['username']='tealdrive'
+        manifest['expectGlobal']=True
+        print('PASS: private NSS virtual service-name alias and Root scope assignment')
     env={**os.environ,'TMPDIR':'/home/tealdrive/data/runtime/tmp'}
     log=(base/'server.log').open('wb')
     server=subprocess.Popen(['/usr/sbin/runuser','-u','tealdrive','--','/home/tealdrive/bin/tealdrive-server','--config','/home/tealdrive/policy/server.toml','--helper-bin','/home/tealdrive/bin/tealdrive-helper'],env=env,stdout=log,stderr=log,start_new_session=True)
@@ -25,7 +63,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 with socket.create_connection(('127.0.0.1',13106),timeout=.2):break
             except OSError:time.sleep(.1)
         else:raise RuntimeError('Candidate listener not ready')
-        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password')}
+        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id')}
         subprocess.run(['node',str(ROOT/'tests/live/core-transfer.cjs')],env=childenv,check=True)
         if list((base/'runtime/tmp').glob('.tdrv-upload-*')):raise RuntimeError('Staging leak after completed transfer')
         print('PASS: private namespace, real setuid helper/User worker, no production home or auth DB writes')
@@ -63,5 +101,9 @@ with tempfile.TemporaryDirectory(prefix='.core-transfer-',dir='/root') as name:
         path=base/'policy'/filename;body=path.read_text().replace('127.0.0.1:13100','127.0.0.1:13106').replace('https://tdrive.novastrum.dev','https://tealdrive-origin.local:13106').replace('/home/tealdrive/logs/server/audit.jsonl','/home/tealdrive/data/runtime/audit.jsonl').replace('max_in_flight_upload = 1048576','max_in_flight_upload = 1073741824')
         path.write_text(body)
     (base/'password').write_bytes(password.read_bytes());(base/'password').chmod(0o600)
-    (base/'manifest.json').write_text(json.dumps({'username':username,'home':identity.pw_dir}))
+    virtual=os.environ.get('TEALDRIVE_CORE_VIRTUAL_ADMIN')=='1'
+    if virtual:
+        shutil.copytree('/etc',base/'etc',symlinks=True)
+        (base/'storage').mkdir(mode=0o700)
+    (base/'manifest.json').write_text(json.dumps({'username':username,'home':identity.pw_dir,'virtualAdmin':virtual}))
     subprocess.run(['/usr/bin/unshare','--mount','--pid','--fork','--mount-proc','python3',str(Path(__file__).resolve()),'--child',str(base)],check=True)

@@ -80,3 +80,7 @@ Root scope ataması mevcut security_state tablosundaki panel_scope:ACCOUNT_ID ka
 592library tests:591passed/1explicit PAM ignored. Scope regression: virtual kimliği/UID/home değişmeden Root global ataması, tenant'a geri dönüş, eski generation reddi, RoleUser ve self-authority scope ataması reddi. Production admin/homes bu aşamada değiştirilmedi.
 
 Protected SQLite gerçek Root kabulü3test geçti: WAL/private UID erişim reddi, eşzamanlı bütçeler, explicit migration/backup/proof invalidation ve kalıcı login sayaçları. WS-auth+SDK integration geçti. Clippy all-targets -Dwarnings passed.
+
+### Sanal genel admin: gerçek izole kabul
+
+`TEALDRIVE_CORE_VIRTUAL_ADMIN=1` kabulü private mount/PID namespace içinde /etc NSS dosyaları,Root auth/policy/binaries/runtime ve128MiB quota-enabled ext4 volume oluşturdu. Root Wizard tty echo kapalı doğrulanarak `tealdrive` sanal adminini64MiB budget ile oluşturdu; OS adı tdv_UID oldu,service UID995 benimsenmedi. Root scope global ataması sonrası gerçek Chromium UI settings ve system/config yönetim200;17MiB upload/stream download/Range/abort/tamper cleanup yeniden geçti. Root scope tenant'a dönüşte eski cookie401 ve yeni login config403/settings disabled doğrulandı; tenant RoleAdmin/home/UID korundu. Host NSS'de yeni tdv account yok, production auth/home/image değişmedi, fixture/loop mount otomatik temizlendi.

@@ -149,3 +149,5 @@ cargo clean
 Cleaner runtime UID staging, open FD/cwd/exe paths, mounted trees ve arbitrary /tmp names üzerinde çalışmaz. Source/test scriptlerini veya operational backups'ı silmez. Güncel sonuç [CLEANUP.md](CLEANUP.md) içindedir. `node_modules` küçük ve browser kabulü için kullanışlı olduğu için korundu; package-lock üzerinden yeniden kurulabilir.
 
 Core transfer kabulü: `TEALDRIVE_CORE_TRANSFER_ACCEPTANCE=1 TEALDRIVE_TEST_WEB_PASSWORD_FILE=/root/private-test-password python3 tools/dev/core-transfer-acceptance.py`. Root, unshare/mount, mevcut onaylı test hesabı, private web parola dosyası ve güncel target/debug dört binary gerekir. Production auth/home/config/binaries değiştirilmez; private namespace/cloned DB ve ephemeral fixture kullanılır.
+
+Aynı kabulde `TEALDRIVE_CORE_VIRTUAL_ADMIN=1` eklenirse private /etc ve128MiB kernel-quota filesystem ile servis-adlı virtual alias/global scope/revoke kabulü de çalışır. Host OS hesabı veya production quota volume oluşturulmaz/değiştirilmez.

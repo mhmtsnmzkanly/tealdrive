@@ -378,3 +378,7 @@ Normal578 unit passed/1 ignored, normal integration, fmt/Clippy -D warnings, Rus
 ## 2026-10-13 — Gömülü history/undo UI
 
 Gerçek Root/PAM/Chromium application quota fixture passed: own dialog/filter, SDK üzerinden cancel(no mutation)/confirm(real restore), own duration pref persist/inherit, Escape close ve launcher focus restoration. Mode000/rename/move/trash/directory/changed content/occupied target/foreign actor negatif testleri aynı kabulde tekrar passed. Fixture private policy restore/cleanup passed. Başlangıçta Playwright implicit browser.newPage context ikinci page'i reddediyordu; explicit newContext kullanıldı. Async launcher disable nedeniyle focus body'ye kayıyordu; dialog explicit restoreFocus ile düzeltildi ve kabul tekrar geçti. UI module embedded asset/version/default recovery namespace'e eklendi; Türkçe/İngilizce etiketler dosya adlarına uygulanmaz. ui unit5 passed, fmt/Clippy -D warnings, sdk regression, strict TypeScript ve Rust1.85 all-target passed. Genel lifecycle/gerçek servis migration son kabulü henüz tamamlanmadı.
+
+## 2026-10-13 — Root journal ceiling regression
+
+Snapshot enabled=false + değiştirilmiş max_entries/max_total/max_record_bytes/undo_max testinde restricted.journal Root config ile birebir eşleşti. helper policy3 unit passed; fmt/Clippy -D warnings passed. Bu düzeltme file operation client snapshot ile protected journal bypass edilmesini önler.

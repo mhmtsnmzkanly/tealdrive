@@ -282,3 +282,7 @@ Kota doluyken yalnız Root-feature/policy izinli live permanent delete bounded s
 ## D054 — Tek kullanımlık koşullu undo ve offline restore fence
 
 2026-10-13: Kendi protected Root operation kaydı inverse source/target/mode kaynağıdır. Root current grant/NSS/home/policy + ortak lock sonrası tekrar denetim, durable pending claim, signed User worker ve actual expected-state karşılaştırması kullanılır. Move/rename/trash full bounded digest + inode; chmod pinned metadata ve eski0777 mode. Restore undo_epoch döndürür, audit kalır. Pending/unknown veya uygulanmış başarısız deneme otomatik tekrar edilmez; belirsiz sonuçta ikinci mutasyon başlatmamak seçildi. Pref null Root max'a bağlıdır; min1,maxRoot(default24), own CASrevision, login generation değişmez. Liste actual FS doğrulaması değildir; uygulama anında check zorunludur. Trash internal target görünürlüğü original path'ten hesaplanır; private info kullanıcı yazabilir olduğu için yetki kaynağı yapılmaz. Ayrıntılı mevcut API ve sınırlar UNDO.md.
+
+## D055 — Journal ayarı server snapshot'ından türetilemez
+
+2026-10-13: PolicySnapshot restrict artık journal alanını tamamen Root ceiling'den alır. Server kendi config kopyasında enabled=false veya farklı kayıt boyutu/count/undo limitleri göndererek protected kayıt zorunluluğunu veya quota maliyetini değiştiremez. Helper otoritesi server capability ilanından bağımsızdır. Runtime web patch journal alanı sunmaz.

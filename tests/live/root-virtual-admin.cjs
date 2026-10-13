@@ -31,6 +31,35 @@ const { execFileSync, spawnSync } = require("node:child_process");
         quotaBytes: 8192,
       });
     }, user);
+    await page.evaluate(async () => {
+      const own = await api.admin.virtualUsers.listPage({ limit: 1 });
+      if (own.items.length !== 1 || own.hasMore)
+        throw Error("Tenant page scope failed");
+      try {
+        await api.admin.systemUsers.accountsPage({ limit: 1 });
+        throw Error("Tenant queried Linux metadata page");
+      } catch (error) {
+        if (error.status !== 403) throw error;
+      }
+    });
+    await page.reload();
+    await page.waitForFunction(
+      () => document.querySelector("#wsStatusText").textContent === "Connected",
+    );
+    await page.click("#manageAccountsBtn");
+    await page.waitForSelector("#accountsModal:not(.hidden)");
+    await page
+      .locator("#accountsTableBody tr")
+      .filter({ hasText: child.username })
+      .waitFor();
+    if (!(await page.textContent("#accountsBudget")).includes("Assigned"))
+      throw Error("Virtual administrator UI budget did not render");
+    await page.click("#accountsCloseBtn");
+    await page.evaluate(async () => {
+      const { createClient } = await import("/sdk/v1/tealdrive.js");
+      globalThis.api = createClient({ storage: null, quotaPollMs: 0 });
+      await api.handshake();
+    });
     const result = spawnSync(
       "/home/tealdrive/bin/tealdrive-wizard",
       ["budget", "set", user.account.id, "8192"],
@@ -47,6 +76,7 @@ const { execFileSync, spawnSync } = require("node:child_process");
     console.log(
       JSON.stringify({
         rootVirtualAdmin: true,
+        virtualAdminUi: true,
         tenantBoundary: true,
         ownUsageBudgetGuard: true,
       }),

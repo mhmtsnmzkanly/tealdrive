@@ -4,3 +4,5 @@ pub mod password;
 pub mod policies;
 pub mod store;
 pub mod virtuals;
+
+pub mod listing;

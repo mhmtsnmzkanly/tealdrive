@@ -300,6 +300,14 @@ where
                 .post(crate::admin::accounts::set_virtual_policy::<H>),
         )
         .route(
+            "/api/admin/accounts/system/page",
+            get(crate::admin::accounts::page_system::<H>),
+        )
+        .route(
+            "/api/admin/virtual/page",
+            get(crate::admin::accounts::page_virtual::<H>),
+        )
+        .route(
             "/api/admin/accounts/system",
             get(crate::admin::accounts::list_system::<H>),
         )

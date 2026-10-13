@@ -340,6 +340,31 @@ fn own_reservation(
     Ok(Some((root, held, used)))
 }
 impl AccountStore {
+    pub fn is_purged(&self, id: &str) -> Result<bool, StoreError> {
+        let raw: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT value FROM security_state WHERE key=?1",
+                [format!("virtual_purged_v1:{id}")],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(raw) = raw else {
+            return Ok(false);
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|_| StoreError::InvalidInput)?;
+        let account = self.get(id)?;
+        if value["version"] != 1
+            || value["uid"] != account.uid
+            || account.status != super::store::AccountStatus::Deleted
+            || account.quota_bytes != Some(0)
+            || account.password_enrolled
+        {
+            return Err(StoreError::InvalidInput);
+        }
+        Ok(true)
+    }
     pub fn pool_limit(&self) -> Result<u64, StoreError> {
         let limit: i64 = self.connection.query_row(
             "SELECT limit_bytes FROM quota_pool WHERE id=1",
@@ -890,7 +915,10 @@ pub(crate) fn sync_limits(store: &mut AccountStore, cfg: &AppConfig) -> Result<(
     if cfg.virtual_accounts.enforcement != Enforcement::UserQuota {
         return Err(StoreError::InvalidInput);
     }
-    for target in store.list(&Authority::Root, AccountKind::Virtual)? {
+    for target in store.all_accounts(&Authority::Root, AccountKind::Virtual)? {
+        if store.is_purged(&target.id)? {
+            continue;
+        }
         crate::helper::account_gateway::validate_account(cfg, &target)
             .map_err(|_| StoreError::Forbidden)?;
         let root = root(cfg, &target)?;

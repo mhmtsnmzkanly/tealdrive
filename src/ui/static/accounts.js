@@ -12,7 +12,9 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
     busy = false,
     epoch = 0,
     candidates = [],
-    capabilities = null;
+    capabilities = null,
+    cursor = null,
+    nextCursor = null;
   const visible = () => !modal.classList.contains("hidden");
   const globalAdmin = () =>
     session?.accountKind === "linux" && session?.isAdmin;
@@ -43,6 +45,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       if (button.id !== "accountsCloseBtn")
         button.disabled = value || button.dataset.blocked === "true";
     select.disabled = value || !candidates.length;
+    $("accountsFilter").disabled = value;
     $("accountsApproveBtn").disabled = value || !select.value;
   }
   function configure(info) {
@@ -202,7 +205,10 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
       body.append(row);
     }
   }
-  async function refresh() {
+  async function refresh(next = false) {
+    cursor = next ? nextCursor : null;
+    nextCursor = null;
+    $("accountsNextBtn").dataset.blocked = "true";
     const ticket = ++epoch;
     setBusy(true);
     $("accountsError").textContent = t("");
@@ -229,22 +235,52 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
           {
             limit: formatBytes(budget.limitBytes),
             reserved: formatBytes(budget.reservedBytes),
-            available: formatBytes(budget.remainingBytes),
+            available: formatBytes(budget.availableBytes??Math.max(0,budget.remainingBytes-(budget.usedBytes??0))),
           },
         );
       }
-      const [accounts, eligible] =
+      const query = {
+        limit: 100,
+        cursor,
+        filter: $("accountsFilter").value.trim() || null,
+      };
+      const [page, eligible] =
         kind === "linux"
           ? await Promise.all([
-              client.admin.systemUsers.accounts(),
+              info.authentication.accountPagination
+                ? client.admin.systemUsers.accountsPage(query)
+                : client.admin.systemUsers
+                    .accounts()
+                    .then((items) => ({
+                      items,
+                      nextCursor: null,
+                      hasMore: false,
+                    })),
               client.admin.systemUsers.list(),
             ])
-          : [await client.admin.virtualUsers.list(), null];
+          : [
+              info.authentication.accountPagination
+                ? await client.admin.virtualUsers.listPage(query)
+                : {
+                    items: await client.admin.virtualUsers.list(),
+                    nextCursor: null,
+                    hasMore: false,
+                  },
+              null,
+            ];
+      const accounts = page.items;
+      if (ticket !== epoch || !visible()) return;
+      nextCursor = page.nextCursor;
+      $("accountsNextBtn").dataset.blocked = String(!nextCursor);
+      $("accountsFirstBtn").dataset.blocked = String(!cursor);
+      $("accountsPaging").classList[
+        info.authentication.accountPagination ? "remove" : "add"
+      ]("hidden");
       if (ticket !== epoch || !visible()) return;
       render(accounts);
       const registered = new Set(accounts.map((account) => account.username));
       candidates = (eligible?.users ?? []).filter(
-        (user) => !registered.has(user.username),
+        (user) => !user.registered && !registered.has(user.username),
       );
       const placeholder = document.createElement("option");
       placeholder.value = "";
@@ -257,7 +293,7 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
         select.append(option);
       }
       $("accountsStatus").textContent =
-        `${accounts.length} registered account(s).${eligible?.truncated || accounts.length >= 1025 ? " The list is limited; additional accounts may exist." : ""}`;
+        `${accounts.length} registered account(s).${page.hasMore ? " Next page is available." : ""}${eligible?.truncated ? " Local discovery is limited." : ""}`;
       $("accountsCandidatesNote").textContent = eligible?.truncated
         ? "Local user discovery is limited to the first 1024 eligible identities."
         : candidates.length
@@ -321,6 +357,15 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
   });
   $("accountsCreateVirtualBtn").onclick = () => virtualDialog(null);
   $("accountsCloseBtn").onclick = close;
+  $("accountsNextBtn").onclick = () => {
+    if (!busy && nextCursor) refresh(true);
+  };
+  $("accountsFirstBtn").onclick = () => {
+    if (!busy) refresh();
+  };
+  $("accountsFilter").onchange = () => {
+    if (!busy) refresh();
+  };
   $("accountsRefreshBtn").onclick = () => {
     if (!busy) refresh();
   };
@@ -370,18 +415,6 @@ export function createAccountManagement({ getClient, toast, formatBytes }) {
           ? "remove"
           : "add"
       ]("hidden");
-      if (kind === "virtual" && info.authentication.virtualAccounts) {
-        const budget = await client.admin.quota.getBudget();
-        if (ticket !== epoch || !visible()) return;
-        $("accountsBudget").textContent = t(
-          "Assigned {limit} · Reserved {reserved} · Available {available}",
-          {
-            limit: formatBytes(budget.limitBytes),
-            reserved: formatBytes(budget.reservedBytes),
-            available: formatBytes(budget.remainingBytes),
-          },
-        );
-      }
       $("accountsCloseBtn").focus();
       await refresh();
     },

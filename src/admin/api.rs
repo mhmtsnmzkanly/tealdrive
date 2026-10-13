@@ -357,10 +357,27 @@ pub async fn get_users_handler<H>(
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    let authorization = get_config_handler(State(state.clone()), headers).await;
+    let authorization = get_config_handler(State(state.clone()), headers.clone()).await;
     if authorization.status() != StatusCode::OK {
         return authorization;
     }
+    let registration_grant = if state.config.load().web_accounts.enabled {
+        let Ok(id) = extract_session_id(&headers, &state.config.load().session.cookie_name) else {
+            return StatusCode::UNAUTHORIZED.into_response();
+        };
+        match state
+            .session_store
+            .lock()
+            .await
+            .get_session(&id, InMemorySessionStore::now_epoch_seconds())
+        {
+            SessionLookupResult::Found(session) => session.grant.as_deref().cloned(),
+            _ => return StatusCode::UNAUTHORIZED.into_response(),
+        }
+    } else {
+        None
+    };
+    let authenticator = state.authenticator.clone();
     let minimum_uid = state.config.load().account_policy.minimum_regular_uid;
     let Ok(permit) = state.operation_slots.clone().acquire_owned().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -371,7 +388,36 @@ where
     match tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let _activity = activity;
-        crate::admin::users::discover(minimum_uid)
+        let mut users = crate::admin::users::discover(minimum_uid)?;
+        if let Some(grant) = registration_grant {
+            let names = users
+                .users
+                .iter()
+                .map(|user| user.username.clone())
+                .collect();
+            let reply = authenticator
+                .account_command(
+                    crate::helper::account_gateway::AccountCommand::CandidateRegistration {
+                        grant,
+                        names,
+                    },
+                )
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Registration metadata unavailable",
+                    )
+                })?;
+            let crate::helper::account_gateway::AccountReply::RegisteredNames(registered) = reply
+            else {
+                return Err(std::io::Error::other("Unexpected registration metadata"));
+            };
+            let registered: std::collections::HashSet<_> = registered.into_iter().collect();
+            for user in &mut users.users {
+                user.registered = Some(registered.contains(&user.username));
+            }
+        }
+        Ok::<_, std::io::Error>(users)
     })
     .await
     {

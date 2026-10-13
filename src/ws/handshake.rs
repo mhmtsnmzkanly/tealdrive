@@ -24,6 +24,7 @@ pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDr
             password_change: config.web_accounts.enabled,
             self_revoke: config.web_accounts.enabled,
             account_management: config.web_accounts.enabled,
+            account_pagination: config.web_accounts.enabled,
             linux_approval: config.web_accounts.enabled,
             policy_management: config.web_accounts.enabled,
             virtual_accounts: config.web_accounts.enabled

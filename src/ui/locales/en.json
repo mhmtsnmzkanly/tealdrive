@@ -260,5 +260,6 @@
   "File policy · {username}": "File policy · {username}",
   "Quota · {username}": "Quota · {username}",
   "Assigned {limit} · Reserved {reserved} · Available {available}": "Assigned {limit} · Reserved {reserved} · Available {available}",
-  "Assigned {limit} bytes; reserved {reserved}; available {available}.": "Assigned {limit} bytes; reserved {reserved}; available {available}."
+  "Assigned {limit} bytes; reserved {reserved}; available {available}.": "Assigned {limit} bytes; reserved {reserved}; available {available}.",
+  "Filter accounts": "Filter accounts"
 }

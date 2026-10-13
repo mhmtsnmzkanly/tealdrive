@@ -89,6 +89,40 @@ let checkpoint = "startup";
       },
       { names, password },
     );
+    checkpoint = "scoped metadata pagination";
+    await admin.evaluate(async () => {
+      const firstPage = await api.admin.virtualUsers.listPage({
+        limit: 1,
+        filter: "virtual-",
+      });
+      if (
+        firstPage.items.length !== 1 ||
+        !firstPage.hasMore ||
+        !firstPage.nextCursor
+      )
+        throw Error("Metadata first page failed");
+      const secondPage = await api.admin.virtualUsers.listPage({
+        limit: 1,
+        filter: "virtual-",
+        cursor: firstPage.nextCursor,
+      });
+      if (
+        secondPage.items.length !== 1 ||
+        secondPage.items[0].id === firstPage.items[0].id ||
+        secondPage.hasMore
+      )
+        throw Error("Metadata continuation failed");
+      const filtered = await api.admin.virtualUsers.list({
+        limit: 1,
+        filter: firstPage.items[0].username,
+      });
+      if (
+        !Array.isArray(filtered) ||
+        filtered.length !== 1 ||
+        filtered[0].id !== firstPage.items[0].id
+      )
+        throw Error("Compatibility list filter failed");
+    });
     await regular.evaluate(async (password) => {
       try {
         await api.admin.virtualUsers.create({
@@ -293,7 +327,10 @@ let checkpoint = "startup";
     await uiRow.getByRole("button", { name: "Delete", exact: true }).waitFor();
     admin.once("dialog", (dialog) => dialog.accept());
     await uiRow.getByRole("button", { name: "Delete", exact: true }).click();
-    await uiRow.locator('[data-label="State"]').filter({hasText:"Deleted"}).waitFor();
+    await uiRow
+      .locator('[data-label="State"]')
+      .filter({ hasText: "Deleted" })
+      .waitFor();
     await admin.click("#accountsCloseBtn");
     await admin.click("#logoutBtn");
 
@@ -302,6 +339,7 @@ let checkpoint = "startup";
     console.log(
       JSON.stringify({
         virtualProvisioning: true,
+        metadataPagination: true,
         idempotentCreate: true,
         separateUidGid: true,
         lockedNologin: true,

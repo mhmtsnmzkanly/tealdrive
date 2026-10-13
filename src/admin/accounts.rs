@@ -45,6 +45,7 @@ pub struct VirtualDeletePayload {
 }
 enum Action {
     List(AccountKind),
+    Page(AccountKind, crate::accounts::listing::AccountQuery),
     Access(AccountKind, String, bool),
     Approve(String),
     PolicyGet(Option<String>, Option<AccountKind>),
@@ -170,6 +171,26 @@ macro_rules! policy_handlers {
 }
 policy_handlers!(system_policy, set_system_policy, AccountKind::Linux);
 policy_handlers!(virtual_policy, set_virtual_policy, AccountKind::Virtual);
+pub async fn page_system<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Query(query): Query<crate::accounts::listing::AccountQuery>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::Page(AccountKind::Linux, query)).await
+}
+pub async fn page_virtual<H>(
+    State(state): State<WsServerState<H>>,
+    headers: HeaderMap,
+    Query(query): Query<crate::accounts::listing::AccountQuery>,
+) -> Response
+where
+    H: WsHelperBackend + Clone + 'static,
+{
+    dispatch(state, headers, Action::Page(AccountKind::Virtual, query)).await
+}
 pub async fn list_system<H>(State(state): State<WsServerState<H>>, headers: HeaderMap) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
@@ -286,7 +307,7 @@ where
     }
     if !matches!(
         action,
-        Action::List(_) | Action::PolicyGet(..) | Action::Budget
+        Action::List(_) | Action::Page(..) | Action::PolicyGet(..) | Action::Budget
     ) && !crate::session::csrf::validate_header(&session, &headers)
     {
         return StatusCode::FORBIDDEN.into_response();
@@ -295,7 +316,7 @@ where
         return StatusCode::FORBIDDEN.into_response();
     };
     let operation = match &action {
-        Action::List(_) | Action::PolicyGet(..) | Action::Budget => None,
+        Action::List(_) | Action::Page(..) | Action::PolicyGet(..) | Action::Budget => None,
         Action::CreateVirtual(..) => Some("create_virtual_account"),
         Action::SetVirtualQuota(..) => Some("change_virtual_quota"),
         Action::DeleteVirtual(..) => Some("delete_virtual_account"),
@@ -325,6 +346,7 @@ where
         },
         Action::Budget => AccountCommand::Budget(grant),
         Action::List(kind) => AccountCommand::ListAccounts { grant, kind },
+        Action::Page(kind, query) => AccountCommand::ListAccountPage { grant, kind, query },
         Action::PolicyGet(account_id, kind) => AccountCommand::GetPolicy {
             grant,
             account_id,
@@ -384,6 +406,7 @@ where
     .await
     {
         Ok(Ok(AccountReply::Accounts(accounts))) => Json(accounts).into_response(),
+        Ok(Ok(AccountReply::AccountPage(page))) => Json(page).into_response(),
         Ok(Ok(AccountReply::Budget(budget)))=>Json(budget).into_response(),
         Ok(Ok(AccountReply::Policy{account,rules,deny_system_components})) => Json(serde_json::json!({"account":account,"rules":rules,"deny_system_components":deny_system_components})).into_response(),
         Ok(Ok(AccountReply::AccountUpdated(account))) => {

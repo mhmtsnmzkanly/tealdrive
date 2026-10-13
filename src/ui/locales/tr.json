@@ -260,5 +260,6 @@
   "File policy · {username}": "Dosya politikası · {username}",
   "Quota · {username}": "Kota · {username}",
   "Assigned {limit} · Reserved {reserved} · Available {available}": "Atanan {limit} · Ayrılan {reserved} · Kalan {available}",
-  "Assigned {limit} bytes; reserved {reserved}; available {available}.": "Atanan {limit} bayt; ayrılan {reserved}; kalan {available}."
+  "Assigned {limit} bytes; reserved {reserved}; available {available}.": "Atanan {limit} bayt; ayrılan {reserved}; kalan {available}.",
+  "Filter accounts": "Hesapları filtrele"
 }

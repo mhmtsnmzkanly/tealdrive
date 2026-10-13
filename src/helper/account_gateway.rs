@@ -118,6 +118,15 @@ pub enum AccountCommand {
         expected_generation: u64,
     },
     Budget(SessionGrant),
+    CandidateRegistration {
+        grant: SessionGrant,
+        names: Vec<String>,
+    },
+    ListAccountPage {
+        grant: SessionGrant,
+        kind: AccountKind,
+        query: crate::accounts::listing::AccountQuery,
+    },
     LocalEnroll {
         linux_password: zeroize::Zeroizing<String>,
         web_password: zeroize::Zeroizing<String>,
@@ -142,6 +151,8 @@ pub enum AccountReply {
     AccessRevoked,
     PasswordChanged,
     Accounts(Vec<Account>),
+    RegisteredNames(Vec<String>),
+    AccountPage(crate::accounts::listing::AccountPage),
     AccountUpdated(Account),
     Policy {
         account: Account,
@@ -545,6 +556,12 @@ fn dispatch(
                         .map_err(GatewayFailure::from)?,
                 );
             }
+            budget["available_bytes"] = serde_json::Value::from(
+                budget["remaining_bytes"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .saturating_sub(budget["used_bytes"].as_u64().unwrap_or(0)),
+            );
             budget["enforcement"] = serde_json::to_value(config.virtual_accounts.enforcement)
                 .map_err(|_| GatewayFailure::Unavailable)?;
             Ok(AccountReply::Budget(budget))
@@ -742,6 +759,43 @@ fn dispatch(
                     _ => GatewayFailure::from(error),
                 })?;
             Ok(AccountReply::AccountUpdated(account))
+        }
+        AccountCommand::CandidateRegistration { grant, names } => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            management_authority(config, &actor, AccountKind::Linux)?;
+            if names.len() > 1024
+                || names.iter().any(|name| {
+                    name.is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+                })
+            {
+                return Err(GatewayFailure::Forbidden);
+            }
+            let mut registered = Vec::new();
+            for name in names {
+                if store
+                    .find_username(&name)
+                    .map_err(GatewayFailure::from)?
+                    .is_some()
+                {
+                    registered.push(name);
+                }
+            }
+            Ok(AccountReply::RegisteredNames(registered))
+        }
+        AccountCommand::ListAccountPage { grant, kind, query } => {
+            let actor = store
+                .verify_grant(&grant, &caller, at)
+                .map_err(GatewayFailure::from)?;
+            validate_account(config, &actor)?;
+            let authority = management_authority(config, &actor, kind)?;
+            Ok(AccountReply::AccountPage(
+                store
+                    .list_page(&authority, kind, &query)
+                    .map_err(GatewayFailure::from)?,
+            ))
         }
         AccountCommand::ListAccounts { grant, kind } => {
             let actor = store

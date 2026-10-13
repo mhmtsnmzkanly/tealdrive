@@ -10,6 +10,8 @@ pub struct UserCandidate {
     pub username: String,
     pub uid: u32,
     pub gid: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registered: Option<bool>,
 }
 #[derive(Debug, Serialize)]
 pub struct UserCandidates {
@@ -81,6 +83,7 @@ fn candidates(passwd: &str, shells: &str, minimum_uid: u32) -> UserCandidates {
                 username: username.into(),
                 uid,
                 gid,
+                registered: None,
             },
         );
     }

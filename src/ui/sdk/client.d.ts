@@ -133,6 +133,7 @@ export interface ServerInfo {
     passwordChange: boolean;
     selfRevoke: boolean;
     accountManagement: boolean;
+    accountPagination: boolean;
     linuxApproval: boolean;
     policyManagement: boolean;
     virtualAccounts: boolean;
@@ -166,12 +167,16 @@ export interface AccountMetadata {
 /** Transient reactions; use observeState/observeQuotaWarning for persistent conditions. */
 export interface ClientEvents {
   "state.changed": ClientState;
-  "connection.changed": {status:ClientState["connection"]};
-  "server.shutdown": {deadlineSeconds:number};
-  "session.revoked": Record<string,never>;
-  "files.changed": {operation:string;rootId?:string;path?:string};
-  "accounts.changed": {operation:"create"|"quota"|"delete";accountId:string;kind:"virtual"};
-  "policy.changed": {accountId:string;generation:number};
+  "connection.changed": { status: ClientState["connection"] };
+  "server.shutdown": { deadlineSeconds: number };
+  "session.revoked": Record<string, never>;
+  "files.changed": { operation: string; rootId?: string; path?: string };
+  "accounts.changed": {
+    operation: "create" | "quota" | "delete";
+    accountId: string;
+    kind: "virtual";
+  };
+  "policy.changed": { accountId: string; generation: number };
   "quota.warning.changed": QuotaWarning;
   "quota.warning.entered": Quota;
   "quota.warning.cleared": Quota;
@@ -272,7 +277,10 @@ export interface FilesAPI {
   observeState(callback: (state: ClientState) => void): Unsubscribe;
   /** Immediate current condition + changes. SDK never renders a popup or writes DOM. */
   observeQuotaWarning(callback: (warning: QuotaWarning) => void): Unsubscribe;
-  on<K extends keyof ClientEvents>(event:K,callback:(payload:ClientEvents[K])=>void):Unsubscribe;
+  on<K extends keyof ClientEvents>(
+    event: K,
+    callback: (payload: ClientEvents[K]) => void,
+  ): Unsubscribe;
   on(event: string, callback: (payload: unknown) => void): Unsubscribe;
   trash: {
     move(options: FileOptions): Promise<OperationResult>;
@@ -388,6 +396,7 @@ export interface UserCandidate {
   username: string;
   uid: number;
   gid: number;
+  registered?: boolean;
 }
 export interface UserCandidates {
   users: readonly UserCandidate[];
@@ -400,8 +409,23 @@ export interface AdminBudget {
   limitBytes: number;
   reservedBytes: number;
   remainingBytes: number;
+  /** Available after own helper-measured usage; older backends may omit it. */
+  availableBytes?: number;
   usedBytes?: number;
   enforcement: "application" | "user_quota";
+}
+export interface AccountQuery {
+  limit?: number;
+  /** Server continuation username; not an authorization token. Scope is checked again. */
+  cursor?: string | null;
+  filter?: string;
+  status?: "active" | "suspended" | "revoked" | "deleted";
+  enrolled?: boolean;
+}
+export interface AccountPage {
+  items: readonly AccountMetadata[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 export interface AdminAPI {
   settings: {
@@ -421,6 +445,7 @@ export interface AdminAPI {
     list(): Promise<UserCandidates>;
     /** Registered system web accounts, distinct from eligible NSS login candidates. */
     accounts(): Promise<readonly AccountMetadata[]>;
+    accountsPage(options?: AccountQuery): Promise<AccountPage>;
     getPolicy(options: { accountId: string }): Promise<PolicyView>;
     setPolicy(options: {
       accountId: string;
@@ -443,10 +468,9 @@ export interface AdminAPI {
       expectedGeneration: number;
       rules: readonly PolicyRule[];
     }): Promise<AccountMetadata>;
-    list(options?: {
-      limit?: number;
-      cursor?: string | null;
-    }): Promise<unknown>;
+    /** Compatibility array result; supplied filter/limit/cursor uses the bounded page backend. */
+    list(options?: AccountQuery): Promise<readonly AccountMetadata[]>;
+    listPage(options?: AccountQuery): Promise<AccountPage>;
     /** Creates a locked/nologin OS identity and initial web password atomically in metadata.
      * A repeated idempotency key returns the same account and NEVER resets its password.
      * On a network failure error.params.idempotencyKey can be reused. No credentials are stored by SDK. */
@@ -487,7 +511,10 @@ export class TealDriveClient {
   disconnect(): void;
   getState(): ClientState;
   observeState(callback: (state: ClientState) => void): Unsubscribe;
-  on<K extends keyof ClientEvents>(event:K,callback:(payload:ClientEvents[K])=>void):Unsubscribe;
+  on<K extends keyof ClientEvents>(
+    event: K,
+    callback: (payload: ClientEvents[K]) => void,
+  ): Unsubscribe;
   on(event: string, callback: (payload: unknown) => void): Unsubscribe;
 }
 export function createClient(options?: ClientOptions): TealDriveClient;

@@ -339,8 +339,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
         ["account", "list"] => {
             root()?;
             let store = store()?;
-            let mut accounts = store.list(&Authority::Root, AccountKind::Linux)?;
-            accounts.extend(store.list(&Authority::Root, AccountKind::Virtual)?);
+            let mut accounts = store.all_accounts(&Authority::Root, AccountKind::Linux)?;
+            accounts.extend(store.all_accounts(&Authority::Root, AccountKind::Virtual)?);
             print(&accounts)
         }
         ["account", "approve", name] => approve_linux(name, false),
@@ -975,10 +975,13 @@ fn diagnose() -> Result<()> {
     let db = store()?;
     let mut problems = Vec::new();
     for account in db
-        .list(&Authority::Root, AccountKind::Linux)?
+        .all_accounts(&Authority::Root, AccountKind::Linux)?
         .into_iter()
-        .chain(db.list(&Authority::Root, AccountKind::Virtual)?)
+        .chain(db.all_accounts(&Authority::Root, AccountKind::Virtual)?)
     {
+        if db.is_purged(&account.id)? {
+            continue;
+        }
         if crate::helper::account_gateway::validate_account(&cfg, &account).is_err() {
             problems.push(serde_json::json!({"account_id":account.id,"username":account.username,"problem":"NSS/policy identity mismatch"}));
         }

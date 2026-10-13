@@ -303,6 +303,7 @@ export class TealDriveClient {
         getPolicy: async (o) => this._getPolicy({ ...o, kind: "linux" }),
         setPolicy: async (o) => this._setPolicy({ ...o, kind: "linux" }),
         list: async () => this._http("/api/admin/users", "GET", {}, true),
+        accountsPage: async (o) => this._accountPage("linux", o),
         accounts: async () =>
           this._managementHttp("/api/admin/accounts/system", "GET", {}),
         approve: async (o) => {
@@ -328,6 +329,7 @@ export class TealDriveClient {
         Object.fromEntries(
           [
             "list",
+            "listPage",
             "create",
             "setQuota",
             "disable",
@@ -338,21 +340,25 @@ export class TealDriveClient {
           ].map((method) => [
             method,
             async (o) =>
-              method === "getPolicy"
-                ? this._getPolicy({ ...o, kind: "virtual" })
-                : method === "setPolicy"
-                  ? this._setPolicy({ ...o, kind: "virtual" })
-                  : ["list", "disable", "enable"].includes(method)
-                    ? this._managementHttp(
-                        `/api/admin/virtual/${method}`,
-                        method === "list" ? "GET" : "POST",
-                        o,
-                      )
-                    : method === "create"
-                      ? this._createVirtual(o)
-                      : method === "setQuota"
-                        ? this._virtualQuota(o)
-                        : this._deleteVirtual(o),
+              method === "listPage"
+                ? this._accountPage("virtual", o)
+                : method === "list" && o && Object.keys(o).length
+                  ? this._accountPage("virtual", o).then((page) => page.items)
+                  : method === "getPolicy"
+                    ? this._getPolicy({ ...o, kind: "virtual" })
+                    : method === "setPolicy"
+                      ? this._setPolicy({ ...o, kind: "virtual" })
+                      : ["list", "disable", "enable"].includes(method)
+                        ? this._managementHttp(
+                            `/api/admin/virtual/${method}`,
+                            method === "list" ? "GET" : "POST",
+                            o,
+                          )
+                        : method === "create"
+                          ? this._createVirtual(o)
+                          : method === "setQuota"
+                            ? this._virtualQuota(o)
+                            : this._deleteVirtual(o),
           ]),
         ),
       ),
@@ -492,6 +498,7 @@ export class TealDriveClient {
         password_change: false,
         self_revoke: false,
         account_management: false,
+        account_pagination: false,
         linux_approval: false,
         policy_management: false,
         virtual_accounts: false,
@@ -991,6 +998,40 @@ export class TealDriveClient {
       expectedGeneration: view.account.generation,
       rules,
     });
+  }
+  _accountPage(kind, options = {}) {
+    this._require(true);
+    if (!this._hello?.authentication?.account_pagination)
+      fail("FEATURE_DISABLED");
+    object(options, ["limit", "cursor", "filter", "status", "enrolled"]);
+    if (options.limit !== undefined) integer(options.limit, 1, 200, "limit");
+    for (const [field, max] of [
+      ["cursor", 256],
+      ["filter", 128],
+    ])
+      if (
+        options[field] !== undefined &&
+        options[field] !== null &&
+        (typeof options[field] !== "string" ||
+          new TextEncoder().encode(options[field]).length > max ||
+          /[\x00-\x1f\x7f-\x9f]/.test(options[field]))
+      )
+        fail("INVALID_ARGUMENT", { params: { field } });
+    if (
+      options.status !== undefined &&
+      !["active", "suspended", "revoked", "deleted"].includes(options.status)
+    )
+      fail("INVALID_ARGUMENT");
+    if (options.enrolled !== undefined && typeof options.enrolled !== "boolean")
+      fail("INVALID_ARGUMENT");
+    return this._http(
+      kind === "linux"
+        ? "/api/admin/accounts/system/page"
+        : "/api/admin/virtual/page",
+      "GET",
+      options,
+      true,
+    );
   }
   _managementHttp(url, method, body = {}) {
     this._require(true);

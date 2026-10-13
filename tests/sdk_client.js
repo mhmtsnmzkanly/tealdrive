@@ -173,6 +173,23 @@ globalThis.crypto = webcrypto;
     personalRules = [];
   const settingsRequests = [];
   const fetch = async (url, options) => {
+    if (
+      url.startsWith("/api/admin/virtual/page") ||
+      url.startsWith("/api/admin/accounts/system/page")
+    ) {
+      const query = new URLSearchParams(url.split("?")[1]);
+      assert.equal(query.get("filter"), "tenant");
+      assert.equal(query.get("limit"), "1");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [{ id: "tenant-id", username: "tenant" }],
+          nextCursor: "tenant",
+          hasMore: true,
+        }),
+      };
+    }
     if (url.startsWith("/api/admin/config")) {
       settingsRequests.push({ url, options });
       if (options.method !== "GET")
@@ -341,6 +358,32 @@ globalThis.crypto = webcrypto;
   assert.equal(settingsRequests.at(-1).url, "/api/admin/config?save=true");
   await api.admin.settings.reload();
   assert.equal(settingsRequests.at(-1).url, "/api/admin/config/reload");
+  await assert.rejects(
+    api.admin.virtualUsers.listPage({ limit: 1, filter: "tenant" }),
+    (e) => e.code === "FEATURE_DISABLED",
+  );
+  api._hello.authentication ??= {};
+  api._hello.authentication.account_pagination = true;
+  const paged = await api.admin.virtualUsers.listPage({
+    limit: 1,
+    filter: "tenant",
+  });
+  assert.equal(paged.nextCursor, "tenant");
+  assert.equal(paged.items[0].id, "tenant-id");
+  const compatible = await api.admin.virtualUsers.list({
+    limit: 1,
+    filter: "tenant",
+  });
+  assert.ok(Array.isArray(compatible));
+  assert.equal(compatible[0].username, "tenant");
+  await assert.rejects(
+    api.admin.virtualUsers.listPage({ limit: 201 }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
+  await assert.rejects(
+    api.admin.virtualUsers.listPage({ ownerAdminId: "foreign" }),
+    (e) => e.code === "INVALID_ARGUMENT",
+  );
   await api.files.goTo("/musics");
   assert.equal(api.files.getCurrentDirectory(), "/musics");
   await api.files.list({

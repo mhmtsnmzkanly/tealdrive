@@ -495,12 +495,15 @@ let checkpoint = "startup";
         throw Error("UI retained web password");
       checkpoint = "ui_refresh_registered";
       const refreshed = admin.waitForResponse(
-        (response) => response.url().endsWith("/api/admin/accounts/system"),
+        (response) =>
+          new URL(response.url()).pathname.endsWith(
+            "/api/admin/accounts/system/page",
+          ),
         { timeout: 5000 },
       );
       await admin.click("#accountsRefreshBtn");
       const response = await refreshed;
-      const entry = (await response.json()).find(
+      const entry = (await response.json()).items.find(
         (account) => account.username === users[2].username,
       );
       if (entry?.status !== "active" || !entry.password_enrolled)
@@ -529,7 +532,7 @@ let checkpoint = "startup";
       await admin.click("#accountsSystemTab");
       await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
       checkpoint = "ui_failed_refresh";
-      await admin.route("**/api/admin/accounts/system", (route) =>
+      await admin.route("**/api/admin/accounts/system/page*", (route) =>
         route.fulfill({ status: 503, body: "" }),
       );
       await admin.click("#accountsRefreshBtn");
@@ -540,7 +543,7 @@ let checkpoint = "startup";
       );
       if (await admin.locator("#accountsTableBody button").count())
         throw Error("Failed load kept stale mutation controls");
-      await admin.unroute("**/api/admin/accounts/system");
+      await admin.unroute("**/api/admin/accounts/system/page*");
       await admin.click("#accountsRefreshBtn");
       await row.getByRole("button", { name: "Suspend", exact: true }).waitFor();
       checkpoint = "ui_mobile_keyboard";

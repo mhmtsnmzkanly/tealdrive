@@ -156,6 +156,7 @@ pub fn load(directory: &Path) -> std::io::Result<Package> {
     {
         return Err(invalid());
     }
+    std::str::from_utf8(files.get(&manifest.entry).ok_or_else(invalid)?).map_err(|_| invalid())?;
     Ok(Package { manifest, files })
 }
 type Fingerprint = (u64, u64, u32, u32, u64, i64, i64);

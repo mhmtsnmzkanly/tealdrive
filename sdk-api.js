@@ -662,4 +662,10 @@ export const examples = {
   /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} FEATURE_DISABLED, CONFLICT, PERMISSION_DENIED */
   virtualDelete: API => API.admin.virtualUsers.delete({accountId:"ACCOUNT_ID",expectedGeneration:1}),
 
+  // API.admin.systemUsers.accountsPage({limit:100,filter:"example",status:"active"}); — Kayıtlı sistem hesaplarını filtreleyip sayfalar; yetki sunucuda doğrulanır.
+  /** @param {Object} API @returns {Promise<{items:Array,nextCursor:string|null,hasMore:boolean}>} @throws {TealDriveError} FEATURE_DISABLED, PERMISSION_DENIED, INVALID_ARGUMENT */
+  systemAccountsPage: API => API.admin.systemUsers.accountsPage({limit:100,filter:"example",status:"active"}),
+  // API.admin.virtualUsers.listPage({limit:100,cursor:"LAST_USERNAME",enrolled:true}); — Admin yalnız kendi hesaplarını görür; dönen nextCursor ile sonraki sayfa alınır.
+  /** @param {Object} API @returns {Promise<{items:Array,nextCursor:string|null,hasMore:boolean}>} @throws {TealDriveError} FEATURE_DISABLED, PERMISSION_DENIED, INVALID_ARGUMENT */
+  virtualAccountsPage: API => API.admin.virtualUsers.listPage({limit:100,enrolled:true}),
 };

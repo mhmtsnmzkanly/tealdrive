@@ -61,9 +61,10 @@ export async function openVirtualDialog({ client, account, onSaved }) {
     password.minLength = 12;
     password.maxLength = 1024;
   }
+  const available=budget.availableBytes??Math.max(0,budget.remainingBytes-(budget.usedBytes??0));
   const allocation =
     account?.quotaBytes ??
-    Math.max(minimum, Math.floor(budget.remainingBytes / 4 / step) * step);
+    Math.max(minimum, Math.floor(available / 4 / step) * step);
   const quota = input(
     "quotaBytes",
     "Quota in bytes",
@@ -78,7 +79,7 @@ export async function openVirtualDialog({ client, account, onSaved }) {
       t("Assigned {limit} bytes; reserved {reserved}; available {available}.", {
         limit: budget.limitBytes,
         reserved: budget.reservedBytes,
-        available: budget.remainingBytes,
+        available,
       }) +
         " " +
         t(

@@ -131,7 +131,7 @@ fn row_optional_u64(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<O
         .map(|value| u64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery))
         .transpose()
 }
-fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
+pub(super) fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
     let kind: String = row.get(5)?;
     let role: String = row.get(6)?;
     let status: String = row.get(8)?;
@@ -171,7 +171,7 @@ fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         deny_enrollment: row.get(17)?,
     })
 }
-const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment";
+pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment";
 pub(super) fn account(connection: &Connection, id: &str) -> Result<Account, StoreError> {
     connection
         .query_row(

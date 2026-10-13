@@ -1023,6 +1023,13 @@ export class TealDriveClient {
       operation: "undo",
       operationId: options.operationId,
     });
+    if (this._mode === "managed") {
+      try {
+        await this._refreshState();
+      } catch {
+        this._update({ stale: true });
+      }
+    }
     return freeze(result);
   }
   _undoPreferences(options) {

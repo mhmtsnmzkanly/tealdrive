@@ -109,6 +109,7 @@ where
             crate::ui::assets::POLICY_JS,
             crate::ui::assets::VIRTUAL_JS,
             crate::ui::assets::FILES_JS,
+            crate::ui::assets::HISTORY_JS,
             crate::ui::assets::I18N_JS,
             crate::ui::assets::LOCALE_TR,
             crate::ui::assets::LOCALE_EN,
@@ -275,7 +276,7 @@ where
         }
         "style.css" => serve_style::<H>(State(state)).await,
         "app.js" => serve_app::<H>(State(state)).await,
-        "accounts.js" | "policy.js" | "virtual.js" | "files.js" | "i18n.js" => {
+        "accounts.js" | "policy.js" | "virtual.js" | "files.js" | "i18n.js" | "history.js" => {
             let mut response = (if clean == "accounts.js" {
                 crate::ui::assets::ACCOUNTS_JS
             } else if clean == "policy.js" {
@@ -284,6 +285,8 @@ where
                 crate::ui::assets::I18N_JS
             } else if clean == "files.js" {
                 crate::ui::assets::FILES_JS
+            } else if clean == "history.js" {
+                crate::ui::assets::HISTORY_JS
             } else {
                 crate::ui::assets::VIRTUAL_JS
             })

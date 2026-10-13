@@ -9,7 +9,8 @@ const fs = require("node:fs");
   );
   const browser = await chromium.launch({ headless: true });
   async function login(user) {
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
     await page.goto("http://127.0.0.1:13102");
     await page.evaluate(async (user) => {
       const { createClient } = await import("/sdk/v1/tealdrive.js");
@@ -238,7 +239,14 @@ const fs = require("node:fs");
         const unknown = await fetch("/api/audit?accountId=foreign");
         if (unknown.status !== 400)
           throw Error("Unknown scope option accepted");
+        const uiPath = `ui-undo-${suffix}.txt`;
+        await historyApi.files.createText({ path: uiPath, content: "UI undo" });
+        await historyApi.files.rename({
+          path: uiPath,
+          newName: `${uiPath}-renamed`,
+        });
         return {
+          uiPath,
           own,
           cursor: first.nextCursor,
           undoId: chmod.operation.id,
@@ -247,6 +255,68 @@ const fs = require("node:fs");
       },
       { privateName, suffix },
     );
+    const ui = await user.context().newPage();
+    await ui.goto("http://127.0.0.1:13102");
+    await ui.waitForSelector("#loginModal.hidden", { state: "attached" });
+    await ui.click("#historyBtn");
+    await ui.waitForSelector("#historyDialog[open]");
+    await ui.waitForFunction(
+      () => !document.querySelector("#historyRefresh").disabled,
+    );
+    await ui.selectOption("#historyMode", "undo");
+    await ui.waitForFunction(
+      () => !document.querySelector("#historyRefresh").disabled,
+    );
+    await ui.fill("#historyPath", result.uiPath);
+    await ui.click("#historyRefresh");
+    const undoRow = ui
+      .locator("#historyItems .history-row")
+      .filter({ hasText: result.uiPath });
+    await undoRow.getByRole("button", { name: "Undo", exact: true }).click();
+    await ui.getByRole("button", { name: "Cancel", exact: true }).click();
+    if (
+      (await user.evaluate(
+        async (path) => (await historyApi.files.readText({ path })).content,
+        result.uiPath + "-renamed",
+      )) !== "UI undo"
+    )
+      throw Error("UI undo cancel mutated files");
+    await undoRow.getByRole("button", { name: "Undo", exact: true }).click();
+    await ui.click("#historyConfirmUndo");
+    await ui.waitForFunction(
+      () => !document.querySelector("#historyRefresh").disabled,
+    );
+    if (
+      (await user.evaluate(
+        async (path) => (await historyApi.files.readText({ path })).content,
+        result.uiPath,
+      )) !== "UI undo"
+    )
+      throw Error("UI undo did not restore");
+    await ui.uncheck("#historyInherit");
+    await ui.fill("#historyHours", "1");
+    await ui.click("#historySavePreference");
+    await ui.waitForFunction(
+      () => !document.querySelector("#historyRefresh").disabled,
+    );
+    if (
+      (await user.evaluate(() => historyApi.files.undo.getPreferences()))
+        .effectiveHours !== 1
+    )
+      throw Error("UI undo preference not persisted");
+    await ui.check("#historyInherit");
+    await ui.click("#historySavePreference");
+    await ui.waitForFunction(
+      () => !document.querySelector("#historyRefresh").disabled,
+    );
+    await ui.press("#historyClose", "Escape");
+    await ui.waitForSelector("#historyDialog", { state: "detached" });
+    if (
+      !(await ui
+        .locator("#historyBtn")
+        .evaluate((node) => node === document.activeElement))
+    )
+      throw Error("History focus not restored");
     const foreign = await admin.evaluate(
       async (cursor) =>
         fetch("/api/audit?cursor=" + encodeURIComponent(cursor)).then((r) =>
@@ -302,6 +372,9 @@ const fs = require("node:fs");
         undoRenameMoveTrashDirectory: true,
         undoChangedStateRejected: true,
         undoTargetPreserved: true,
+        ownHistoryUi: true,
+        undoUiCancelConfirm: true,
+        undoUiPreferences: true,
       }),
     );
   } finally {

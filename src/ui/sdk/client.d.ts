@@ -135,6 +135,7 @@ export interface ServerInfo {
     accountManagement: boolean;
     accountPagination: boolean;
     auditHistory: boolean;
+    undo: boolean;
     linuxApproval: boolean;
     policyManagement: boolean;
     virtualAccounts: boolean;

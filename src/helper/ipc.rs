@@ -717,7 +717,9 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 );
             }
             let mut reservation = if !(config.journal.enabled
-                && crate::accounts::journal::tracked(request.command))
+                && (crate::accounts::journal::tracked(request.command)
+                    && (request.command != HelperCommand::ReadFileRange
+                        || request.limits.max_chunk_size > 0)))
                 && matches!(
                     request.command,
                     HelperCommand::QuotaUsage
@@ -814,7 +816,9 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 }
             }
             let mut journal = if config.journal.enabled
-                && crate::accounts::journal::tracked(request.command)
+                && (crate::accounts::journal::tracked(request.command)
+                    && (request.command != HelperCommand::ReadFileRange
+                        || request.limits.max_chunk_size > 0))
             {
                 match authenticated_account.as_ref() {
                     Some(account) => {
@@ -871,7 +875,7 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 let native = account.kind == crate::accounts::store::AccountKind::Virtual
                     && config.virtual_accounts.enforcement
                         == crate::accounts::virtuals::Enforcement::UserQuota;
-                match crate::accounts::ledger::reserve(
+                match crate::accounts::ledger::reserve_or_resume(
                     account,
                     record,
                     root,

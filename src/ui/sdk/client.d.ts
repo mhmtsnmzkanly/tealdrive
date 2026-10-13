@@ -197,6 +197,8 @@ export interface AuditRecord {
   errorCode: string | null;
   bytesRead: number;
   bytesWritten: number;
+  /** Contiguous helper delivery; does not prove browser receipt or complete download. */
+  rangeNextOffset?: number | null;
   /** Real reserved log allocation counted for virtual quota. */ logReserveBytes?: number;
   logStorage?: "userQuota" | "systemBudget" | "systemReserve" | null;
   undoStatus?: "pending" | "success" | "failed" | "unknown" | null;

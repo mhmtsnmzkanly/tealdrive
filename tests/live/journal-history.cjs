@@ -40,6 +40,18 @@ const fs = require("node:fs");
         }),
       suffix,
     );
+    await user.evaluate(async (suffix) => {
+      const path = `history-range-${suffix}.txt`;
+      const content = "R".repeat(100000);
+      await historyApi.files.createText({path, content});
+      const response = await historyApi.files.download({path});
+      if (await response.text() !== content) throw Error("Multi-chunk download content");
+      const page = await historyApi.files.audit.list({limit: 200, action: "download"});
+      const records = page.items.filter(record => record.sourcePath === path);
+      if (records.length !== 1 || records[0].bytesRead !== 100000 || records[0].rangeNextOffset !== 100000)
+        throw Error("Multi-chunk download must have one truthful aggregate record");
+      await historyApi.files.deletePermanently({path});
+    }, suffix);
     const result = await user.evaluate(
       async ({ privateName, suffix }) => {
         const prefs = await historyApi.files.undo.getPreferences();
@@ -365,6 +377,7 @@ const fs = require("node:fs");
     }, privateName);
     console.log(
       JSON.stringify({
+        rangedDownloadAggregate: true,
         ownHistory: true,
         historyPagination: true,
         actionFilter: true,

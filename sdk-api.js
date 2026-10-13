@@ -374,7 +374,7 @@ export const examples = {
    * @example API.files.trash.restore({ rootId: "home", trashId: "trash_example" });
    * @description SDK yöntemi parametreleri: options: { rootId: string, trashId: string }.
    * @returns {Promise<MutationResult>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} AUTH_REQUIRED, NOT_FOUND, ALREADY_EXISTS, UNDO_STATE_MISMATCH, PERMISSION_DENIED.
+   * @throws {TealDriveError} AUTH_REQUIRED, NOT_FOUND, ALREADY_EXISTS, REVISION_CONFLICT, PERMISSION_DENIED.
    */
   trashRestore: (API) => API.files.trash.restore({ rootId: "home", trashId: "trash_example" }),
 
@@ -425,7 +425,7 @@ export const examples = {
    * @example API.files.undo.apply({ operationId: candidate.operation.id, expectedState: candidate.expectedState });
    * @description SDK yöntemi parametreleri: options: { operationId: string, expectedState: string }.
    * @returns {Promise<MutationResult>} Örnek çağrının sonucu.
-   * @throws {TealDriveError} AUTH_REQUIRED, FEATURE_DISABLED, UNDO_STATE_MISMATCH, UNDO_EXPIRED, PERMISSION_DENIED, ALREADY_EXISTS.
+   * @throws {TealDriveError} AUTH_REQUIRED, FEATURE_DISABLED, REVISION_CONFLICT, CONFLICT, PERMISSION_DENIED, ALREADY_EXISTS.
    */
   undoApply: (API, candidate) => API.files.undo.apply({ operationId: candidate.operation.id, expectedState: candidate.expectedState }),
 

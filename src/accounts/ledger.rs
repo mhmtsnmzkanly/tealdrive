@@ -88,6 +88,43 @@ impl Charge {
         Ok(())
     }
 }
+pub fn reserve_or_resume(
+    account: &Account,
+    record: &OperationRecord,
+    root: &AllowedRoot,
+    config: &JournalConfig,
+    native: bool,
+    home_used: u64,
+    max_inodes: u64,
+) -> Result<Option<Charge>, StoreError> {
+    if account.kind == AccountKind::Virtual
+        && record.range_next_offset.is_some()
+        && record.log_reserve_bytes > 0
+    {
+        let path = parent(account)?.join(format!("{}.json", record.id));
+        root_parent(&path)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(path)?;
+        let m = file.metadata()?;
+        if !m.is_file()
+            || m.nlink() != 1
+            || m.uid() != account.uid
+            || m.gid() != account.gid
+            || m.mode() & 0o777 != 0o400
+            || m.len() != record.log_reserve_bytes
+        {
+            return Err(StoreError::UntrustedStore);
+        }
+        return Ok(Some(Charge {
+            file,
+            reserved: record.log_reserve_bytes,
+        }));
+    }
+    reserve(account, record, root, config, native, home_used, max_inodes)
+}
 pub fn reserve(
     account: &Account,
     record: &OperationRecord,

@@ -136,6 +136,9 @@ pub struct OperationRecord {
     pub error_code: Option<crate::errors::ErrorKind>,
     pub bytes_read: u64,
     pub bytes_written: u64,
+    /// Next contiguous helper-read offset; success means helper delivery, not browser receipt.
+    #[serde(default)]
+    pub range_next_offset: Option<u64>,
     #[serde(default)]
     pub log_reserve_bytes: u64,
     #[serde(default)]
@@ -180,7 +183,7 @@ pub fn action(command: HelperCommand) -> &'static str {
         CompressZip | CompressTarGz => "archive",
         ExtractArchive => "extract",
         ReadTextFile => "readText",
-        DownloadFile => "download",
+        DownloadFile | ReadFileRange => "download",
         _ => "read",
     }
 }
@@ -202,6 +205,7 @@ pub fn tracked(command: HelperCommand) -> bool {
             | HelperCommand::ExtractArchive
             | HelperCommand::ReadTextFile
             | HelperCommand::DownloadFile
+            | HelperCommand::ReadFileRange
     )
 }
 fn encode(record: &OperationRecord, config: &JournalConfig) -> Result<String, StoreError> {
@@ -238,6 +242,41 @@ impl AccountStore {
             generation: account.generation,
         };
         let actor = authorized(&self.connection, &authority)?.ok_or(StoreError::Forbidden)?;
+        if request.command == HelperCommand::ReadFileRange {
+            let options = request
+                .write_options
+                .as_ref()
+                .ok_or(StoreError::InvalidInput)?;
+            if request.limits.max_chunk_size == 0 {
+                return Err(StoreError::InvalidInput);
+            }
+            let previous: Option<String> = self.connection.query_row(
+                "SELECT value FROM security_state WHERE key GLOB ?1 AND json_extract(value,'$.requestId')=?2 ORDER BY key DESC LIMIT 1",
+                params![format!("{}*", prefix(&actor.id)), request.request_id.to_string()],
+                |row| row.get(0),
+            ).optional()?;
+            if let Some(data) = previous {
+                let mut record: OperationRecord =
+                    serde_json::from_str(&data).map_err(|_| StoreError::InvalidInput)?;
+                if record.generation != actor.generation
+                    || record.root_id != request.root_id
+                    || record.source_path != request.relative_path
+                    || record.action != "download"
+                    || record.status != "success"
+                    || record.range_next_offset != Some(options.offset)
+                    || at.saturating_sub(record.updated_at) > 300
+                {
+                    return Err(StoreError::Conflict);
+                }
+                record.status = "pending".into();
+                record.updated_at = at;
+                self.connection.execute(
+                    "UPDATE security_state SET value=?1 WHERE key=?2",
+                    params![encode(&record, config)?, key(&record)],
+                )?;
+                return Ok(record);
+            }
+        }
         let operation_id = uuid::Uuid::new_v4().to_string();
         let destination = if matches!(
             request.command,
@@ -313,6 +352,11 @@ impl AccountStore {
             error_code: None,
             bytes_read: 0,
             bytes_written: 0,
+            range_next_offset: if request.command == HelperCommand::ReadFileRange {
+                request.write_options.as_ref().map(|v| v.offset)
+            } else {
+                None
+            },
             log_reserve_bytes: 0,
             log_storage: Some("systemBudget".into()),
             undo_epoch: Some(super::undo::epoch(&self.connection)?),
@@ -454,7 +498,28 @@ impl AccountStore {
                 }
             }
             current.error_code = r.error_kind;
-            current.bytes_read = r.bytes_read;
+            if let Some(offset) = current.range_next_offset {
+                let delivered = match &r.payload {
+                    crate::helper::types::HelperResponsePayload::FileRange {
+                        offset: actual,
+                        data,
+                        ..
+                    } if r.success && *actual == offset => data.len() as u64,
+                    _ if !r.success => 0,
+                    _ => return Err(StoreError::InvalidInput),
+                };
+                current.range_next_offset = Some(
+                    offset
+                        .checked_add(delivered)
+                        .ok_or(StoreError::InvalidInput)?,
+                );
+                current.bytes_read = current
+                    .bytes_read
+                    .checked_add(delivered)
+                    .ok_or(StoreError::InvalidInput)?;
+            } else {
+                current.bytes_read = r.bytes_read;
+            }
             current.bytes_written = r.bytes_written;
             if let Some(metadata) = r.audit_metadata.as_ref() {
                 current.old_mode = metadata.old_mode;
@@ -613,6 +678,78 @@ mod tests {
             .unwrap()
     }
     #[test]
+    fn ranged_download_aggregates_contiguous_delivery_and_rejects_replay() {
+        let mut store = AccountStore::memory();
+        let alice = account(&mut store, "alice", 1000);
+        let config = JournalConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let mut request =
+            crate::helper::ipc::tests_support::sample_request(HelperCommand::ReadFileRange);
+        request.limits.max_chunk_size = 4;
+        request.write_options = Some(crate::helper::types::HelperWriteOptions {
+            data: vec![],
+            expected_revision: None,
+            offset: 10,
+            truncate: false,
+        });
+        let first = store
+            .begin_operation(&alice, &request, &config, 1000)
+            .unwrap();
+        assert!(matches!(
+            store.begin_operation(&alice, &request, &config, 1000),
+            Err(StoreError::Conflict)
+        ));
+        let mut response = HelperResponse::operation_done(&request, "delivered");
+        response.payload = crate::helper::types::HelperResponsePayload::FileRange {
+            total_size: 100,
+            offset: 10,
+            data: b"ABCD".to_vec(),
+        };
+        let done = store
+            .finish_operation(&first, Some(&response), &config, 1001)
+            .unwrap();
+        assert_eq!(done.bytes_read, 4);
+        assert_eq!(done.range_next_offset, Some(14));
+        assert!(matches!(
+            store.begin_operation(&alice, &request, &config, 1002),
+            Err(StoreError::Conflict)
+        ));
+        request.write_options.as_mut().unwrap().offset = 14;
+        let second = store
+            .begin_operation(&alice, &request, &config, 1002)
+            .unwrap();
+        assert_eq!(second.id, first.id);
+        response.payload = crate::helper::types::HelperResponsePayload::FileRange {
+            total_size: 100,
+            offset: 14,
+            data: b"EF".to_vec(),
+        };
+        let done = store
+            .finish_operation(&second, Some(&response), &config, 1003)
+            .unwrap();
+        assert_eq!(done.bytes_read, 6);
+        let authority = Authority::Account {
+            id: alice.id.clone(),
+            generation: alice.generation,
+        };
+        assert_eq!(
+            store
+                .operation_records(&authority, 10, None, None)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!serde_json::to_string(&done).unwrap().contains("ABCD"));
+        request.write_options.as_mut().unwrap().offset = 16;
+        request.relative_path = crate::config::RelativePath::new("other");
+        assert!(matches!(
+            store.begin_operation(&alice, &request, &config, 1004),
+            Err(StoreError::Conflict)
+        ));
+    }
+    #[test]
     fn intent_result_scope_and_secret_exclusion() {
         let mut store = AccountStore::memory();
         let alice = account(&mut store, "alice", 1000);
@@ -740,7 +877,7 @@ mod tests {
             )
             .unwrap();
         let authority = Authority::Account {
-            id: alice.id,
+            id: alice.id.clone(),
             generation: alice.generation,
         };
         let query = HistoryQuery {
@@ -809,7 +946,7 @@ mod tests {
             .begin_operation(&alice, &request, &config, 1201)
             .unwrap();
         let own = Authority::Account {
-            id: alice.id,
+            id: alice.id.clone(),
             generation: alice.generation,
         };
         let other = Authority::Account {

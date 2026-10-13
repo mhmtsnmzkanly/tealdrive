@@ -299,6 +299,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
             Some(
                 "install"
                     | "update"
+                    | "rollback"
                     | "repair"
                     | "uninstall"
                     | "restore"
@@ -984,6 +985,7 @@ fn install(bundle: &Path, update: bool) -> Result<()> {
         // Conservative offline bootstrap; require an explicit origin before public exposure.
         let mut cfg = AppConfig::default();
         cfg.web_accounts.enabled = true;
+        cfg.journal.enabled = true;
         cfg.web_accounts.server_uid = Some(identity.uid);
         cfg.roots.clear();
         cfg.home_template = Some(crate::policy::home::default_template());

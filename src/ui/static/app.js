@@ -1030,7 +1030,8 @@
       el.cfgAuditArchives.value=cfg.audit?.max_archives??5;
       el.cfgAuditDays.value=(cfg.audit?.retention_days?cfg.audit.retention_days*24:cfg.audit?.retention_hours)||'';
       el.cfgAuditHealth.textContent='Audit write failures since server start: '+(resp.headers.get('x-tealdrive-audit-write-failures')||'0');
-      el.cfgTrashRetention.value = cfg.trash_retention_days ?? 30;
+      el.cfgTrashRetention.disabled = split || !!cfg.web_accounts?.enabled;
+      el.cfgTrashRetention.value = cfg.web_accounts?.enabled ? (cfg.lifecycle?.trash_retention_hours ?? 504) / 24 : (cfg.trash_retention_days ?? 30);
       if (cfg.limits) {
         el.cfgMaxUploadBytes.value = Math.round((cfg.limits.max_in_flight_upload || 1024 * 1024) / (1024 * 1024));
         el.cfgMaxEditTextBytes.value = Math.round((cfg.limits.max_text_edit_size || cfg.limits.max_edit_text_bytes || 128 * 1024) / 1024);

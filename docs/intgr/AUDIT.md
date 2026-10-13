@@ -83,3 +83,7 @@ sudo tealdrive-wizard audit list 100
 ```
 
 Control history Root CLI dışında panel/tenant own history yüzeyine verilmez. Own files.audit protected operation kayıtlarını gösterir. Store backup/restore control kayıtlarını da taşır; recovery tamamlanma olayı yeni DB'ye eklenebilir. Central server log ve root control log farklı güven sınırlarındadır.
+
+### HTTP indirme ve önizleme
+
+`ReadFileRange` artık own-history `download` kaydı üretir. Aynı HTTP akışının ardışık helper okumaları tek işlem UUID'sinde birikir ve tek log kota rezervasyonu kullanır. `bytesRead` helper'ın server'a teslim ettiği toplamı, `rangeNextOffset` sonraki offset'i gösterir. `success` son helper parçasının başarısıdır; tarayıcı teslimi veya bütün dosyanın kaydedildiği iddiası değildir. İptal ilk parça öncesinde kayıt üretmeyebilir; parça sırasında process kesilmesi pending/unknown kalabilir. Sıfır bayt metadata probe kaydedilmez.

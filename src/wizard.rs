@@ -291,6 +291,92 @@ pub fn control(args: Vec<String>) -> Result<()> {
     }
 }
 pub fn run(args: Vec<String>) -> Result<()> {
+    let action = args.first().map(String::as_str);
+    let audited = unsafe { libc::getuid() } == 0
+        && unsafe { libc::geteuid() } == 0
+        && matches!(
+            action,
+            Some(
+                "install"
+                    | "update"
+                    | "repair"
+                    | "uninstall"
+                    | "restore"
+                    | "account"
+                    | "config"
+                    | "policy"
+                    | "pool"
+                    | "budget"
+                    | "virtual"
+                    | "gc"
+                    | "storage"
+            )
+        );
+    let readonly = matches!(
+        args.get(1).map(String::as_str),
+        Some("show" | "validate" | "list" | "get" | "pending" | "status")
+    );
+    let restore_or_repair = matches!(action, Some("restore" | "repair"));
+    let control = if audited && !readonly && Path::new(layout::ACCOUNTS).exists() {
+        match store() {
+            Ok(mut store) => {
+                let caller = crate::accounts::grants::CallerBinding::capture()?;
+                let limits = config().map(|cfg| cfg.control_audit).unwrap_or_default();
+                let action = format!("Wizard_{}", action.unwrap_or("unknown"));
+                let record = store.begin_control(
+                    &limits,
+                    &caller,
+                    &action,
+                    None,
+                    None,
+                    crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                )?;
+                Some(record)
+            }
+            Err(_) if matches!(action, Some("repair" | "restore" | "install")) => None,
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
+    let result = run_inner(args);
+    if let Some(record) = control.as_ref() {
+        if let Ok(mut store) = store() {
+            let code = if result.is_ok() {
+                None
+            } else {
+                Some("WizardCommandFailed")
+            };
+            let finished = store.finish_control(
+                record,
+                result.is_ok(),
+                code,
+                crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+            );
+            if finished.is_err() && result.is_ok() && restore_or_repair {
+                let caller = crate::accounts::grants::CallerBinding::capture()?;
+                let limits = config().map(|cfg| cfg.control_audit).unwrap_or_default();
+                if let Ok(completed) = store.begin_control(
+                    &limits,
+                    &caller,
+                    "WizardRecoveryCompleted",
+                    None,
+                    None,
+                    crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                ) {
+                    let _ = store.finish_control(
+                        &completed,
+                        true,
+                        None,
+                        crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                    );
+                }
+            }
+        }
+    }
+    result
+}
+fn run_inner(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
@@ -427,6 +513,10 @@ pub fn run(args: Vec<String>) -> Result<()> {
             root()?;
             crate::accounts::lifecycle::worker(account_id, operation_id)?;
             Ok(())
+        }
+        ["audit", "list", limit] => {
+            root()?;
+            print(&store()?.control_records(&Authority::Root, limit.parse()?)?)
         }
         ["__staging-expiry-worker", account_id, operation_id, as_of] => {
             root()?;

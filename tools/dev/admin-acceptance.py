@@ -362,6 +362,18 @@ def main():
         if (config_dir / 'helper.toml').read_bytes() != HELPER_CONFIG.read_bytes():
             raise RuntimeError('Public API modified root helper policy')
         print(json.dumps(dict(actorTargetAudit=True, noCredentialAudit=True, rootPolicyUnmodifiedByApi=True)))
+        with sqlite3.connect(DB) as state:
+            controls=[json.loads(row[0]) for row in state.execute("SELECT value FROM security_state WHERE key GLOB 'control_v1:*'")]
+            claims={user['username'] for user in users}
+            claims.update(row[0] for row in state.execute('SELECT id FROM accounts WHERE username IN (?,?,?)',tuple(user['username'] for user in users)))
+            relevant=[row for row in controls if row.get('subjectClaim') in claims or row.get('targetClaim') in claims]
+        if not any(row['action']=='Login' and row['status']=='success' for row in relevant) or not any(row['action']=='SetAccountAccess' and row['status']=='success' for row in relevant):
+            raise RuntimeError('Missing protected auth/management control facts')
+        encoded=json.dumps(controls)
+        if any(user[field] in encoded for user in users for field in ('password','linuxPassword')):
+            raise RuntimeError('Credentials appeared in protected control audit')
+        print(json.dumps(dict(protectedControlAudit=True,authAndManagementFacts=True,noCredentialControlAudit=True)))
+
 
     finally:
         if process and process.poll() is None:

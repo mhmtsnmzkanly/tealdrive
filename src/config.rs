@@ -59,6 +59,7 @@ pub struct UserContext {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub control_audit: crate::accounts::control_audit::ControlAuditConfig,
     pub lifecycle: crate::accounts::lifecycle::LifecycleConfig,
     pub virtual_accounts: crate::accounts::virtuals::VirtualConfig,
     pub web_accounts: crate::helper::account_gateway::WebAccountsConfig,
@@ -91,6 +92,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            control_audit: Default::default(),
             lifecycle: Default::default(),
             virtual_accounts: crate::accounts::virtuals::VirtualConfig::default(),
             web_accounts: crate::helper::account_gateway::WebAccountsConfig::default(),
@@ -176,6 +178,9 @@ impl AppConfig {
             return Err(TealDriveError::Validation);
         }
         self.web_accounts.validate()?;
+        self.control_audit
+            .validate()
+            .map_err(|_| TealDriveError::Validation)?;
         self.journal
             .validate()
             .map_err(|_| TealDriveError::Validation)?;

@@ -11,6 +11,7 @@ pub mod limits;
 
 pub mod journal;
 
+pub mod control_audit;
 pub mod ledger;
 pub mod lifecycle;
 pub mod staging;

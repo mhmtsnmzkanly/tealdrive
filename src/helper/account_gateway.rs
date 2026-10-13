@@ -333,7 +333,77 @@ pub fn execute(command: AccountCommand) -> Result<AccountReply, GatewayFailure> 
     }
     let mut store = AccountStore::open(std::path::Path::new(crate::layout::ACCOUNTS))
         .map_err(GatewayFailure::from)?;
-    dispatch(&mut store, &config, caller, command)
+    let control = match control_descriptor(&command) {
+        Some((action, subject, target)) => Some(
+            store
+                .begin_control(
+                    &config.control_audit,
+                    &caller,
+                    action,
+                    subject,
+                    target,
+                    crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+                )
+                .map_err(GatewayFailure::from)?,
+        ),
+        None => None,
+    };
+    let result = dispatch(&mut store, &config, caller, command);
+    if let Some(control) = control {
+        let error = result.as_ref().err().map(|error| format!("{error:?}"));
+        // A completed command must not be represented as rolled back if logging fails afterwards.
+        let _ = store.finish_control(
+            &control,
+            result.is_ok(),
+            error.as_deref(),
+            crate::session::store::InMemorySessionStore::now_epoch_seconds(),
+        );
+    }
+    result
+}
+fn control_descriptor(
+    command: &AccountCommand,
+) -> Option<(&'static str, Option<&str>, Option<&str>)> {
+    use AccountCommand::*;
+    let result = match command {
+        Login(request) => ("Login", Some(request.username.as_str()), None),
+        BeginEnrollment(request) => ("BeginEnrollment", Some(request.username.as_str()), None),
+        CompleteEnrollment { .. } => ("CompleteEnrollment", None, None),
+        Logout(_) => ("Logout", None, None),
+        RevokeSelf(_) => ("RevokeSelf", None, None),
+        ChangePassword { .. } => ("ChangePassword", None, None),
+        SetAccountAccess { account_id, .. } => {
+            ("SetAccountAccess", None, Some(account_id.as_str()))
+        }
+        ApproveLinux { username, .. } => ("ApproveLinux", None, Some(username.as_str())),
+        SetPolicy { account_id, .. } => ("SetPolicy", None, account_id.as_deref()),
+        CreateVirtual { name, .. } => ("CreateVirtual", None, Some(name.as_str())),
+        SetVirtualQuota { account_id, .. } => ("SetVirtualQuota", None, Some(account_id.as_str())),
+        DeleteVirtual { account_id, .. } => ("DeleteVirtual", None, Some(account_id.as_str())),
+        SetUndoPreferences { .. } => ("SetUndoPreferences", None, None),
+        ApplyUndo { operation_id, .. } => ("ApplyUndo", None, Some(operation_id.as_str())),
+        LocalEnroll { .. } => ("LocalEnroll", None, None),
+        LocalRevoke => ("LocalRevoke", None, None),
+        LocalSetPolicy { .. } => ("LocalSetPolicy", None, None),
+        _ => return None,
+    };
+    fn safe(value: Option<&str>) -> Option<&str> {
+        value.filter(|value| value.len() <= 256 && !value.chars().any(char::is_control))
+    }
+    let claimed_account = match command {
+        Logout(grant) | RevokeSelf(grant) => Some(grant.account_id.as_str()),
+        ChangePassword { grant, .. }
+        | SetAccountAccess { grant, .. }
+        | ApproveLinux { grant, .. }
+        | SetPolicy { grant, .. }
+        | CreateVirtual { grant, .. }
+        | SetVirtualQuota { grant, .. }
+        | DeleteVirtual { grant, .. }
+        | SetUndoPreferences { grant, .. }
+        | ApplyUndo { grant, .. } => Some(grant.account_id.as_str()),
+        _ => None,
+    };
+    Some((result.0, safe(result.1.or(claimed_account)), safe(result.2)))
 }
 fn account_view(store: &AccountStore, mut account: Account) -> Result<Account, GatewayFailure> {
     if account.kind == AccountKind::Virtual {

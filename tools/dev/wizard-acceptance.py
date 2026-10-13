@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -88,9 +89,15 @@ def inner(base):
         stream.write(b'changed')
     invoke(wizard, 'update', '--bundle', str(bundle), ok=False)
     assert hashlib.sha256((home / 'bin/tealdrive-server').read_bytes()).hexdigest() == server_hash
-    db_before = (home / 'auth/accounts.db').read_bytes()
+    def preserved_metadata():
+        with sqlite3.connect(home / 'auth/accounts.db') as database:
+            assert database.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+            return {table:database.execute('SELECT * FROM "'+table.replace('"','""')+'"'+(" WHERE key NOT GLOB 'control_v1:*'" if table=='security_state' else '')).fetchall() for (table,) in database.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")}
+    db_before = preserved_metadata()
     invoke(wizard, 'uninstall')
-    assert (home / 'auth/accounts.db').read_bytes() == db_before
+    assert preserved_metadata() == db_before
+    with sqlite3.connect(home / 'auth/accounts.db') as database:
+        assert database.execute("SELECT count(*) FROM security_state WHERE key GLOB 'control_v1:*' AND json_extract(value,'$.action')='Wizard_uninstall' AND json_extract(value,'$.status')='success'").fetchone()[0]==1
     assert (home / 'policy/helper.key').read_bytes() == key_before
     assert not (home / 'bin/tealdrive-server').exists()
     print('PASS: isolated install, reinstall rejection, modes, Root/service denial, update, binary rollback, metadata backup/restore, repair, tamper rejection, preserving uninstall, dedicated native quota image and remount')

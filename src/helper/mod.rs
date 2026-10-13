@@ -27,3 +27,5 @@ pub mod upload;
 pub mod usage;
 
 pub mod worker;
+
+pub mod observation;

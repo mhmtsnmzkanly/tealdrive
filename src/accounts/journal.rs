@@ -121,6 +121,14 @@ pub struct OperationRecord {
     pub source_path: crate::config::RelativePath,
     pub target_path: Option<crate::config::RelativePath>,
     pub requested_mode: Option<u32>,
+    #[serde(default)]
+    pub old_mode: Option<u32>,
+    #[serde(default)]
+    pub new_mode: Option<u32>,
+    #[serde(default)]
+    pub before: Option<crate::helper::observation::FileState>,
+    #[serde(default)]
+    pub after: Option<crate::helper::observation::FileState>,
     pub status: String,
     pub error_code: Option<crate::errors::ErrorKind>,
     pub bytes_read: u64,
@@ -237,12 +245,20 @@ impl AccountStore {
                 request.target_relative_path.clone()
             },
             requested_mode: request.chmod_mode.map(|m| m.0),
+            old_mode: None,
+            new_mode: None,
+            before: None,
+            after: None,
             status: "pending".into(),
             error_code: None,
             bytes_read: 0,
             bytes_written: 0,
         };
         let data = encode(&record, config)?;
+        // Reserve bounded after-state metadata before the filesystem mutation begins.
+        if data.len().saturating_add(2048) > config.max_record_bytes {
+            return Err(StoreError::InvalidInput);
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -300,6 +316,12 @@ impl AccountStore {
             current.error_code = r.error_kind;
             current.bytes_read = r.bytes_read;
             current.bytes_written = r.bytes_written;
+            if let Some(metadata) = r.audit_metadata.as_ref() {
+                current.old_mode = metadata.old_mode;
+                current.new_mode = metadata.new_mode;
+                current.before = metadata.before.clone();
+                current.after = metadata.after.clone();
+            }
         }
         tx.execute(
             "UPDATE security_state SET value=?1 WHERE key=?2",

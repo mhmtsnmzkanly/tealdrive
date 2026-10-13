@@ -208,6 +208,13 @@ def main():
                         records += [json.loads(row[0]) for row in state.execute('SELECT value FROM security_state WHERE key LIKE ?',('operation_v1:'+account[0]+':%',))]
             if len(records)<5 or not any(r['status']=='success' for r in records) or not any(r['status']=='failed' for r in records):
                 raise RuntimeError('Missing protected helper intent/results')
+            if os.environ.get('TEALDRIVE_UI_FILES_ACCEPTANCE') == '1':
+                chmods=[r for r in records if r['action']=='chmod' and r['status']=='success']
+                if not chmods or any(r.get('oldMode') is None or r.get('newMode') is None or r.get('after',{}).get('mode')!=r['newMode'] for r in chmods):
+                    raise RuntimeError('Missing actual pinned chmod modes/state')
+                snapshots=[r for r in records if r['action'] in ('rename','move','trash') and r['status']=='success']
+                if not any(r.get('before') and r.get('after') and r['before']['inode']==r['after']['inode'] for r in snapshots):
+                    raise RuntimeError('Missing observed mutation inode continuity')
             encoded=json.dumps(records)
             if any(user[key] in encoded for user in users for key in ('password','linuxPassword')):
                 raise RuntimeError('Credentials appeared in protected journal')

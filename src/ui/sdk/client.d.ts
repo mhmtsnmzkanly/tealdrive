@@ -156,6 +156,24 @@ export interface AuditQuery {
   /** Inclusive Unix epoch seconds. */ from?: number;
   to?: number;
 }
+/** Opaque digest is computed by the user worker; device/inode remain decimal strings. */
+export interface ObservedFileState {
+  digest: string;
+  device: string;
+  inode: string;
+  kind: "file" | "directory" | "other";
+  mode: number;
+  uid: number;
+  gid: number;
+  size: number;
+  links: number;
+  mtimeSeconds: number;
+  mtimeNanos: number;
+  ctimeSeconds: number;
+  ctimeNanos: number;
+  contentDigest: string | null;
+  treeDigest: string | null;
+}
 export interface AuditRecord {
   version: 1;
   id: string;
@@ -169,6 +187,11 @@ export interface AuditRecord {
   sourcePath: string;
   targetPath: string | null;
   requestedMode: number | null;
+  /** Actual pinned-inode modes; optional for older backends or non-chmod events. */
+  oldMode?: number | null;
+  newMode?: number | null;
+  before?: Readonly<ObservedFileState> | null;
+  after?: Readonly<ObservedFileState> | null;
   status: "pending" | "success" | "failed" | "unknown";
   errorCode: string | null;
   bytesRead: number;

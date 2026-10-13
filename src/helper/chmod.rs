@@ -115,8 +115,28 @@ pub fn chmod_file_with_roots(
         Ok(file) => file,
         Err(error) => return helper_error_from_io(request, error),
     };
+    let original = match pinned.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => return helper_error_from_io(request, error),
+    };
+    let old_mode = original.mode() & 0o7777;
     match chmod_pinned(root, &validated_path, &pinned, mode.0 & 0o0777) {
-        Ok(()) => HelperResponse::operation_done(request, "Permissions changed."),
+        Ok(()) => {
+            let mut response = HelperResponse::operation_done(request, "Permissions changed.");
+            if let Some(audit) = response.audit_metadata.as_mut() {
+                audit.old_mode = Some(old_mode);
+                audit.before = crate::helper::observation::FileState::metadata(&original)
+                    .finish()
+                    .ok();
+                if let Ok(metadata) = pinned.metadata() {
+                    audit.new_mode = Some(metadata.mode() & 0o7777);
+                    audit.after = crate::helper::observation::FileState::metadata(&metadata)
+                        .finish()
+                        .ok();
+                }
+            }
+            response
+        }
         Err(error) => helper_error_from_io(request, error),
     }
 }

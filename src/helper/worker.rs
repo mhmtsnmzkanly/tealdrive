@@ -120,7 +120,9 @@ pub(super) fn execute(
         ));
     }
     Ok(super::quota::with_budget(available, || {
-        super::transaction::execute(request, config)
+        super::access::with_context(request, config, || {
+            super::observation::execute(request, config)
+        })
     }))
 }
 pub(super) fn spawn(

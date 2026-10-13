@@ -208,6 +208,14 @@ pub struct HelperDirectoryEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HelperAuditMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_mode: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<crate::helper::observation::FileState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<crate::helper::observation::FileState>,
     pub request_id: RequestId,
     pub command: HelperCommand,
     pub root_id: RootId,
@@ -262,6 +270,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -286,6 +298,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -310,6 +326,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -335,6 +355,10 @@ impl HelperResponse {
             bytes_read,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -360,6 +384,10 @@ impl HelperResponse {
             bytes_read,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -384,6 +412,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -408,6 +440,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -432,6 +468,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),
@@ -456,6 +496,10 @@ impl HelperResponse {
             bytes_read: 0,
             bytes_written: 0,
             audit_metadata: Some(HelperAuditMetadata {
+                old_mode: None,
+                new_mode: None,
+                before: None,
+                after: None,
                 request_id: request.request_id,
                 command: request.command,
                 root_id: request.root_id.clone(),

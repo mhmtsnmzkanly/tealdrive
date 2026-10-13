@@ -16,7 +16,6 @@ use crate::errors::TealDriveError;
 use crate::fs::path::validate_relative_path;
 use crate::policy::decision::{FileOperation, PolicyDecision, PolicyEngine};
 use crate::policy::roots::require_allowed_root;
-use crate::protocol::frame::RequestId;
 use crate::session::store::{InMemorySessionStore, SessionLookupResult, SessionStore};
 use crate::ui::mime_for_path;
 use crate::ws::server::{extract_session_id, WsHelperBackend, WsServerState};
@@ -89,7 +88,9 @@ fn range_request(
 ) -> crate::helper::types::HelperRequest {
     use crate::helper::types::*;
     HelperRequest {
-        request_id: RequestId::new(),
+        request_id: crate::audit::context::current()
+            .request_id
+            .unwrap_or_default(),
         username: user.username.clone(),
         uid: user.uid,
         gid: user.gid,
@@ -467,6 +468,11 @@ where
 
     let mut response = (status, body).into_response();
     let resp_headers = response.headers_mut();
+    if let Some(id) = crate::audit::context::current().request_id {
+        if let Ok(value) = HeaderValue::from_str(&id.to_string()) {
+            resp_headers.insert("x-tealdrive-request-id", value);
+        }
+    }
 
     if let Ok(val) = HeaderValue::from_str(mime) {
         resp_headers.insert(CONTENT_TYPE, val);

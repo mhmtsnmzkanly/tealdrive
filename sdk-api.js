@@ -682,6 +682,16 @@ export const examples = {
   /** @param {Object} API @param {{requestId:string}} operationResult @returns {Promise<Object>} @throws {TealDriveError} FEATURE_DISABLED, INVALID_ARGUMENT */
   auditForRequest: (API, operationResult) => API.files.audit.list({requestId:operationResult.requestId}),
 
+  // API.files.audit.list({requestId: response.headers.get("x-tealdrive-request-id")}); — HTTP indirme/önizleme yanıtını own helper kaydıyla ilişkilendirir; baytlar helper teslimidir.
+  /**
+   * Akış tüketildikten sonra toplam helper teslimini sorgulayın; tarayıcı diske kaydetme kanıtı değildir.
+   * @param {Object} API Handshake/login tamamlanmış SDK.
+   * @param {Response} response API.files.download sonucu; response body ayrı tüketilir.
+   * @returns {Promise<Object>} Kendi audit sayfası.
+   * @throws {TealDriveError} FEATURE_DISABLED, INVALID_ARGUMENT, AUTH_REQUIRED.
+   */
+  auditForDownload: (API, response) => API.files.audit.list({requestId:response.headers.get("x-tealdrive-request-id")}),
+
   // API.files.deletePermanently({rootId:"home",path:"obsolete.bin"}); — Canlı path'i geri alınamaz siler; Root izin/politika şartı vardır.
   /** @param {Object} API @returns {Promise<Object>} @throws {TealDriveError} FEATURE_DISABLED, POLICY_DENIED, NOT_FOUND */
   deleteLivePath: API => API.files.deletePermanently({rootId:"home",path:"obsolete.bin"}),

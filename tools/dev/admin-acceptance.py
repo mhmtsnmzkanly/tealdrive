@@ -41,6 +41,17 @@ def atomic(path, data, mode=0o600):
 def main():
     if os.geteuid() != 0 or os.environ.get('TEALDRIVE_ALLOW_ADMIN_ACCEPTANCE') != '1':
         raise RuntimeError('Explicit root admin-acceptance opt-in required')
+    # This fixture temporarily replaces the global helper ceiling. After rollout,
+    # production uses that same helper and must not be silently disturbed.
+    for process in pathlib.Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            executable = os.readlink(process / 'exe')
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if executable.startswith('/home/tealdrive/bin/tealdrive-server'):
+            raise RuntimeError('Stop the live home-installed server before shared-policy acceptance; use a private environment for concurrent tests')
     phase = os.environ.get('TEALDRIVE_ADMIN_ACCEPTANCE_PHASE', 'access')
     if phase not in ('access', 'approval', 'ui'):
         raise RuntimeError('Unknown acceptance phase')

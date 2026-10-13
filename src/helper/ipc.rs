@@ -416,7 +416,8 @@ mod tests {
     #[test]
     fn unsupported_command_returns_not_implemented() {
         let request = sample_request(HelperCommand::ReadFile);
-        let response = handle_helper_request(&request);
+        let response =
+            handle_helper_request_with_config(&request, &crate::config::AppConfig::default());
 
         assert!(!response.success);
         assert_eq!(response.error_kind, Some(ErrorKind::NotImplemented));
@@ -433,14 +434,16 @@ mod tests {
 
     #[test]
     fn run_helper_once_writes_one_response() {
-        let request = sample_request(HelperCommand::ReadFile);
+        let mut request = sample_request(HelperCommand::ReadFile);
+        // Framing rejection is deterministic and does not depend on host roots.
+        request.uid = 0;
         let input = encode_helper_request(&request).expect("request");
         let mut output = Vec::new();
 
         run_helper_once(&mut input.as_slice(), &mut output).expect("run");
         let response = decode_helper_response(&output).expect("response");
 
-        assert_eq!(response.error_kind, Some(ErrorKind::NotImplemented));
+        assert_eq!(response.error_kind, Some(ErrorKind::PermissionDenied));
     }
 }
 

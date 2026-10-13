@@ -96,6 +96,11 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
             assert_eq!(binding.pid, std::process::id());
             (identity, Some(ticket), None)
         };
+        let mut config = config;
+        if let Some(mut root) = config.home_template.take() {
+            root.base_path = identity.home_dir.clone().expect("verified NSS home");
+            config.roots = vec![root];
+        }
         let root = &config.roots[0];
         let operation = HelperRequest {
             request_id: tealdrive::protocol::frame::RequestId::new(),

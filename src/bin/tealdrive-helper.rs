@@ -2,7 +2,7 @@ use std::io::{stdin, stdout};
 
 fn main() {
     if std::env::args().any(|arg| arg == "--watch-stdin") {
-        tealdrive::helper::cancellation::watch_parent();
+        tealdrive::helper::cancellation::request_parent_watch();
     }
     let result =
         tealdrive::helper::ipc::run_secure_helper(&mut stdin().lock(), &mut stdout().lock());

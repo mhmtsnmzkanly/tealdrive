@@ -4,6 +4,13 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 static CANCELLED: AtomicBool = AtomicBool::new(false);
+static WATCH_REQUESTED: AtomicBool = AtomicBool::new(false);
+pub fn request_parent_watch() {
+    WATCH_REQUESTED.store(true, Ordering::Release);
+}
+pub(super) fn parent_watch_requested() -> bool {
+    WATCH_REQUESTED.load(Ordering::Acquire)
+}
 
 pub fn check() -> io::Result<()> {
     if CANCELLED.load(Ordering::Acquire) {

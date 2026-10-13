@@ -94,21 +94,30 @@ pub fn run(invocation: WorkerInvocation) -> Result<HelperResponse, TealDriveErro
     config.validate()?;
     super::access::authorize(&request, &config)?;
     super::policy::authorize(&request, &config)?;
-    execute_inner(&request, &config, available, undo.as_deref())
+    execute_inner(&request, &config, available, undo.as_deref(), true)
 }
 pub(super) fn execute(
     request: &HelperRequest,
     config: &AppConfig,
     available: Option<u64>,
 ) -> Result<HelperResponse, TealDriveError> {
-    execute_inner(request, config, available, None)
+    execute_inner(request, config, available, None, false)
 }
 fn execute_inner(
     request: &HelperRequest,
     config: &AppConfig,
     available: Option<u64>,
     undo: Option<&crate::accounts::journal::OperationRecord>,
+    watch: bool,
 ) -> Result<HelperResponse, TealDriveError> {
+    if watch
+        && std::fs::read_dir("/proc/self/task")
+            .map_err(|_| TealDriveError::PermissionDenied)?
+            .count()
+            != 1
+    {
+        return Err(TealDriveError::PermissionDenied);
+    }
     let user = crate::config::UserContext {
         username: request.username.clone(),
         uid: request.uid,
@@ -120,6 +129,14 @@ fn execute_inner(
             "Identity verification failed.",
         ));
     }
+    if watch
+        && std::fs::read_dir("/proc/self/task")
+            .map_err(|_| TealDriveError::PermissionDenied)?
+            .count()
+            != 1
+    {
+        return Err(TealDriveError::PermissionDenied);
+    }
     let root = config
         .roots
         .iter()
@@ -130,6 +147,9 @@ fn execute_inner(
             request,
             "Kernel filesystem confinement is unavailable.",
         ));
+    }
+    if watch {
+        super::cancellation::watch_parent();
     }
     Ok(super::quota::with_budget(available, || {
         super::access::with_context(request, config, || match undo {

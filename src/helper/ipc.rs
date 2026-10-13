@@ -544,6 +544,11 @@ pub fn run_secure_helper<R: Read, W: Write>(
     )?);
     let invocation: HelperInvocation =
         rmp_serde::from_slice(&bytes).map_err(|_| TealDriveError::HelperDecodeFailed)?;
+    if !matches!(&invocation, HelperInvocation::Worker(_))
+        && crate::helper::cancellation::parent_watch_requested()
+    {
+        crate::helper::cancellation::watch_parent();
+    }
     match invocation {
         HelperInvocation::Worker(invocation) => {
             let response = crate::helper::worker::run(invocation)?;

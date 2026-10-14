@@ -18,3 +18,10 @@ void consumer;
 createClient({encryption:'fallback-to-plaintext'});
 // @ts-expect-error public pins must be strings
 createClient({trustedServerKeys:[123]});
+// Custom bundlers/adapters use the same public runtime contract.
+import type {NoiseRuntime} from '../src/ui/sdk/client.js';
+function bundled(runtime:typeof import('../src/ui/sdk/noise/noise.js')):NoiseRuntime{return runtime;}
+function adapted(runtime:NoiseRuntime):void {
+  createClient({noiseLoader:async()=>runtime,fetch:globalThis.fetch,WebSocket:globalThis.WebSocket,location:new URL('https://drive.example')});
+}
+void [bundled,adapted];

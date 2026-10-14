@@ -717,10 +717,13 @@
 
   // --- Upload Flow ---
   let uploadController = null;
+  let uploadTransferId = null;
   async function handleFileUpload(file) {
     if (!file || state.uploading) return;
     state.uploading = true;
     uploadController = new AbortController();
+    uploadTransferId=null;
+    let uploadLimit=null;
     document.getElementById('uploadCancelBtn').disabled = false;
     el.uploadProgressBar.style.width = '0%';
     el.uploadPercent.textContent = '0%';
@@ -728,10 +731,12 @@
     el.uploadFileName.textContent = file.name;
     try {
       const client = await getAuthClient();
-      const uploadOptions={rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
+      uploadLimit=client.getInfo().limits.max_in_flight_upload;
+      const uploadOptions={onTransfer:info=>{uploadTransferId=info.transferId;},rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
         const percentage = progress.totalBytes ? Math.round(100*progress.transferredBytes/progress.totalBytes) : 100;
         el.uploadProgressBar.style.width = `${percentage}%`;
         el.uploadPercent.textContent = percentage === 100 ? t('Finalizing upload...') : `${percentage}%`;
+        document.getElementById('uploadCancelBtn').disabled=percentage===100;
       }};
       let resumeTransferId;
       for(let attempt=0;;attempt++){
@@ -748,14 +753,15 @@
       showToast('Upload completed','success'); loadDirectory(state.currentPath);
     } catch (error) {
       const messages = {
-        FILE_TOO_LARGE: t('File exceeds the server upload limit ({limit}).', {limit:formatBytes(authClient?.getInfo().limits.max_in_flight_upload)}),
+        FILE_TOO_LARGE: t('File exceeds the server upload limit ({limit}).', {limit:formatBytes(uploadLimit)}),
+        UPLOAD_COMMIT_UNCONFIRMED: t('Upload completion could not be confirmed. Refresh the file list before retrying.'),
         RESUME_FILE_MISMATCH: t('The selected file does not match the interrupted upload.'),
         ABORTED: t('Upload cancelled.'),
         DISK_FULL: t('Storage is full or the account quota has been reached.'),
       };
       showToast(messages[error.code] || error.message,'error');
     }
-    finally { uploadController=null;state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value=''; }
+    finally { uploadController=null;uploadTransferId=null;state.uploading=false;el.uploadProgressContainer.classList.add('hidden');el.fileInput.value=''; }
   }
 
   // --- Session & HTTP Auth ---
@@ -1216,9 +1222,11 @@
       });
     };
 
-    document.getElementById('uploadCancelBtn').onclick = (event) => {
+    document.getElementById('uploadCancelBtn').onclick = async (event) => {
       event.target.disabled = true;
+      const transferId=uploadTransferId;
       uploadController?.abort();
+      if(transferId)try{await authClient.handshake();await authClient.files.abortUpload({transferId});}catch{}
     };
     el.uploadBtn.onclick = () => el.fileInput.click();
     el.fileInput.onchange = (e) => {

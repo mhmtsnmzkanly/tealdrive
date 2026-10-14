@@ -4,7 +4,7 @@
  * @example const api=createClient(); await api.handshake(); await api.auth.login({username,password});
  * @example await api.files.list({filter:{name:'report'},sort:{by:'name',direction:'asc'}});
  */
-export const SDK_VERSION = "1.0.0";
+export const SDK_VERSION = "1.1.0";
 
 /** Stable error: use code/params for i18n, requestId for diagnosis. Never log credentials. */
 export class TealDriveError extends Error {
@@ -147,6 +147,24 @@ const kinds = {
   other: "Other",
 };
 
+const noiseLoads = new WeakMap();
+const defaultNoiseLoader = async () => {
+  const module = await import(new URL("./noise.js", import.meta.url));
+  await module.default();
+  return module;
+};
+function loadNoise(loader) {
+  let pending=noiseLoads.get(loader);
+  if(!pending){
+    pending=Promise.resolve().then(loader).then(runtime=>{
+      if(typeof runtime?.NoiseClient!=="function" || typeof runtime?.Sha256Stream!=="function")fail("CRYPTO_UNAVAILABLE");
+      return runtime;
+    }).catch(error=>{noiseLoads.delete(loader);throw error;});
+    noiseLoads.set(loader,pending);
+  }
+  return pending;
+}
+
 /**
  * @param {object} [options]
  * @param {'managed'|'client'} [options.stateMode='managed'] Optional SDK navigation state.
@@ -174,7 +192,10 @@ export class TealDriveClient {
       "quotaPollMs",
       "encryption",
       "trustedServerKeys",
+      "noiseLoader",
     ]);
+    if(options.noiseLoader!==undefined && typeof options.noiseLoader!=="function")fail("INVALID_ARGUMENT");
+    this._loadNoise=()=>loadNoise(options.noiseLoader??defaultNoiseLoader);
     this._encryptionMode = options.encryption ?? "auto";
     if (!["auto", "required", "disabled"].includes(this._encryptionMode)) fail("INVALID_ARGUMENT");
     this._trustedServerKeys = options.trustedServerKeys ?? [];
@@ -198,6 +219,7 @@ export class TealDriveClient {
       "quotaPollMs",
       "encryption",
       "trustedServerKeys",
+      "noiseLoader",
     );
     this._quotaTimer = null;
     this._threshold = integer(
@@ -269,6 +291,11 @@ export class TealDriveClient {
       deletePermanently: async (o) => this._permanentDelete(o),
       search: async (o) => this._search(o),
       upload: async (o) => this._upload(o),
+      abortUpload: async (o) => {
+        object(o,["transferId","signal"]);
+        if(typeof o.transferId!=="string"||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(o.transferId))fail("INVALID_ARGUMENT");
+        return publicValue(await this._request("UploadAbort",{transfer_id:o.transferId,reason:"explicit user cancellation"},o));
+      },
       download: async (o) => this._download(o),
       getDownloadUrl: (o) => this._fileUrl("download", o),
       getPreviewUrl: (o) => this._fileUrl("preview", o),
@@ -472,8 +499,7 @@ export class TealDriveClient {
             const key = bytes.slice(4);
             const hex = [...key].map(b => b.toString(16).padStart(2, "0")).join("");
             if (this._trustedServerKeys.length && !this._trustedServerKeys.some(pin => pin.toLowerCase() === hex)) fail("SERVER_KEY_MISMATCH");
-            const module = await import(new URL("./noise.js", import.meta.url));
-            await module.default();
+            const module = await this._loadNoise();
             if (this._socket !== socket) return;
             this._channel = new module.NoiseClient(key);
             this._channelPending = true;
@@ -1929,7 +1955,7 @@ export class TealDriveClient {
       integer(offset,0,file.size,"resumeOffset");
       if (options.resumeTransferId) {
         if (begin.total_size !== file.size || begin.filename !== file.name || begin.root_id !== ref.root_id || begin.relative_path !== ref.relative_path) fail("RESUME_FILE_MISMATCH");
-        const module = await import(new URL("./noise.js",import.meta.url));await module.default();
+        const module = await this._loadNoise();
         const hash = new module.Sha256Stream();
         let digest;
         try {
@@ -1958,6 +1984,7 @@ export class TealDriveClient {
           totalBytes: file.size,
         });
       }
+      if(options.signal?.aborted)fail("ABORTED");
       committing = true;
       const result = await this._request(
         "UploadEnd",
@@ -1966,6 +1993,9 @@ export class TealDriveClient {
       );
       return publicValue(result);
     } catch (error) {
+      if(committing && ["CONNECTION_CLOSED","CONNECTION_FAILED","TIMEOUT","ABORTED"].includes(error.code)) {
+        throw new TealDriveError("UPLOAD_COMMIT_UNCONFIRMED",{cause:error,requestId:error.requestId,params:{operationMayHaveCompleted:true,transferId:transfer}});
+      }
       if (transfer && retain && !committing && ["CONNECTION_CLOSED","CONNECTION_FAILED","HANDSHAKE_REQUIRED"].includes(error.code)) {
         throw new TealDriveError(error.code,{cause:error,retryable:true,params:{...error.params,resumeTransferId:transfer}});
       }

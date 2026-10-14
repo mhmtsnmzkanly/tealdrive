@@ -1030,10 +1030,10 @@ pub fn handle_upload_abort_frame_with_service(
     }
 
     let request: UploadAbortRequest = decode_msgpack(&frame.payload)?;
-    let active_upload = context
-        .active_uploads
-        .remove(&request.transfer_id)
-        .ok_or(TealDriveError::NotFound)?;
+    let active_upload = match context.active_uploads.remove(&request.transfer_id) {
+        Some(upload) => upload,
+        None => crate::upload::resume::take_for_abort(context, request.transfer_id)?,
+    };
 
     let response = upload_abort_request(&active_upload, request)?;
     let bytes = encode_msgpack(&response)?;

@@ -9,3 +9,4 @@ if [[ "$(wasm-bindgen --version)" != 'wasm-bindgen 0.2.122' ]]; then
 fi
 cargo build --locked -p tealdrive-channel --target wasm32-unknown-unknown --release
 wasm-bindgen --target web --out-dir src/ui/sdk/noise --out-name noise target/wasm32-unknown-unknown/release/tealdrive_channel.wasm
+python3 tools/dev/finalize-channel-runtime.py

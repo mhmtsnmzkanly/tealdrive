@@ -14,7 +14,7 @@ await api.auth.login({ username, password }); // aynı WS; HttpOnly cookie bağl
 const page = await api.files.list(); // doğrulanmış current directory.
 ```
 
-HTTPS/WSS sertifika/şifrelemesini tarayıcı yapar; handshake JS kripto değildir. Pre-auth sadece hello/auth mesajlarıdır. Auth başarısızsa dosya/admin erişimi yok. Login HttpOnly cookie için tek kullanımlık HTTP bridge yapar; parola HTTP body'ye gönderilmez. Bridge token storage/URL/log'a yazılmaz.
+HTTPS/WSS sertifika doğrulamasını tarayıcı yapar; Root zorunluluğu varsa handshake ek Noise NK kanalını da kurar. Kapsam ve pin modeli aşağıda açıklanır. Pre-auth sadece hello/auth mesajlarıdır. Auth başarısızsa dosya/admin erişimi yok. Login HttpOnly cookie için tek kullanımlık HTTP bridge yapar; parola HTTP body'ye gönderilmez. Bridge token storage/URL/log'a yazılmaz.
 
 ## Üç alan
 
@@ -286,3 +286,24 @@ try {
 ### İlk girişte geçici parola
 
 Session metadata `passwordChangeRequired` olduğunda dosya/yönetim erişimi yoktur; roots boş ve isAdminfalse'dur. Custom UI kendi parola formunu gösterip `api.auth.changePassword({currentPassword,newPassword})` çağırır; sonra yeni parolayla yeniden login gerekir. SDK bu durumdaki diğer API'leri `PASSWORD_CHANGE_REQUIRED` ile reddeder; bu bir UI kuralı değil protected helper/server yetki sınırıdır. Yeni parola geçici paroladan farklı olmalıdır.
+
+
+### Bekleyen yüklemeyi iptal etme ve commit belirsizliği
+
+`await api.files.abortUpload({transferId})` aktif veya bağlantı sonrası tutulmuş aynı oturumun yüklemesini iptal eder; farklı oturuma ait ID NotFound olarak döner. Sonlandırma/commit aşamasında cevap kaybolursa SDK `UPLOAD_COMMIT_UNCONFIRMED` ve operationMayHaveCompleted döndürür; otomatik tekrar commit/overwrite yapmaz. UI bu aşamada iptal düğmesini kapatır ve kayıp cevap durumunda dosya listesini kontrol etmeyi ister.
+
+### Bundler ve transport adaptörleri
+
+Varsayılan import server'ın `/sdk/v1/tealdrive.js` modülüdür ve aynı origin cookie/CSRF/Origin kurallarını kullanır. React/Vue/başka UI framework'üne bağlı değildir. Kendi bundler'ınız modül yollarını değiştiriyorsa initialized runtime'ı `noiseLoader` ile verin:
+
+```js
+const noiseLoader=async()=>{
+  const module=await import('./crypto/noise.js');
+  await module.default({module_or_path:wasmAssetUrl});
+  return module;
+};
+const api=createClient({noiseLoader,encryption:'required',trustedServerKeys:[publicKey]});
+await api.handshake();
+```
+
+Aynı loader fonksiyonunu paylaşan eşzamanlı istemciler tek initialize promise kullanır; başarısız initialize sonraki denemeyi engellemez. Aksi halde wasm-bindgen global instance'ı yarışla değiştirilip mevcut opaque handle'lar bozulabilir. Gerekirse `fetch`, `WebSocket`, `location` dependency adapter'ları typed options olarak verilebilir; cookie/CSRF/Origin güvenlik sözleşmesini adaptör korumalıdır. Cross-origin erişim/CORS veya cookie güvenlik kuralları SDK tarafından sessizce gevşetilmez. Wire/contract override'ları test altyapısı içindir; public TypeScript adapter yüzeyi değildir.

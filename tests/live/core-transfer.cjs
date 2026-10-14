@@ -5,6 +5,20 @@ const fs=require('node:fs');
  const browser=await chromium.launch({headless:true,args:['--host-resolver-rules=MAP tealdrive-origin.local 127.0.0.1','--no-proxy-server']});
  try {
   const context=await browser.newContext({ignoreHTTPSErrors:true});
+  if(process.env.TEALDRIVE_CORE_CHANNEL==='1'){
+   const cryptoPage=await context.newPage();await cryptoPage.route('**/app.js*',route=>route.fulfill({contentType:'application/javascript',body:''}));
+   await cryptoPage.goto('https://tealdrive-origin.local:13106');
+   const key=fs.readFileSync(process.env.TEALDRIVE_CHANNEL_KEY_FILE,'utf8').trim();
+   await cryptoPage.evaluate(async key=>{
+    const {createClient}=await import('/sdk/v1/tealdrive.js');let initializations=0;
+    const noiseLoader=async()=>{initializations++;const module=await import('/sdk/v1/noise.js');await module.default();return module;};
+    const clients=[createClient({noiseLoader,encryption:'required',trustedServerKeys:[key]}),createClient({noiseLoader,encryption:'required',trustedServerKeys:[key]})];
+    const info=await Promise.all(clients.map(client=>client.handshake())).catch(error=>{throw Error('Concurrent crypto '+error.code+' cause '+error.cause?.message+' init '+initializations);});
+    if(initializations!==1||info.some(value=>!value.transport.encryptedWebSocket))throw Error('Concurrent runtime initialization failed');
+    for(const client of clients)client.disconnect();
+   },key).catch(error=>{console.error('Concurrent channel check: '+error.message.slice(0,600));throw error;});await cryptoPage.close();
+   console.log('core-step: simultaneous pinned clients and shared custom runtime loader passed');
+  }
   const page=await context.newPage();
   page.on('console',message=>{if(message.text().startsWith('core-step:'))console.log(message.text());});
   await page.exposeFunction('tamperUpload',kind=>{

@@ -65,6 +65,24 @@ pub(crate) fn clear() {
         pending.clear();
     }
 }
+pub(crate) fn take_for_abort(
+    context: &WsConnectionContext,
+    id: TransferId,
+) -> Result<ActiveUpload, TealDriveError> {
+    let mut pending = PENDING.lock().map_err(|_| TealDriveError::Internal)?;
+    let record = pending.get(&id).ok_or(TealDriveError::NotFound)?;
+    if record.session != context.session_id
+        || record.username != context.username
+        || record.uid != context.uid
+        || record.gid != context.gid
+    {
+        return Err(TealDriveError::NotFound);
+    }
+    pending
+        .remove(&id)
+        .and_then(|mut r| r.upload.take())
+        .ok_or(TealDriveError::NotFound)
+}
 pub(crate) fn take(
     context: &WsConnectionContext,
     id: TransferId,
@@ -233,6 +251,28 @@ mod tests {
         suspend(&context, upload, 60);
         cfg.roots[0].read_only = true;
         assert!(take(&context, id, &cfg).is_err());
+        assert!(!stage.exists());
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn retained_upload_can_be_aborted_only_by_its_session() {
+        let (path, _, context, upload) = fixture();
+        let id = upload.transfer_id;
+        let stage = upload.staging_path.clone();
+        suspend(&context, upload, 60);
+        let mut other = context.clone();
+        other.session_id = SessionId(uuid::Uuid::new_v4());
+        assert!(take_for_abort(&other, id).is_err());
+        let upload = take_for_abort(&context, id).unwrap();
+        super::super::transfer::upload_abort_request(
+            &upload,
+            crate::protocol::payload::UploadAbortRequest {
+                transfer_id: id,
+                reason: None,
+            },
+        )
+        .unwrap();
+        drop(upload);
         assert!(!stage.exists());
         std::fs::remove_dir_all(path).unwrap();
     }

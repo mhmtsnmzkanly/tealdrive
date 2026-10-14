@@ -354,6 +354,8 @@ export interface FilesAPI {
     matches: Array<{ relativePath: string; entry: FileEntry }>;
     truncated: boolean;
   }>;
+  /** Cancel an active or retained same-session upload after reconnect. */
+  abortUpload(options: RequestOptions & {transferId:string}): Promise<OperationResult>;
   upload(
     options: RequestOptions & {
       rootId?: string;
@@ -625,7 +627,21 @@ export interface AdminAPI {
   policy: AdminPolicyAPI;
   quota: { getBudget(): Promise<AdminBudget> };
 }
+/** Initialized Noise runtime; a bundler may load its own emitted WASM asset URL. */
+export interface NoiseRuntime {
+  NoiseClient: new(key:Uint8Array)=>{
+    start():Uint8Array;finish(message:Uint8Array):void;
+    seal(plain:Uint8Array):Uint8Array;open(cipher:Uint8Array):Uint8Array;free():void;
+  };
+  Sha256Stream:new()=>{update(bytes:Uint8Array):void;finish():Uint8Array;free():void};
+}
 export interface ClientOptions {
+  /** Initialized runtime loader, deduplicated across clients sharing this function. */
+  noiseLoader?:()=>Promise<NoiseRuntime>;
+  /** Adapters must preserve cookies/CSRF/Origin; the default browser same-origin setup needs none. */
+  fetch?: typeof globalThis.fetch;
+  WebSocket?: typeof globalThis.WebSocket;
+  location?: Pick<Location,"protocol"|"host"|"origin">;
   /** auto honors required server encryption; required rejects plaintext WS. TLS remains required. */
   encryption?: "auto" | "required" | "disabled";
   /** Out-of-band trusted Noise public keys, 64 hex chars each. Multiple pins support rotation. */

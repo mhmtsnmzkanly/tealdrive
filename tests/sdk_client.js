@@ -154,7 +154,7 @@ globalThis.crypto = webcrypto;
         return;
       }
       if (f.messageType === M.UploadEnd) {
-        this.reply(M.OperationDone, { bytes_written: 7 }, f.requestId);
+        this.reply(M.OperationDone, { transfer_id:TealDriveWire.uuidBytes("11111111-1111-4111-8111-111111111111"),bytes_written: 7,sha256_verified:null }, f.requestId);
         return;
       }
       if (f.messageType === M.ReadTextFile) {
@@ -506,13 +506,17 @@ globalThis.crypto = webcrypto;
   Object.defineProperty(file, "name", { value: "example.txt" });
   await assert.rejects(api.files.upload({file,resumeTransferId:"bad"}),e=>e.code==="INVALID_ARGUMENT");
   let publicTransfer;
-  await api.files.upload({
+  const uploadedResult = await api.files.upload({
     onTransfer: value => {publicTransfer=value.transferId;},
     directory: "uploads",
     file,
     onProgress: (p) => progress.push(p.transferredBytes),
   });
   assert.deepEqual(progress, [4, 7]);
+  assert.equal(uploadedResult.transferId,publicTransfer);
+  assert.equal(uploadedResult.bytesWritten,7);
+  assert.equal(uploadedResult.operation,"UPLOAD");
+  assert.equal(typeof uploadedResult.requestId,"string");
   assert.equal(publicTransfer,"11111111-1111-4111-8111-111111111111");
   await api.files.abortUpload({transferId:publicTransfer});
   await assert.rejects(api.files.goTo("/gone"), (e) => e.code === "NOT_FOUND");

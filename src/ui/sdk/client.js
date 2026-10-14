@@ -713,7 +713,7 @@ export class TealDriveClient {
       );
       return;
     }
-    pending.resolve(p);
+    pending.resolve(pending.method === "UploadEnd" ? {...p,request_id:id,operation:"UPLOAD"} : p);
   }
   _rejectAll(error) {
     for (const p of this._pending.values()) {
@@ -1995,7 +1995,7 @@ export class TealDriveClient {
         { transfer_id: this._wire.uuidBytes(transfer), total_size: file.size, sha256: null },
         options,
       );
-      return publicValue(result);
+      return {...publicValue(result),transferId:transfer};
     } catch (error) {
       if(committing && ["CONNECTION_CLOSED","CONNECTION_FAILED","TIMEOUT","ABORTED"].includes(error.code)) {
         throw new TealDriveError("UPLOAD_COMMIT_UNCONFIRMED",{cause:error,requestId:error.requestId,params:{operationMayHaveCompleted:true,transferId:transfer}});

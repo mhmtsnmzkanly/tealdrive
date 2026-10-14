@@ -9,8 +9,10 @@ async function consumer(publicKey: string, file: File): Promise<void> {
   const own:number|null|undefined=budget.ownQuotaBytes;
   const mode:'fixed'|'remainder'|undefined=budget.ownQuotaMode;
   await api.files.list({path:'/',filter:{extensions:['js','ts'],type:'file'},sort:{by:'name',direction:'asc'}});
-  await api.files.upload({directory:'/',file,resumable:true,resumeTransferId:undefined,onTransfer:t=>{const id:string=t.transferId;void id;}});
-  void [pinTrust,encrypted,own,mode];
+  const uploaded=await api.files.upload({directory:'/',file,resumable:true,resumeTransferId:undefined,onTransfer:t=>{const id:string=t.transferId;void id;}});
+  const transferId:string=uploaded.transferId;
+  const bytesWritten:number=uploaded.bytesWritten;
+  void [pinTrust,encrypted,own,mode,transferId,bytesWritten];
   api.disconnect();
 }
 void consumer;

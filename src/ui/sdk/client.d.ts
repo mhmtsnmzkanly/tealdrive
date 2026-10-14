@@ -73,6 +73,11 @@ export interface OperationResult {
   operation: string;
   safeMessage?: string | null;
 }
+export interface UploadResult extends OperationResult {
+  transferId: string;
+  bytesWritten: number;
+  sha256Verified?: boolean | null;
+}
 export interface Session {
   accountId?: string;
   accountGeneration?: number;
@@ -371,7 +376,7 @@ export interface FilesAPI {
         totalBytes: number;
       }) => void;
     },
-  ): Promise<OperationResult>;
+  ): Promise<UploadResult>;
   /** Streaming Response; UI chooses how to save. Promise resolution is not proof of user disk write. */
   download(options: FileOptions): Promise<Response>;
   /** Native browser download/media URL; no secret/token in query. Authorization occurs when requested. */

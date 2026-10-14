@@ -143,7 +143,7 @@ const session = await API.auth.completeEnrollment({ webPassword });
 
 Kayıt başladıktan sonra sayfa/bağlantı kapanırsa yeniden PAM gerekir. SDK Linux veya web parolasını storage'a yazmaz. Managed storage namespace account ID/generation/origin ile ayrılır; içerik/credential yok. Virtual hesap PAM self-enrollment kullanmaz; admin/root provisioning bekler. Root deny/suspend, kayıt formu açıkken değişse bile completion'da tekrar denetlenir.
 
-`getInfo().authentication.webPassword` giriş yöntemidir; `changePassword()` endpoint'inin hazır olduğu anlamına gelmez. Bu endpoint ve self-revoke henüz FEATURE_DISABLED. UI auth SDK'ya taşındı; dosya UI'sının tümüyle SDK dönüşümü ve i18n ayrı PLAN maddesidir.
+`getInfo().authentication.webPassword` giriş yöntemidir; `changePassword()` endpoint'inin hazır olduğu anlamına gelmez. Güncel sürümde parola değişimi ve uygun hesapların self-revoke akışı uygulanmıştır; virtual hesap revoke yetkisini yönetici kullanır. UI dosya işlemleri ortak SDK ve TR/EN arayüzünü kullanır.
 
 
 ## Kayıt onayı ve hesap erişimi (uygulandı)
@@ -157,7 +157,7 @@ await API.admin.systemUsers.deny({accountId: approved.id}); // suspend + eski gr
 await API.admin.systemUsers.allow({accountId: approved.id}); // Root deny/NSS kontrolü + yeni generation
 ```
 
-`authentication.linuxApproval` onay uçlarının capability'sidir; eski server'da false. UID/GID/home/role/parola args kabul edilmez. Root/admin atanması bu API'nin işi değildir. Virtual admin global Linux işlemlerini yapamaz; kendi virtual children için list/disable/enable kullanır. Create/delete/quota henüz kapalıdır. SDK types: AccountMetadata/UserCandidate/UserCandidates; hata401/403/409/503 kanonik karşılıklarla döner.
+`authentication.linuxApproval` onay uçlarının capability'sidir; eski server'da false. UID/GID/home/role/parola args kabul edilmez. Root/admin atanması bu API'nin işi değildir. Tenant virtual admin global Linux işlemlerini yapamaz; Root tarafından açık global scope verilen admin genel panel yönetimi yapabilir. Virtual children create/list/disable/enable/delete/quota Root politikası ve owner bütçesine göre uygulanır. SDK types: AccountMetadata/UserCandidate/UserCandidates; hata401/403/409/503 kanonik karşılıklarla döner.
 
 
 ## Çalışan policy API
@@ -312,3 +312,6 @@ Aynı loader fonksiyonunu paylaşan eşzamanlı istemciler tek initialize promis
 ### Aktarım kimliğinin public biçimi
 
 `onTransfer().transferId`, reconnect hatasındaki `params.resumeTransferId` ve belirsiz commit hatasındaki `params.transferId` standart tireli UUID metnidir. SDK MessagePack binary UUID'yi bu biçime dönüştürür; resume/abort çağrılarında wire byte temsiline geri çevirir. Kimliği aynı HttpOnly session dışında kullanmak yetki vermez. Geçersiz resume kimliği `INVALID_ARGUMENT` üretir.
+
+
+`files.upload()` sonucu `UploadResult`: `transferId:string`, `bytesWritten:number`, `sha256Verified:boolean|null` ve inherited `operation/requestId` alanlarıdır. Başarı sonucu kimliği de callback/resume kimliğiyle aynı canonical UUID'dir. Bu alanlar strict TypeScript tüketici ve gerçek binary MessagePack cevap testiyle doğrulanır.

@@ -118,3 +118,16 @@ sudo tealdrive-wizard account scope ACCOUNT_ID tenant
 ```
 
 Hesap türü/home/UID/GID değişmez. Tenant rolü korunur; general scope ayrıca Root DB ve policy roster ile atanır. Eski oturumlar generation değişimiyle iptal edilir. `account admin/user` Linux rol komutlarıdır; virtual RoleAdmin'i RoleUser'a çevirmek için kullanılmaz. `virtual admin create tealdrive BUDGET REQUEST_UUID` Root-only panel alias'ını ayrı tdv_UID kimliğiyle oluşturabilir; Linux tealdrive service enrollment kapalı kalır. Bu yeni komutlar henüz installed production binary'de yayınlanmadı.
+
+## Yeni aşama: net imaj havuzu ve büyütme (source sürümü)
+
+```sh
+sudo tealdrive-wizard storage init --pool-size 30GiB
+sudo tealdrive-wizard storage status
+sudo tealdrive-wizard storage check
+sudo tealdrive-ctl stop
+sudo tealdrive-wizard storage expand --pool-size 50GiB
+sudo tealdrive-ctl start
+```
+
+--pool-size net dağıtılabilir toplamı ifade eder,artış miktarı değildir. Physical image daha büyük hazırlanır ve mevcut host blokları baştan ayrılır. Init explicit native virtual mode açar; mevcut image/mount/home ezilmez. Grow eski dosya ve User UID kotalarını korur. Root-owned expansion.json yarıda kalan aynı target'ı sürdürür. Disk/resize/validation hatasında eski pool korunur; retry aynı komutla yapılır. Shrink yok. Başka uygulamaların aynı FS'ye yazması online ext4 büyütmesinde kernel tarafından yönetilir; operasyonun bağımsız backup/snapshot olduğu iddia edilmez. Bu komutlar source aşamasındadır,production image henüz değiştirilmedi.

@@ -358,7 +358,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         );
     let readonly = matches!(
         args.get(1).map(String::as_str),
-        Some("show" | "validate" | "list" | "get" | "pending" | "status")
+        Some("show" | "validate" | "list" | "get" | "pending" | "status" | "check")
     );
     let restore_or_repair = matches!(action, Some("restore" | "repair"));
     let control = if audited && !readonly && Path::new(layout::ACCOUNTS).exists() {
@@ -424,7 +424,7 @@ fn run_inner(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
-            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/allow <id>/deny <id>/password <id> | storage init <size>/status/mount/sync | pool set <size> | budget set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
+            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | tls status | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
             Ok(())
         }
         ["init"] => {
@@ -613,6 +613,14 @@ fn run_inner(args: Vec<String>) -> Result<()> {
                 request,
             )?)
         }
+        ["storage", "init", "--pool-size", size] => {
+            root()?;
+            storage::init_pool(bytes(size)?)
+        }
+        ["storage", "expand", "--pool-size", size] => {
+            root()?;
+            storage::expand(bytes(size)?)
+        }
         ["storage", "init", size] => {
             root()?;
             storage::init(bytes(size)?)
@@ -620,6 +628,10 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         ["tls", "status"] => {
             root()?;
             tls::status()
+        }
+        ["storage", "check"] => {
+            root()?;
+            storage::check()
         }
         ["storage", "status"] => {
             root()?;
@@ -637,6 +649,13 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         }
         ["pool", "set", size] => {
             root()?;
+            let _lock = crate::accounts::virtuals::lock()?;
+            if Path::new("/home/tealdrive/storage/expansion.json")
+                .symlink_metadata()
+                .is_ok()
+            {
+                return Err("Resume pending storage expansion before changing the pool".into());
+            }
             storage::check_pool(bytes(size)?)?;
             store()?.set_pool(&Authority::Root, bytes(size)?)?;
             println!("Root pool updated.");

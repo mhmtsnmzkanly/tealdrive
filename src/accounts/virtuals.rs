@@ -411,6 +411,20 @@ impl AccountStore {
         }
         Ok(true)
     }
+    pub fn pool_status(&self) -> Result<serde_json::Value, StoreError> {
+        let pool = self.pool_limit()?;
+        let delegated: i64 = self.connection.query_row(
+            "SELECT coalesce(sum(limit_bytes),0) FROM admin_budgets",
+            [],
+            |row| row.get(0),
+        )?;
+        let children:i64=self.connection.query_row("SELECT coalesce(sum(quota_bytes),0) FROM accounts WHERE kind='virtual' AND role='user'",[],|row|row.get(0))?;
+        let delegated = u64::try_from(delegated).map_err(|_| StoreError::InvalidInput)?;
+        let children = u64::try_from(children).map_err(|_| StoreError::InvalidInput)?;
+        Ok(
+            serde_json::json!({"limitBytes":pool,"delegatedBudgetBytes":delegated,"rootUnassignedBytes":pool.saturating_sub(delegated),"childAllocatedBytes":children}),
+        )
+    }
     pub fn pool_limit(&self) -> Result<u64, StoreError> {
         let limit: i64 = self.connection.query_row(
             "SELECT limit_bytes FROM quota_pool WHERE id=1",

@@ -19,7 +19,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
     if manifest.get('virtualAdmin'):
         run(['/usr/bin/mount','--bind',str(base/'etc'),'/etc'])
         run(['/usr/bin/mount','--bind',str(base/'storage'),'/home/tealdrive/storage'])
-        image=base/'storage/acceptance.ext4'
+        image=base/'storage/virtual-pool.ext4'
         with image.open('xb') as volume:
             image.chmod(0o600);os.posix_fallocate(volume.fileno(),0,128*1024*1024)
         run(['/usr/sbin/mke2fs','-q','-t','ext4','-F','-O','quota','-E','quotatype=usrquota',str(image)])
@@ -72,7 +72,24 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
             os.killpg(server.pid,signal.SIGTERM)
             try:server.wait(timeout=15)
             except subprocess.TimeoutExpired:os.killpg(server.pid,signal.SIGKILL);server.wait()
+
         log.close()
+    if manifest.get('virtualAdmin'):
+        account_id=(base/'panel-account-id').read_text().strip()
+        db=sqlite3.connect('/home/tealdrive/auth/accounts.db')
+        home=Path(db.execute('SELECT home FROM accounts WHERE id=?',(account_id,)).fetchone()[0]);db.close()
+        import hashlib
+        digest=hashlib.sha256((home/'core-large.bin').read_bytes()).hexdigest()
+        old_status=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','storage','status']))
+        run(['/home/tealdrive/bin/tealdrive-wizard','storage','check'])
+        run(['/home/tealdrive/bin/tealdrive-wizard','storage','expand','--pool-size','128MiB'])
+        current=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','storage','status']))
+        if current['pool']['limitBytes']!=128*1024*1024 or current['imageBytes']<=old_status['imageBytes'] or current['expansionPending']:raise RuntimeError('Expansion did not publish verified net capacity')
+        if digest!=hashlib.sha256((home/'core-large.bin').read_bytes()).hexdigest():raise RuntimeError('Expansion changed existing user content')
+        rejected=subprocess.run(['/home/tealdrive/bin/tealdrive-wizard','storage','expand','--pool-size','64MiB'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        if rejected.returncode==0:raise RuntimeError('Shrink was accepted')
+        run(['/home/tealdrive/bin/tealdrive-wizard','storage','check'])
+        print('PASS: verified image/filesystem expansion, net pool publication, hash preservation, shrink rejection')
     sys.exit()
 username=os.environ.get('TEALDRIVE_TEST_USERNAME','tealdrive-test')
 password=Path(os.environ['TEALDRIVE_TEST_WEB_PASSWORD_FILE'])

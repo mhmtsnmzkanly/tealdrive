@@ -69,3 +69,15 @@ Native mode seçilmeden volume kurulmalıdır; enabled/Root pool tek başına ad
 Direct TLS için behind_tls_proxy=false, tls_cert_path ve tls_key_path birlikte kullanılır; require_tls=true, secure cookie ve HTTPS origins sürer. Proxy'siz loopback bootstrap HTTP varsayılanıdır; public plaintext için güvenli fallback yoktur. Bind/TLS değişimi restart gerektirir; çalışma ayarları ve uygun policy reload olabilir.
 
 Çöp kutusu retention Root lifecycle saatidir. Split panelde legacy trash_retention_days düzenlenmez. Undo kullanıcı tercihi1..Root undo_max_hours; null Root sınırını izler. Legacy audit retention_days giriş uyumu vardır; yeni süreler saat cinsindedir.
+
+## Yeni aşama: Root sistem alanı bütçeleri (source sürümü)
+
+```toml
+[system_storage]
+max_metadata_db_bytes = 536870912
+max_staging_bytes = 4294967296
+max_staging_transfers = 128
+staging_min_free_bytes = 1073741824
+```
+
+Bunlar kullanıcıya dağıtılan native havuz kotası değildir; Root ayarlarıdır. SQLite cap data pages içindir; WAL boyutu checkpoint/reader davranışına bağlıdır. Staging reservation tek server process'indeki aktif transferleri kapsar; OS-wide service UID quota değildir. Root max upload değeri staging byte bütçesini aşamaz. Production release yapılmadan bu ayarlar mevcut binary'ye verilmemeli.

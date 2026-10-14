@@ -27,9 +27,58 @@ use crate::protocol::payload::{
 use crate::upload::temp::TempUploadName;
 
 // Keep system metadata/control writes possible while staging user uploads.
-const MIN_STAGING_FREE_BYTES: u64 = 1024 * 1024 * 1024;
 static STAGING_IO: std::sync::Mutex<()> = std::sync::Mutex::new(());
-fn check_staging_capacity(file: &fs::File, bytes: u64) -> Result<(), TealDriveError> {
+#[derive(Debug, Default)]
+struct StageUsage {
+    bytes: u64,
+    transfers: u32,
+}
+static STAGING_RESERVED: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<StageUsage>>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(std::sync::Mutex::new(StageUsage::default())));
+#[derive(Debug)]
+pub(crate) struct StageReservation {
+    bytes: u64,
+    counter: std::sync::Arc<std::sync::Mutex<StageUsage>>,
+}
+impl PartialEq for StageReservation {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes && std::sync::Arc::ptr_eq(&self.counter, &other.counter)
+    }
+}
+impl Eq for StageReservation {}
+impl Drop for StageReservation {
+    fn drop(&mut self) {
+        let mut value = self.counter.lock().unwrap_or_else(|e| e.into_inner());
+        value.bytes = value.bytes.saturating_sub(self.bytes);
+        value.transfers = value.transfers.saturating_sub(1);
+    }
+}
+fn reserve_staging(
+    counter: std::sync::Arc<std::sync::Mutex<StageUsage>>,
+    bytes: u64,
+    maximum: u64,
+    max_transfers: u32,
+) -> Result<std::sync::Arc<StageReservation>, TealDriveError> {
+    {
+        let mut held = counter.lock().map_err(|_| TealDriveError::Internal)?;
+        let total = held
+            .bytes
+            .checked_add(bytes)
+            .ok_or(TealDriveError::DiskFull)?;
+        if total > maximum || held.transfers >= max_transfers {
+            return Err(TealDriveError::DiskFull);
+        }
+        held.bytes = total;
+        held.transfers += 1;
+    }
+    Ok(std::sync::Arc::new(StageReservation { bytes, counter }))
+}
+
+fn check_staging_capacity(
+    file: &fs::File,
+    bytes: u64,
+    minimum_free: u64,
+) -> Result<(), TealDriveError> {
     use std::os::fd::AsRawFd;
     let mut status: libc::statvfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::fstatvfs(file.as_raw_fd(), &mut status) } != 0 {
@@ -37,7 +86,7 @@ fn check_staging_capacity(file: &fs::File, bytes: u64) -> Result<(), TealDriveEr
     }
     let free = status.f_bavail.saturating_mul(status.f_frsize);
     if bytes
-        .checked_add(MIN_STAGING_FREE_BYTES)
+        .checked_add(minimum_free)
         .is_none_or(|required| free < required)
     {
         return Err(TealDriveError::DiskFull);
@@ -52,6 +101,7 @@ pub struct UploadState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveUpload {
+    _staging_reservation: std::sync::Arc<StageReservation>,
     pub transfer_id: TransferId,
     pub root_id: RootId,
     pub parent_relative_path: RelativePath,
@@ -186,6 +236,12 @@ pub fn upload_begin_request(
     {
         return Err(TealDriveError::DiskFull);
     }
+    let permit = reserve_staging(
+        STAGING_RESERVED.clone(),
+        request.total_size,
+        config.system_storage.max_staging_bytes,
+        config.system_storage.max_staging_transfers,
+    )?;
     let staging = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -193,13 +249,18 @@ pub fn upload_begin_request(
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&staging_path)
         .map_err(|_| TealDriveError::Internal)?;
-    if let Err(error) = check_staging_capacity(&staging, request.total_size) {
+    if let Err(error) = check_staging_capacity(
+        &staging,
+        request.total_size,
+        config.system_storage.staging_min_free_bytes,
+    ) {
         drop(staging);
         let _ = fs::remove_file(&staging_path);
         return Err(error);
     }
 
     let active_upload = ActiveUpload {
+        _staging_reservation: permit,
         transfer_id,
         root_id: request.root_id,
         parent_relative_path: parent_rel,
@@ -249,7 +310,11 @@ pub fn upload_chunk_request(
         .map_err(|_| TealDriveError::Internal)?;
 
     let _disk_lock = STAGING_IO.lock().map_err(|_| TealDriveError::Internal)?;
-    check_staging_capacity(&file, chunk.chunk_bytes.len() as u64)?;
+    check_staging_capacity(
+        &file,
+        chunk.chunk_bytes.len() as u64,
+        config.system_storage.staging_min_free_bytes,
+    )?;
     file.seek(SeekFrom::Start(chunk.offset))
         .map_err(|_| TealDriveError::Internal)?;
     file.write_all(&chunk.chunk_bytes)
@@ -502,6 +567,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn staging_budget_tracks_last_clone_and_bounds_zero_byte_transfers() {
+        let counter = std::sync::Arc::new(std::sync::Mutex::new(StageUsage::default()));
+        let first = reserve_staging(counter.clone(), 8, 10, 2).unwrap();
+        let clone = first.clone();
+        drop(first);
+        assert!(reserve_staging(counter.clone(), 3, 10, 2).is_err());
+        let zero = reserve_staging(counter.clone(), 0, 10, 2).unwrap();
+        assert!(reserve_staging(counter.clone(), 0, 10, 2).is_err());
+        drop(clone);
+        drop(zero);
+        let permit = reserve_staging(counter.clone(), 10, 10, 2).unwrap();
+        assert_eq!(counter.lock().unwrap().bytes, 10);
+        drop(permit);
+        assert_eq!(counter.lock().unwrap().bytes, 0);
+        assert_eq!(counter.lock().unwrap().transfers, 0);
+    }
     #[test]
     fn full_upload_lifecycle_success() {
         let base = temp_root();

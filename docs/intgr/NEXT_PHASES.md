@@ -94,3 +94,11 @@ Expansion Root-owned0600 inode/device/target journal ile resume eder; farklı im
 Gerçek private NSS/native quota/Chromium kabulü genişletildi:128→192MiB image,64→128MiB net pool,gerçek resize2fs,mevcut17MiB dosyada SHA256 korunması,pending temizliği ve shrink rejection passed. Production image/metadata büyütülmedi. CLI status physical/net/delegated/child allocated ayrımını gösterir. Sabit admin own quota ve sistem budget işleri bu değişiklikte henüz yok.
 
 Imaging sonrası tam library:593toplam/592passed/1PAM ignored. Clippy all-targets -Dwarnings passed. Init/grow physical hedef pool125% veya pool+64MiB minimumuyla başlar; gerçekkapasite yetmezse Root journal hedefi kontrollü büyütülür, en fazla3iterasyon sonra matching resume mümkündür. Native büyütme kabulü finalkod ile tekrar geçti.
+
+### Ayrı sistem bütçesi ilk sınırları
+
+Root-only [system_storage]: max_metadata_db_bytes=536870912,max_staging_bytes=4294967296,max_staging_transfers=128,staging_min_free_bytes=1073741824. Web overlay SysStorage'yı değiştiremez. Root SQLite her connection'da max_page_count sınırını uygular; büyüme SQLITE_FULL ile atomic reddedilir. journal_size_limit16MiB checkpoint sonrası best-effort WAL sınırıdır, toplam DB+WAL disk hard quota iddiası yok.
+
+Upload staging process-wide declared-byte ve transfer-count reservation kullanır; ActiveUpload clone'ları Arc ile aynı rezervasyonu paylaşır, last drop serbest bırakır. Zero-byte uploads da transfer slot tüketir; Sys stage budget user image allocation'ından ayrıdır. Bu servis UID'sine bütün OS filesystem'lerinde uygulanmış kernel kota değildir; başka process/stale files/external writes için disk headroom/lifecycle ve operasyon denetimi gerekir. Native user kotası ayrı kernel mekanizmasıyla korunur.
+
+596library tests:595passed/1explicit PAM ignored; metadata page full/no partial insert,stage budget clone-release/zero-byte count,Root SysStorage overlay rejection passed. Gerçek Root SQLite3acceptance tests migration/WAL/privacy/concurrent budgets/login limits yeniden passed. Production config/DB budget henüz değiştirilmedi.

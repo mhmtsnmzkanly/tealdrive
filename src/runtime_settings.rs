@@ -185,6 +185,23 @@ mod tests {
         )
     }
     #[test]
+    fn root_system_storage_budget_cannot_be_changed_by_overlay() {
+        let (dir, settings) = fixture();
+        let mut requested = settings.ceiling.clone();
+        requested.system_storage.max_staging_bytes *= 2;
+        assert!(matches!(
+            settings.validate(&requested, &settings.ceiling),
+            Err(TealDriveError::PermissionDenied)
+        ));
+        std::fs::write(
+            &settings.path,
+            "[system_storage]\nmax_staging_bytes=8589934592",
+        )
+        .unwrap();
+        assert!(settings.read(&settings.ceiling).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn overlay_roundtrip_cannot_promote_admin_or_relax_limits() {
         let (dir, settings) = fixture();
         let mut chosen = settings.ceiling.clone();

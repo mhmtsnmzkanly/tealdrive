@@ -56,9 +56,29 @@ pub struct UserContext {
     pub gid: u32,
 }
 
+/// Root-owned system budgets; not part of the panel-writable overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SystemStorageConfig {
+    pub max_metadata_db_bytes: u64,
+    pub max_staging_bytes: u64,
+    pub max_staging_transfers: u32,
+    pub staging_min_free_bytes: u64,
+}
+impl Default for SystemStorageConfig {
+    fn default() -> Self {
+        Self {
+            max_metadata_db_bytes: 512 * 1024 * 1024,
+            max_staging_bytes: 4 * 1024 * 1024 * 1024,
+            max_staging_transfers: 128,
+            staging_min_free_bytes: 1024 * 1024 * 1024,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
+    pub system_storage: SystemStorageConfig,
     pub control_audit: crate::accounts::control_audit::ControlAuditConfig,
     pub lifecycle: crate::accounts::lifecycle::LifecycleConfig,
     pub virtual_accounts: crate::accounts::virtuals::VirtualConfig,
@@ -92,6 +112,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            system_storage: Default::default(),
             control_audit: Default::default(),
             lifecycle: Default::default(),
             virtual_accounts: crate::accounts::virtuals::VirtualConfig::default(),
@@ -169,6 +190,16 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
+        if self.system_storage.max_metadata_db_bytes < 16 * 1024 * 1024
+            || self.system_storage.max_metadata_db_bytes > 64 * 1024 * 1024 * 1024
+            || self.system_storage.max_staging_bytes < self.limits.max_in_flight_upload as u64
+            || self.system_storage.max_staging_bytes > 64 * 1024 * 1024 * 1024
+            || self.system_storage.staging_min_free_bytes < 64 * 1024 * 1024
+            || !(1..=4096).contains(&self.system_storage.max_staging_transfers)
+        {
+            return Err(TealDriveError::Validation);
+        }
+
         self.server
             .validate_transport(&self.session, &self.security)?;
         if self.server.require_tls == Some(true)

@@ -177,6 +177,23 @@ pub(super) fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> 
     })
 }
 pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment,(role='admin' AND coalesce((SELECT value='global' FROM security_state WHERE key='panel_scope:'||accounts.id),kind='linux'))";
+fn apply_metadata_budget(connection: &Connection, budget: u64) -> Result<(), StoreError> {
+    let page_size: i64 = connection.pragma_query_value(None, "page_size", |row| row.get(0))?;
+    let page_size = u64::try_from(page_size).map_err(|_| StoreError::InvalidInput)?;
+    if page_size == 0 {
+        return Err(StoreError::InvalidInput);
+    }
+    let maximum = budget / page_size;
+    let observed: i64 =
+        connection.query_row(&format!("PRAGMA max_page_count={maximum}"), [], |row| {
+            row.get(0)
+        })?;
+    if observed > number(maximum)? {
+        return Err(StoreError::QuotaExceeded);
+    }
+    connection.execute_batch("PRAGMA journal_size_limit=16777216;")?;
+    Ok(())
+}
 pub(super) fn account(connection: &Connection, id: &str) -> Result<Account, StoreError> {
     connection
         .query_row(
@@ -305,6 +322,12 @@ impl AccountStore {
         )?;
         connection.busy_timeout(std::time::Duration::from_secs(3))?;
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA secure_delete=ON; PRAGMA synchronous=FULL;")?;
+        let budget = crate::helper::security::trusted_config()
+            .map(|cfg| cfg.system_storage.max_metadata_db_bytes)
+            .unwrap_or_else(|_| {
+                crate::config::SystemStorageConfig::default().max_metadata_db_bytes
+            });
+        apply_metadata_budget(&connection, budget)?;
         Ok(connection)
     }
     fn initialize_schema(&mut self) -> Result<(), StoreError> {
@@ -848,6 +871,27 @@ impl AccountStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn metadata_page_budget_refuses_growth_without_partial_insert() {
+        let connection = Connection::open_in_memory().unwrap();
+        apply_metadata_budget(&connection, 16 * 1024 * 1024).unwrap();
+        connection
+            .execute_batch("CREATE TABLE grows (payload BLOB)")
+            .unwrap();
+        let failed = connection.execute("INSERT INTO grows VALUES(zeroblob(33554432))", []);
+        assert!(failed.is_err());
+        let count: i64 = connection
+            .query_row("SELECT count(*) FROM grows", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        let pages: i64 = connection
+            .pragma_query_value(None, "page_count", |row| row.get(0))
+            .unwrap();
+        let size: i64 = connection
+            .pragma_query_value(None, "page_size", |row| row.get(0))
+            .unwrap();
+        assert!(pages * size <= 16 * 1024 * 1024);
+    }
     #[test]
     fn root_scope_is_independent_of_virtual_identity_and_invalidates_old_authority() {
         let mut store = AccountStore::memory();

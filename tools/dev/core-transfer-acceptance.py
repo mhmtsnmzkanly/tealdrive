@@ -27,10 +27,25 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         os.chmod('/home/tealdrive/virtual-homes',0o711)
         # Fresh virtual fixture metadata only; the production DB is a private clone.
         db=sqlite3.connect('/home/tealdrive/auth/accounts.db')
-        db.executescript("DELETE FROM session_grants; DELETE FROM admin_budgets; DELETE FROM accounts; DELETE FROM enrollment; DELETE FROM security_state WHERE key!='dummy_password_hash';")
+        db.executescript("DELETE FROM session_grants; DELETE FROM admin_budgets; DELETE FROM accounts "+("WHERE kind='virtual'" if os.environ.get('TEALDRIVE_CORE_MIGRATION')=='1' else "")+"; DELETE FROM enrollment; DELETE FROM security_state WHERE key!='dummy_password_hash';")
         db.commit();db.close()
         run(['/home/tealdrive/bin/tealdrive-wizard','pool','set','64MiB'])
-        if os.environ.get('TEALDRIVE_CORE_BOOTSTRAP')=='1':
+        if os.environ.get('TEALDRIVE_CORE_MIGRATION')=='1':
+            import hashlib
+            source_home=Path(manifest['home']);(source_home/'test').mkdir(mode=0o700);os.chown(source_home/'test',manifest['sourceUid'],manifest['sourceGid'])
+            source_file=source_home/'test/hello gpt.md';source_file.write_bytes(b'Preserve original administrator content during virtual migration.\n');source_file.chmod(0o600);os.chown(source_file,manifest['sourceUid'],manifest['sourceGid'])
+            db=sqlite3.connect('/home/tealdrive/auth/accounts.db');source_id=db.execute('SELECT id FROM accounts WHERE username=?',(manifest['username'],)).fetchone()[0];db.close()
+            run(['/home/tealdrive/bin/tealdrive-wizard','account','admin',source_id])
+            result=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','account','migrate-admin',source_id,'tealdrive','64MiB','32MiB']))
+            account=result['account'];target_file=Path(account['home'])/'test/hello gpt.md'
+            if target_file.read_bytes()!=source_file.read_bytes() or target_file.stat().st_uid!=account['uid'] or source_file.stat().st_uid!=manifest['sourceUid']:raise RuntimeError('Migration did not preserve contents/owners')
+            db=sqlite3.connect('/home/tealdrive/auth/accounts.db')
+            same=db.execute('SELECT a.web_password_hash=b.web_password_hash FROM accounts a,accounts b WHERE a.id=? AND b.id=?',(source_id,account['id'])).fetchone()[0];db.close()
+            if not same:raise RuntimeError('Migration changed password credentials')
+            repeated=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','account','migrate-admin',source_id,'tealdrive','64MiB','32MiB']))
+            if not repeated['completed'] or repeated['targetAccountId']!=account['id']:raise RuntimeError('Migration was not idempotent')
+            print('PASS: offline descriptor migration, existing hash/content preserved, new UID, no overwrite, idempotent retry')
+        elif os.environ.get('TEALDRIVE_CORE_BOOTSTRAP')=='1':
             result=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','bootstrap','admin','64MiB','32MiB']))
             state=json.loads(Path(result['credentialFile']).read_text())
             (base/'bootstrap-password').write_text(state['password']);(base/'bootstrap-password').chmod(0o600)
@@ -101,6 +116,11 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 old_cert=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes()
                 run(['/home/tealdrive/bin/tealdrive-wizard','tls','prepare','tealdrive-origin.local'])
                 if old_cert!=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Prepare published active certificate')
+                original_caddy=caddyfile.read_text()
+                caddyfile.write_text(original_caddy.replace('http://127.0.0.1:13107 {','http://127.0.0.1:13107 {\n header X-Unrelated-Change blocked'))
+                rejected=subprocess.run(['/home/tealdrive/bin/tealdrive-wizard','tls','activate','tealdrive-origin.local','--caddy',str(caddyfile)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                if rejected.returncode==0 or old_cert!=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Renewal published unrelated pending Caddy changes')
+                caddyfile.write_text(original_caddy)
                 run(['/home/tealdrive/bin/tealdrive-wizard','tls','activate','tealdrive-origin.local','--caddy',str(caddyfile)])
                 if old_cert==Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Renewal did not change active certificate')
                 urllib.request.urlopen('http://127.0.0.1:13107/api/health',timeout=3)
@@ -182,5 +202,5 @@ with tempfile.TemporaryDirectory(prefix='.core-transfer-',dir='/root') as name:
     if virtual:
         shutil.copytree('/etc',base/'etc',symlinks=True)
         (base/'storage').mkdir(mode=0o700)
-    (base/'manifest.json').write_text(json.dumps({'username':username,'home':identity.pw_dir,'virtualAdmin':virtual}))
+    (base/'manifest.json').write_text(json.dumps({'username':username,'home':identity.pw_dir,'sourceUid':identity.pw_uid,'sourceGid':identity.pw_gid,'virtualAdmin':virtual}))
     subprocess.run(['/usr/bin/unshare','--mount','--pid','--fork','--mount-proc','python3',str(Path(__file__).resolve()),'--child',str(base)],check=True)

@@ -27,6 +27,7 @@ const BINARIES: [&str; 4] = [
 ];
 const UNIT: &str = "tealdrive.service";
 mod bootstrap;
+mod migrate_admin;
 mod storage;
 mod tls;
 mod tls_renewal;
@@ -601,6 +602,10 @@ fn run_inner(args: Vec<String>) -> Result<()> {
             print(
                 &serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired,"trash_cleaned":cleanup.trash_cleaned,"trash_skipped":cleanup.trash_skipped,"staging_cleaned":staged.staging_cleaned,"staging_skipped":staged.staging_skipped}),
             )
+        }
+        ["account", "migrate-admin", source, name, budget, own] => {
+            root()?;
+            migrate_admin::migrate(source, name, bytes(budget)?, bytes(own)?)
         }
         ["bootstrap", "admin", budget, own] => {
             root()?;

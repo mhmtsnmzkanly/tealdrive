@@ -806,6 +806,49 @@ impl AccountStore {
         tx.commit()?;
         Ok(())
     }
+    /// Offline Root migration preserves the password hash without exposing it.
+    pub(crate) fn copy_admin_credentials(
+        &mut self,
+        actor: &Authority,
+        source: &str,
+        source_generation: u64,
+        target: &str,
+        target_generation: u64,
+    ) -> Result<(), StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let from = account(&tx, source)?;
+        let to = account(&tx, target)?;
+        if from.kind != AccountKind::Linux
+            || to.kind != AccountKind::Virtual
+            || from.role != Role::Admin
+            || to.role != Role::Admin
+            || from.status != AccountStatus::Active
+            || to.status != AccountStatus::Active
+            || !from.password_enrolled
+            || from.generation != source_generation
+            || to.generation != target_generation
+        {
+            return Err(StoreError::Forbidden);
+        }
+        tx.execute("UPDATE accounts SET web_password_hash=(SELECT web_password_hash FROM accounts WHERE id=?1),generation=generation+1,updated_at=?2 WHERE id=?3",params![source,number(now())?,target])?;
+        tx.execute(
+            "DELETE FROM security_state WHERE key=?1",
+            [format!("password_change_required:{target}")],
+        )?;
+        if from.password_change_required {
+            tx.execute(
+                "INSERT INTO security_state(key,value) VALUES(?1,'1')",
+                [format!("password_change_required:{target}")],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
     /// Root marks an active account for a restricted first-login session.
     pub fn require_password_change(
         &mut self,
@@ -1150,6 +1193,82 @@ mod tests {
             .is_err());
         assert!(called.get());
         assert_eq!(store.budget(&parent.id).unwrap()["limit_bytes"], 600);
+    }
+    #[test]
+    fn root_admin_migration_preserves_credentials_and_rejects_stale_generations() {
+        let mut store = AccountStore::memory();
+        let from = store
+            .create(&Authority::Root, linux("legacy", 1000, Role::Admin))
+            .unwrap();
+        let from = store
+            .set_password(&Authority::Root, &from.id, "existing-private-web-password")
+            .unwrap();
+        let target = store
+            .create(
+                &Authority::Root,
+                NewAccount {
+                    username: "newpanel".into(),
+                    uid: 200000,
+                    gid: 200000,
+                    home: "/home/tealdrive/virtual-homes/tdv_200000".into(),
+                    kind: AccountKind::Virtual,
+                    role: Role::Admin,
+                    owner_admin_id: None,
+                    quota_bytes: None,
+                },
+            )
+            .unwrap();
+        assert!(store
+            .copy_admin_credentials(
+                &authority(&from),
+                &from.id,
+                from.generation,
+                &target.id,
+                target.generation
+            )
+            .is_err());
+        assert!(store
+            .copy_admin_credentials(
+                &Authority::Root,
+                &from.id,
+                from.generation - 1,
+                &target.id,
+                target.generation
+            )
+            .is_err());
+        store
+            .copy_admin_credentials(
+                &Authority::Root,
+                &from.id,
+                from.generation,
+                &target.id,
+                target.generation,
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .verify_password("newpanel", "existing-private-web-password")
+                .unwrap()
+                .id,
+            target.id
+        );
+        assert_eq!(
+            store
+                .verify_password("legacy", "existing-private-web-password")
+                .unwrap()
+                .id,
+            from.id
+        );
+        assert_eq!(store.get(&target.id).unwrap().uid, 200000);
+        assert!(store
+            .copy_admin_credentials(
+                &Authority::Root,
+                &from.id,
+                from.generation,
+                &target.id,
+                target.generation
+            )
+            .is_err());
     }
     #[test]
     fn password_lifecycle_public_metadata_and_generation_revocation() {

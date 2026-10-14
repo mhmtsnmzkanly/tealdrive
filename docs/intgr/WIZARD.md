@@ -167,3 +167,15 @@ sudo jq -r '.password' /home/tealdrive/auth/bootstrap.json
 Panel adı`tealdrive`, generated NSS hesabı`tdv_UID`; Linux servis hesabı nologin/locked kalır. Rastgele web parolası ilk girişte değişmelidir. Root-only bootstrap state0600 retry/idempotency için korunur; tekrar bootstrap completed hesabın parolasını sıfırlamaz. İlk parola değiştikten sonra dosyadaki başlangıç parolası geçersizdir; Root bu credential dosyasını kaldırabilir. Mevcut global admin varsa fresh bootstrap reddedilir; mevcut kurulum için açık migration/provisioning kullanılır. Kurulum Root TLS/origin politikasını ayrıca seçer; loopback HTTP default public exposure için kullanılmaz.
 
 `account require-password-change ID` Root-only komutu var olan bir hesabı kısıtlı parola değişim oturumuna geçirir; generation yenilenir. Limited session yalnız session/cookie/logout/parola değişimi için geçerlidir; normal helper grant ve FS/yönetim işlemleri reddedilir. Aynı geçici parola yeni parola olarak seçilemez.
+
+
+### Mevcut Linux panel adminini sanal home'a geçir
+
+```sh
+# Server ve source UID ile çalışan diğer programlar kapalı olmalı.
+tealdrive-wizard account migrate-admin SOURCE_ACCOUNT_ID tealdrive 512MiB 128MiB
+# Yeni panel girişini/dosyaları doğruladıktan sonra eski panel hesabını kapat.
+tealdrive-wizard account deny SOURCE_ACCOUNT_ID
+```
+
+Komut mevcut web parola özetini Root DB içinde taşır; plaintext parola gerektirmez. Source home ve Linux/NSS hesabı korunur. Yeni generated UID/GID, sabit own quota ve global panel scope oluşturulur. Kaynak/dest regular files ve dizinleri fd/openat2 ile okunur; foreign UID, symlink/hardlink, special file, mount geçişi veya çalışan source/target UID process reddedilir. Dosya içeriği64KiB buffer ve digest ile doğrulanır. Yeni home doluysa farklı verinin üzerine yazılmaz; verified copy tamamlandığında empty home ile atomic rename-exchange kullanılır. Root auth/admin-migration.json0600 resume journal'dır; aynı parametrelerle tekrar çağrı idempotenttir. Parola generation CAS korunur. Source permissions0777 kısmı korunur, özel bits/ACL taşıma iddiası yoktur; yeni home0700 olur. Hosting/process/domain yönetimi yapmaz.

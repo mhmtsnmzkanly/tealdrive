@@ -94,13 +94,11 @@ fn tree(source: &File, target: Option<&Path>, walk: &mut Walk, depth: usize) -> 
     for name in names {
         let name = name.to_str().ok_or("Migration requires UTF8 file names")?;
         crate::fs::filename::SafeFileName::parse(name)?;
-        let file = crate::helper::sandbox::open_at(
-            source.as_raw_fd(),
-            name,
-            libc::O_RDONLY | libc::O_NONBLOCK,
-            0,
-        )?;
-        let before = owned(&file, walk.uid, walk.dev)?;
+        let handle = crate::helper::sandbox::open_at(source.as_raw_fd(), name, libc::O_PATH, 0)?;
+        let before = owned(&handle, walk.uid, walk.dev)?;
+        // Reopen only an already-validated regular file/directory, by its stable
+        // descriptor. Never open a user-supplied device/FIFO before checking type.
+        let file = File::open(format!("/proc/self/fd/{}", handle.as_raw_fd()))?;
         walk.entries = walk.entries.checked_add(1).ok_or("Entry overflow")?;
         if walk.entries > walk.max_entries {
             return Err("Migration exceeds inode budget".into());
@@ -483,6 +481,10 @@ mod tests {
         assert!(manifest(&src, uid, gid, 1000, 100, None).is_err());
         std::fs::remove_file(src.join("link")).unwrap();
         std::fs::hard_link(src.join("test/hello gpt.md"), src.join("hardlink")).unwrap();
+        assert!(manifest(&src, uid, gid, 1000, 100, None).is_err());
+        std::fs::remove_file(src.join("hardlink")).unwrap();
+        let fifo = CString::new(src.join("fifo").as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
         assert!(manifest(&src, uid, gid, 1000, 100, None).is_err());
         std::fs::remove_dir_all(base).unwrap();
     }

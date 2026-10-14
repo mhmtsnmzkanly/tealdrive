@@ -1,38 +1,39 @@
-# Yeni aşamalar: ara durum raporu
+# Çekirdek aşamalar: kaynak tamamlandı, yayın kabulü sürüyor
 
-14 Ekim2026. Bu belge bitiş raporu değildir; kullanıcı tüm işleri yetkilendirdi, tekrar onay gerekmez. Çalışma NEXT_PHASES.md ile sürer.
+14 Ekim 2026. Kullanıcı bütün işleri yetkilendirdi; tekrar onay beklenmez. Üretime geçiş ve nihai rapor tamamlanmadan bu belge bitiş raporu sayılmaz.
 
-## Kod ve testte tamamlanan parçalar
+## Kaynakta tamamlananlar
 
-- Cookie bridge/session confirmation hatasında SDK authenticated socket kapatılır. Double login submit önlenir.
-- API/private file responses no-store/Vary:Cookie; SDK fetch no-store.
-- UI upload cancel,actual file limit mesajı,finalizing durumu,TR/EN.
-- Büyük upload bounded64KiB buffer/readonly inherited FD ile supervisor→User worker; path delegation veya full-file IPC Vec yok. Source sahiplik/mode/read-only/nlink/exact size kontrolleri. Atomic transaction+quota+cancellation korunur. Source default1GiB/hard64GiB,frame/chunk boyutları büyümedi.
-- Root-only panel scope protectedDB flag+generation ve Root policy roster; virtual admin defaulttenant, explicitglobal atama/revocation. Servis adlı panelalias ayrı tdv_UID ile Root-only oluşturulur.
-- Root-owned backend TLS pair60s refresh,invalidpair sonrası lastgood korunur. Wizard tls status30gün uyarı/fingerprint verir.
-- Wizard net pool init/check/expand; backinginode/loop/format doğrulama,physicalreservation,actualcapacity,Root resume journal,shrink rejection.
-- Root-only system budgets:SQLite pages512MiB,active staging4GiB/128transfer,freeheadroom1GiB. Bunlar bütün OS filesystem'lerinde serviceUID hardquota değildir. WAL16MiB sınırı best-effortcheckpoint sonrası uygulanır.
+- Önceki cookie bridge/no-store/UI cancel/readonly FD büyük aktarım ve Root virtual global scope çalışmaları korunur.
+- `b01b461`: sabit admin own-file quota, çocuk/pending tahsisleriyle atomik bütçe muhasebesi. Legacy remainder hesaplar explicit Root geçişine kadar korunur.
+- `991a7b4`, `bebfda4`: Root TLS prepare/activate/renew/auto; Caddy optional dual trust, strict live identity, unrelated active config/environment değişimi reddi. Generic proxy akışı vardır.
+- `49ee5dc`: standart Noise NK/Curve25519/ChaChaPoly/SHA256; shared Rust native/browserWASM, optional independent key pins, replay/tamper/downgrade rejection. Root TLS hâlâ zorunlu. **HTTP/REST/cookie/native downloads Noise kapsamında değildir.**
+- `354475b`: staging dosya ledger/flock; süreçler arası aktif declared bytes, crash/legacy orphan actual bytes ve transfer-count muhasebesi. Farklı TMPDIR ayrı alandır; OS UID hardquota iddiası yoktur.
+- `e4a38bb`: aynı HttpOnly session ile cross-connection upload resume, incremental prefix SHA256, Root1800s window, policy/identity recheck, explicit cancel. Restart yetkisi service metadata'dan yeniden kurulmaz; eski stage dosyaları sayılır ve GC temizler.
+- `0657ddd`: fresh install pool/own quota + random ilk virtual global admin, Root-private credential file, restricted first-login session, zorunlu farklı parola değişimi. Linux servis hesabı nologin/locked kalır.
+- `afe120c`: existing Linux admin→virtual UID/home, descriptor copy/manifest/no-overwrite, protected password-hash transfer, Root resume journal. Source files/account retained; old web login yeni giriş doğrulandıktan sonra Root deny ile kapanır.
+- Son SDK/UX sertleştirmeleri çalışma ağacındaysa `git diff` kontrol edilir: retained abort API, commit-unconfirmed semantiği, bundler/custom noise loader + concurrency dedup, typed transport adapters, SDK1.1.0, migration device/FIFO open öncesi O_PATH kontrolü, fresh-install test aracı.
 
-## Kanıt
+## Test kanıtı
 
-596 library test:595passed/1explicitPAMignored. RootSQLite3ignoredtest explicitkoşuda geçti. SDK/WS-auth/browser/config integration geçti. Clippyalltargets-Dwarnings geçti. Gerçek TLS rotation acceptance124.44s geçti.
+Son normal workspace:609library/607passed/2explicit ignored; channel unit+Cacophony vector ve normal integration passed. Rust1.85 workspace/all-target check passed; Clippy workspace/alltargets-Dwarnings passed. Strict TypeScript consumer passed. Yeni source değişirse uygun testler yeniden çalıştırılır.
 
-Private mount/PID/NSS namespace içinde generatednologinvirtualalias,128MiBquota ext4,64MiBadminbudget,RootglobalUI/API erişimi,17MiBupload/streamdownload/HTTPRange,abort/tamperedstage/targetcleanup,scope revocation eskicookie401+yeni tenant403/settingsdisabled,128→192MiBimage ve64→128MiBnetpool büyüme+SHA256preservation+shrink rejection geçti. Son kabul systembudgets ile tekrar geçti. Host NSS/account/home/authDB/image değiştirilmedi; fixture/loopmount temizlendi.
+Gerçek private mount/PID/NSS/TLS namespace + native quota image içinde: random bootstrap/restricted UI+SDK+server/password change/relogin; existing Linux hash/content/owner-preserving migration ve idempotent retry; pinned ChromiumWASM↔Rust17MiB upload/download/Range, same-session resume+wrongprefix rejection, cancel, unsafe source/truncate, wrongkey/plaintext/replay/tamper/malformedfragment rejection; global→tenant revoke; image expansion+SHA256 preservation+shrink rejection; gerçek private Caddy dual trust/live refresh/oldtrust retirement/30day no-op passed.
 
-## Henüz tamamlanmayan işler
+Fresh four-binary install --pool-size64MiB --admin-own-quota32MiB: native preallocated image, net pool, random private credential, virtual/global/ownquota/first-change/nologin/idempotence passed. Fixture başlangıçta host'un kopyalanan mount unit'ini taşıyordu; yalnız private fixture units temizlenerek gerçek fresh-host durumu sağlandı. Temporary unsupported useradd mail flag yayınlanmadan kaldırıldı. Existing Wizard namespace install/update/rollback/metadata backup/restore/repair/uninstall/remount kabulü passed.
 
-1. Backend certificate otomatik üretim/yenileme ve proxy dual-trust rollout. Live refresh bunun yalnız ilkparçasıdır.
-2. TLS'ye ek uygulama şifrelemesi: threat model/standartprotocol seçimi/implementation/browserRustinterop/downgrade-replay/keyrotation. TRANSPORT_SECURITY.md tasarım sınırları; henüz çalışan encryption özelliği yok.
-3. Admin delegatedbudget ile sabit ownfilequota ayrımı. Mevcut virtualadmin ownquota remainingbudget modelini kullanır; ayrıca ownquota reserve henüz yok.
-4. İlk admin otomatikbootstrap/randompassword/firstloginpasswordchange ve existingadmin→virtualadmin data/credentials geçişi. Root create/scope arayüzü ve isolatedkabul var; productionmigration yok.
-5. Upload crossconnectionresume. Mevcut disconnect/abort güvenli cleanup yapar,upload resume yok. Büyük indirme nativeHTTPRange destekler.
-6. System budget persistence/OSquota kapsamı ve eski staging/restart/multi-instance muhasebesinin tamamlanması; şimdiki staging cap processwideactive transferler içindir.
-7. Genişletilmiş SDK/types/examples/UI bütçe yüzeyi,son temiz kurulum/upgrade/release/liveCaddy kabulü ve detaylı bitişraporu.
+## Kalan yayın işleri
 
-Önceki konuşmada iki aşama dışında kalan tutarlı userdata+metadata backup/restore ve uzun yük/bağımsız security review henüz bu ara teslimde tamamlanmadı. Hostingprocess/domain/database yönetimi kapsam dışıdır.
+1. Son SDK loader concurrency + retained abort/UI finalizing davranışının gerçek kabulü; Root ignored tests ve son full checks.
+2. Release dört binary build/paket; kontrollü üretim update. Yeni config eski binary'ye verilmez.
+3. Production existing tealdrive-admin dosya/hash koruyan virtual tealdrive migration; yeni hesabı doğrula, eski web login'i kapat, Linux service identity kilitli kalır.
+4. Production upload ceiling, transport key/TLS renewal, direct Caddy/public browser kabulü.
+5. Dev çıktı temizliği, güncel dokümanlar ve detaylı bitiş raporu; ayrı commitler.
 
-## Production
+## Hâlâ geçerli sınırlar
 
-Installed release eski sürüm; Roothelper upload ceiling hâlâ1MiB. Mevcut admin tealdrive-admin(LinuxUID1001); sanal tealdrive hesabı productionda oluşturulmadı. Eski admin/home/şifre korunur. PublicTLS/Caddy/Tealdriveservisleri active. Rootimage1GiB/netpool512MiB büyütülmedi. Yeni configfields eski binary'ye verilmedi.
+Hosting/domain/app process/DB yönetimi kapsam dışı. Tutarlı tam user-data+metadata backup/restore ile bağımsız güvenlik incelemesi bu iki aşamanın dışında bırakılmıştır. Mevcut metadata backup testi full native-volume recovery garantisi değildir. Root SQLite page cap512MiB, WAL journal-size16MiB checkpoint best effort; system storage sınırları ele geçirilmiş UID'ye OS-wide hardquota değildir. Noise library upstream formal audit almış diye tanıtılmaz. HTTP/REST encryption ve browser kaynak dağıtımı tehdit modeli TRANSPORT_SECURITY.md içindedir.
 
-Rootdisk118GiB/used19GiB/free95GiB;buildcache yaklaşık738MiB. Debug/incremental kapalı. Sonraki büyük build/test/release öncesi df kontrol edilir. Commit zinciri gitlog içinde; yeni aşama değişiklikleri ayrı commitlerde,çalışma ağacı temiz. Onay beklenmeden kalan implementasyon/test/rollout sürdürülmelidir.
+## Üretim (henüz değişmedi)
+
+Installed old release; helper upload ceiling1MiB. Linux panel admintealdrive-admin UID1001/home/home/tealdrive-admin, kullanıcının seçtiği web parolası ve test/hello gpt.md korunur. Sanal tealdrive admin productionda henüz oluşturulmadı. Native image1GiB/netpool512MiB korunur. Public Caddy/TLS/servis aktif. Rootdisk118GiB/used21GiB/free93GiB. Debug/incremental kapalı.

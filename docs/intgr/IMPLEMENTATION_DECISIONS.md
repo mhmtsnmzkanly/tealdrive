@@ -370,3 +370,8 @@ Offline server-running denetimi yalnız fixed argv yolunu değil executable/argv
 ## 14 Ekim 2026: mevcut admin migration
 
 Root offline migrate-admin SOURCE_ID NAME BUDGET OWN komutu ayrı NSS sanal UID/GID+home oluşturur, SourceUID process yokluğunu kontrol eder ve descriptor/no-symlink tree copy yapar. Source/original home ve parola değişmez; protectedDB hash hedefe transaction/generation CAS ile kopyalanır, plaintext bilinmez/yazılmaz. Native UID quota chown aşamasında da uygulanır. Source hedefleSHA256/content/permissions tree manifest bakımından eşitlenmeden public home publish edilmez; source dosya/dizin değişimi stat+hash ile algılanır. Existing target farklı/doluysa overwrite yapılmaz. Root-owned sibling staging ile rename-exchange ve0600resume journal crash recovery sağlar. Yeni global scope + Root roster ayrıca atanır. Eski web hesabı yeni login/dosya doğrulamasından sonra açık Root deny ile kapatılır; eski kullanıcı dosyaları silinmez.
+
+
+## 14 Ekim 2026 ek kararların yeri
+
+Güncel native pool/admin migration/SDK UUID/WASM/TLS yayın seçimleri [DECISIONS.md](DECISIONS.md) son tarihli bölümündedir. Önceki plan notları tarihsel gerekçeyi korur; çalışma durumunda [PHASE_PROGRESS.md](PHASE_PROGRESS.md) ve son tarihli kabul kaydı esas alınır.

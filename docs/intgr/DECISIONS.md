@@ -120,3 +120,15 @@ User/files ana namespace adının kesin onayı hâlâ yok; son örnekler files k
 ## 24 saat açıklaması — kullanıcı düzeltmesi
 
 24 saat kullanıcı tercihi varsayılanı değil, server geri alma üst sınırının varsayılanıdır. Kullanıcı 1..server-max saat seçer; server-max root/admin yetki tavanı içinde yapılandırılır.
+
+
+## 14 Ekim 2026 — yayın kararları (tarihsel açık maddeleri günceller)
+
+- Üretimde sanal genel panel admininin adı `tealdrive`; servis Linux UID995/nologin hesabından farklı UID/GID ve native virtual home kullanır. Mevcut `tealdrive-admin` parola hash'i ve dosyaları offline doğrulanarak kopyalanır; kaynak home silinmez. Yeni giriş doğrulanınca eski web hesabı suspended yapılır.
+- Mevcut net512MiB havuz korunur. Genel admine512MiB bütçe ve bunun içinden sabit128MiB kendi dosya kotası ayrılır; kalan384MiB çocuk hesap tahsislerine açıktır. İmaj fiziksel1GiB kalır. Bu değerler ürünün gömülü varsayılanları değil mevcut kurulum tercihidir.
+- Helper/server aktarım tavanı mevcut kurulumda1GiB yapılır; kullanıcının gerçek kotası daha küçükse o sınır da uygulanır. HTTP indirmede yapılandırılmış chunk sınırı ve hard256KiB aşılmaz; her parçada yetki kontrolü devam eder.
+- SDK public transfer kimliği standart tireli UUID metnidir. MessagePack'in ikili UUID temsili dış API'ye sızdırılmaz. Gerçek ikili cevapla regression ve reconnect sonrası explicit abort kabul testi yapılır.
+- WASM async init tek modül örneğinde eşzamanlı çağrıları birleştirir. TypeScript ES2022 uyumu için opsiyonel üretilmiş Symbol.dispose declaration'ları çıkarılır; free() ve koşullu runtime dispose korunur. Üretim yeniden derleme betiği aynı dönüşümü uygular.
+- Önceki açık retention notları artık karar beklemiyor: history504saat, trash504saat, silinen virtual hesap36saat, Root undo üst sınırı varsayılan24saat; kullanıcı1..Root üst sınırı seçer.
+- TLS uygulama şifrelemesinin ön koşuludur. Noise standart NK protokolüdür; REST ve native HTTP download TLS kapsamındadır. Bağımsız key pin olmadan güven TLS discovery'dir; bağımsız güvenlik denetimi veya endpoint compromise koruması iddiası yoktur.
+- Geliştirme verileri namespace fixture'larında tutulur. Kalıcı faydalı araçlar tools/dev ve tools/ops altında kalır; geçici fixture/derleme çıktıları ve yayın doğrulaması sonrası otomatik güncelleme yedekleri temizlenir. Kaynak kullanıcı home'ları ve audit kayıtları yedek sayılıp silinmez.

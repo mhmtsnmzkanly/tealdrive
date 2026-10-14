@@ -28,6 +28,7 @@ const BINARIES: [&str; 4] = [
 const UNIT: &str = "tealdrive.service";
 mod storage;
 mod tls;
+mod tls_renewal;
 fn root() -> Result<()> {
     if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
         return Err(
@@ -424,7 +425,7 @@ fn run_inner(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
-            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | tls status | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size>/own set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
+            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | tls status/prepare <DNS-name>/activate <DNS-name> [--caddy <Caddyfile>]/renew <DNS-name> --caddy <Caddyfile> | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size>/own set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
             Ok(())
         }
         ["init"] => {
@@ -624,6 +625,26 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         ["storage", "init", size] => {
             root()?;
             storage::init(bytes(size)?)
+        }
+        ["tls", "prepare", name] => {
+            root()?;
+            tls_renewal::prepare(name)
+        }
+        ["tls", "activate", name] => {
+            root()?;
+            tls_renewal::activate(name, None)
+        }
+        ["tls", "activate", name, "--caddy", path] => {
+            root()?;
+            tls_renewal::activate(name, Some(Path::new(path)))
+        }
+        ["tls", "renew", name, "--caddy", path] => {
+            root()?;
+            tls_renewal::renew(name, Path::new(path))
+        }
+        ["tls", "auto", name, "--caddy", path] => {
+            root()?;
+            tls_renewal::automatic(name, Path::new(path))
         }
         ["tls", "status"] => {
             root()?;

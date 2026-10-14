@@ -422,3 +422,8 @@ Production UUID fixture files0; Wizard temp dirs0; shared-policy driver live ser
 ## 14 Ekim 2026: sabit admin kişisel kotası
 
 40 account library testi geçti (eski remainder davranışı dahil). Yeni testler: Root-only atama, callback/DB rollback, generation yenilenmesi, sabit own limit korunarak çocuk create/resize, own+children+pending toplamından aşağı budget reddi, aşırı tahsis ve bozuk korumalı değer reddi. Clippy all-targets -D warnings ve fmt geçti. Gerçek private NSS/mount/PID namespace Chromium kabulünde 64 MiB admin bütçesi içinden 32 MiB own quota ayrıldı; 17 MiB stream upload/download/Range ve iptal/tamper/generation revoke kabulü geçti. Mevcut kullanım 17 MiB iken own quota 8 MiB'ye indirme reddedildi. Native `storage sync` ve image net64→128MiB büyümesi sonrasında dosya SHA256 korundu. Production DB/config/homes değiştirilmedi. Source binaries dev profilinde build edildi; disk yaklaşık95GiB boş.
+
+
+## 14 Ekim 2026: gerçek Caddy/backend TLS yenilemesi
+
+`cargo test --locked --lib wizard::tls_renewal -- --include-ignored`:2passed (gerçek Root/OpenSSL fixture dahil). Clippy all-targets -Dwarnings geçti. `TEALDRIVE_CORE_TRANSFER_ACCEPTANCE=1 TEALDRIVE_CORE_VIRTUAL_ADMIN=1 TEALDRIVE_CORE_TLS_RENEWAL=1 TEALDRIVE_TEST_WEB_PASSWORD_FILE=PRIVATE_PATH python3 tools/dev/core-transfer-acceptance.py` geçti. Test tüm TLS dizinini private mount'a ayırır; gerçek Caddy private Unix admin ile çift trust reload, aktif backend pair yenilemesi,60s canlı TLS refresh, exact DER identity, HTTP200 health, eski trust retirement, pending private key cleanup, fresh certificate için dailycheck no-op doğrulandı.17MiB/nativequota/adminscope/imageexpand kabulü de aynı koşuda passed. Host production TLS/config/NSS/image korunur. Disk95GiB boş.

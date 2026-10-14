@@ -145,3 +145,8 @@ tealdrive-wizard storage sync
 ```
 
 Komut yalnız aktif sanal RoleAdmin kabul eder. Kullanım altına küçültme, fazla tahsis, Linux servis hesabına uygulama reddedilir. Kişisel kotanın değişmesi mevcut oturumları geçersiz kılar. Çocuk kotası verilmesi bu sabit kotayı küçültmez. Henüz explicit geçiş yapılmamış eski adminler remainder modunda kalır.
+
+
+### Backend TLS yenileme
+
+`tls prepare NAME`, `tls activate NAME [--caddy /etc/caddy/Caddyfile]`, `tls renew NAME --caddy PATH`, `tls auto NAME --caddy PATH` Root komutlarıdır. Prepare çifti yayınlamaz; activate proxy çift güven hazırlandıktan sonra yayınlar. Renew30gün eşiği kullanır, auto günlük systemd kontrolünü kurar. Ayrıntılar ve generic proxy akışı: [TRANSPORT_SECURITY.md](TRANSPORT_SECURITY.md). Bu komutlar genel panel adminine açık değildir.

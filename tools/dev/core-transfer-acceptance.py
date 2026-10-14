@@ -13,7 +13,7 @@ def run(args):
 if len(sys.argv)>1 and sys.argv[1]=='--child':
     base=Path(sys.argv[2]);manifest=json.loads((base/'manifest.json').read_text())
     run(['/usr/bin/mount','--make-rprivate','/'])
-    for source,target in [('bin','/home/tealdrive/bin'),('policy','/home/tealdrive/policy'),('auth','/home/tealdrive/auth'),('runtime','/home/tealdrive/data/runtime'),('config','/home/tealdrive/config'),('home',manifest['home'])]:
+    for source,target in [('bin','/home/tealdrive/bin'),('policy','/home/tealdrive/policy'),('auth','/home/tealdrive/auth'),('runtime','/home/tealdrive/data/runtime'),('config','/home/tealdrive/config'),('tls','/home/tealdrive/tls'),('home',manifest['home'])]:
         run(['/usr/bin/mount','--bind',str(base/source),target])
 
     if manifest.get('virtualAdmin'):
@@ -66,6 +66,38 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         else:raise RuntimeError('Candidate listener not ready')
         childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id')}
         subprocess.run(['node',str(ROOT/'tests/live/core-transfer.cjs')],env=childenv,check=True)
+        if os.environ.get('TEALDRIVE_CORE_TLS_RENEWAL')=='1':
+            caddy_dir=base/'caddy';caddy_dir.mkdir(mode=0o700)
+            admin_dir=caddy_dir/'admin';admin_dir.mkdir(mode=0o700)
+            caddyfile=caddy_dir/'Caddyfile'
+            caddyfile.write_text('{\n admin unix/'+str(admin_dir/'admin.sock')+'\n auto_https off\n}\nhttp://127.0.0.1:13107 {\n reverse_proxy https://127.0.0.1:13106 {\n transport http {\n tls_server_name tealdrive-origin.local\n tls_trust_pool file /home/tealdrive/policy/origin-cert.pem\n }\n }\n}\n')
+            caddyfile.chmod(0o600)
+            caddylog=(caddy_dir/'caddy.log').open('wb')
+            caddy=subprocess.Popen(['/usr/bin/caddy','run','--config',str(caddyfile),'--adapter','caddyfile'],stdout=caddylog,stderr=caddylog)
+            try:
+                import urllib.request
+                for _ in range(100):
+                    if caddy.poll() is not None:raise RuntimeError('Private Caddy exited')
+                    try:
+                        urllib.request.urlopen('http://127.0.0.1:13107/api/health',timeout=2);break
+                    except Exception:time.sleep(.1)
+                else:raise RuntimeError('Private Caddy not ready')
+                old_cert=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes()
+                run(['/home/tealdrive/bin/tealdrive-wizard','tls','prepare','tealdrive-origin.local'])
+                if old_cert!=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Prepare published active certificate')
+                run(['/home/tealdrive/bin/tealdrive-wizard','tls','activate','tealdrive-origin.local','--caddy',str(caddyfile)])
+                if old_cert==Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Renewal did not change active certificate')
+                urllib.request.urlopen('http://127.0.0.1:13107/api/health',timeout=3)
+                if Path('/home/tealdrive/tls/renewal').exists():raise RuntimeError('Completed renewal retained private staged keys')
+                if Path('/home/tealdrive/policy/origin-trust.pem').read_bytes()!=Path('/home/tealdrive/policy/origin-cert.pem').read_bytes():raise RuntimeError('Old Caddy trust not retired')
+                run(['/home/tealdrive/bin/tealdrive-wizard','tls','renew','tealdrive-origin.local','--caddy',str(caddyfile)])
+                if Path('/home/tealdrive/tls/renewal').exists():raise RuntimeError('Daily check unnecessarily renewed fresh certificate')
+                print('PASS: real private Caddy dual trust, live TLS refresh, strict identity/health, old trust removal, renewal threshold')
+            finally:
+                caddy.terminate()
+                try:caddy.wait(timeout=10)
+                except subprocess.TimeoutExpired:caddy.kill();caddy.wait()
+                caddylog.close()
         if list((base/'runtime/tmp').glob('.tdrv-upload-*')):raise RuntimeError('Staging leak after completed transfer')
         print('PASS: private namespace, real setuid helper/User worker, no production home or auth DB writes')
     finally:
@@ -110,6 +142,11 @@ with tempfile.TemporaryDirectory(prefix='.core-transfer-',dir='/root') as name:
         shutil.copy2(ROOT/'target/debug'/binary,base/'bin'/binary)
         (base/'bin'/binary).chmod(0o4755 if binary=='tealdrive-helper' else 0o755)
     shutil.copytree('/home/tealdrive/policy',base/'policy')
+    shutil.copytree('/home/tealdrive/tls',base/'tls')
+    os.chown(base/'tls',0,service.pw_gid)
+    for key in (base/'tls').glob('*.pem'):
+        os.chown(key,0,service.pw_gid)
+
     (base/'auth').mkdir(mode=0o700)
     source=sqlite3.connect('file:/home/tealdrive/auth/accounts.db?mode=ro',uri=True)
     destination=sqlite3.connect(base/'auth/accounts.db');source.backup(destination);source.close();destination.close()

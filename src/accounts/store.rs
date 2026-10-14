@@ -109,6 +109,23 @@ pub(super) fn pending_reserved(
 ) -> Result<i64, StoreError> {
     Ok(connection.query_row("SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL AND key!=?2 THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state",params![owner,exclude],|r|r.get(0))?)
 }
+/// Protected fixed reservation; absent keys preserve legacy remainder quotas.
+pub(super) fn fixed_own(connection: &Connection, id: &str) -> Result<Option<i64>, StoreError> {
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT value FROM security_state WHERE key=?1",
+            [format!("admin_own_quota_v1:{id}")],
+            |r| r.get(0),
+        )
+        .optional()?;
+    raw.map(|raw| {
+        raw.parse::<i64>()
+            .ok()
+            .filter(|v| *v > 0)
+            .ok_or(StoreError::InvalidInput)
+    })
+    .transpose()
+}
 pub(super) fn root_parent(path: &Path) -> Result<(), StoreError> {
     if !path.is_absolute()
         || path
@@ -545,7 +562,7 @@ impl AccountStore {
                 |r| r.get(0),
             )?;
             let pending = pending_reserved(&tx, owner, request_state.map_or("", |(key, _)| key))?;
-            if number(quota)? > budget - allocated - pending {
+            if number(quota)? > budget - allocated - pending - fixed_own(&tx, owner)?.unwrap_or(0) {
                 return Err(StoreError::QuotaExceeded);
             }
         } else if new.owner_admin_id.is_some() || new.quota_bytes.is_some() {
@@ -614,10 +631,10 @@ impl AccountStore {
         }
         // One statement observes one SQLite snapshot: concurrent budget/allocation
         // updates cannot combine an old budget with a newer child reservation.
-        let (budget, allocated, pending): (i64, i64, i64) = self.connection.query_row(
-            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0), coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0), (SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state)",
+        let (budget, allocated, pending, own): (i64, i64, i64, Option<String>) = self.connection.query_row(
+            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0), coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0), (SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state), (SELECT value FROM security_state WHERE key='admin_own_quota_v1:'||?1)",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
         let allocated = allocated
             .checked_add(pending)
@@ -625,7 +642,18 @@ impl AccountStore {
         if allocated > budget {
             return Err(StoreError::QuotaExceeded);
         }
-        Ok(Some((budget - allocated) as u64))
+        let own = own
+            .map(|v| {
+                v.parse::<i64>()
+                    .ok()
+                    .filter(|v| *v > 0)
+                    .ok_or(StoreError::InvalidInput)
+            })
+            .transpose()?;
+        if own.is_some_and(|v| v > budget - allocated) {
+            return Err(StoreError::QuotaExceeded);
+        }
+        Ok(Some(own.unwrap_or(budget - allocated) as u64))
     }
     pub fn set_pool(&mut self, actor: &Authority, bytes: u64) -> Result<(), StoreError> {
         if !matches!(actor, Authority::Root) {
@@ -700,13 +728,60 @@ impl AccountStore {
             .checked_add(pending_reserved(&tx, id, "")?)
             .ok_or(StoreError::QuotaExceeded)?;
         let bytes = number(bytes)?;
-        if bytes < children
+        let own = fixed_own(&tx, id)?;
+        if bytes
+            < children
+                .checked_add(own.unwrap_or(0))
+                .ok_or(StoreError::QuotaExceeded)?
             || bytes > pool - (allocated - current) - pending_reserved(&tx, "__root__", "")?
         {
             return Err(StoreError::QuotaExceeded);
         }
-        before_commit((bytes - children) as u64)?;
+        before_commit(own.unwrap_or(bytes - children) as u64)?;
         tx.execute("INSERT INTO admin_budgets(account_id,limit_bytes) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET limit_bytes=excluded.limit_bytes",params![id,bytes])?;
+        tx.commit()?;
+        Ok(())
+    }
+    /// Root-only fixed own-file reservation. Callback checks real usage and
+    /// restricts native quota before committing; increases are applied afterwards.
+    pub(super) fn set_admin_own_with(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+        bytes: u64,
+        before: impl FnOnce(u64) -> Result<(), StoreError>,
+    ) -> Result<(), StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let bytes = number(bytes)?;
+        if bytes == 0 {
+            return Err(StoreError::InvalidInput);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target = account(&tx, id)?;
+        if target.kind != AccountKind::Virtual
+            || target.role != Role::Admin
+            || target.status != AccountStatus::Active
+        {
+            return Err(StoreError::Forbidden);
+        }
+        let (budget, children): (i64,i64) = tx.query_row(
+            "SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0),coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0)",
+            [id], |r| Ok((r.get(0)?,r.get(1)?)))?;
+        if bytes > budget - children - pending_reserved(&tx, id, "")? {
+            return Err(StoreError::QuotaExceeded);
+        }
+        before(bytes as u64)?;
+        tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("admin_own_quota_v1:{id}"),bytes.to_string()])?;
+        tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("virtual_quota_sync_v1:{id}"),serde_json::json!({"version":1,"account_id":id}).to_string()])?;
+        // Quota-bearing grants must be refreshed after own-limit changes.
+        tx.execute(
+            "UPDATE accounts SET generation=generation+1,updated_at=?1 WHERE id=?2",
+            params![number(now())?, id],
+        )?;
         tx.commit()?;
         Ok(())
     }

@@ -418,3 +418,7 @@ Production Chromium HTTPS/WSS, secure HttpOnly cookie, original file read, creat
 Backend standard Rustls TLS+dedi­cated CA trust etkinleştirildi. Verified backend health200, origin200, plaintext000/rejected. Isolated Caddy same-name fake certificate502 ile reddetti; fake backend0HTTP request. Sertifika doğrulaması kapatılmadı. Final production CRUD/restart kabulü bu topology ile yeniden passed. Private key Root:tealdrive0640; public cert Root644; expiration2027-10-13T21:06:35UTC.
 
 Production UUID fixture files0; Wizard temp dirs0; shared-policy driver live server varken mutation başlamadan reddetti. Private rollback/audit/user source verileri cleanup olarak silinmedi.
+
+## 14 Ekim 2026: sabit admin kişisel kotası
+
+40 account library testi geçti (eski remainder davranışı dahil). Yeni testler: Root-only atama, callback/DB rollback, generation yenilenmesi, sabit own limit korunarak çocuk create/resize, own+children+pending toplamından aşağı budget reddi, aşırı tahsis ve bozuk korumalı değer reddi. Clippy all-targets -D warnings ve fmt geçti. Gerçek private NSS/mount/PID namespace Chromium kabulünde 64 MiB admin bütçesi içinden 32 MiB own quota ayrıldı; 17 MiB stream upload/download/Range ve iptal/tamper/generation revoke kabulü geçti. Mevcut kullanım 17 MiB iken own quota 8 MiB'ye indirme reddedildi. Native `storage sync` ve image net64→128MiB büyümesi sonrasında dosya SHA256 korundu. Production DB/config/homes değiştirilmedi. Source binaries dev profilinde build edildi; disk yaklaşık95GiB boş.

@@ -655,11 +655,19 @@ fn dispatch(
                         .map_err(GatewayFailure::from)?,
                 );
             }
-            budget["available_bytes"] = serde_json::Value::from(
-                budget["remaining_bytes"]
+            let remaining = budget["remaining_bytes"].as_u64().unwrap_or(0);
+            let used = budget["used_bytes"].as_u64().unwrap_or(0);
+            let fixed = budget["own_quota_mode"] == "fixed";
+            budget["available_bytes"] = serde_json::Value::from(if fixed {
+                remaining
+            } else {
+                remaining.saturating_sub(used)
+            });
+            budget["own_available_bytes"] = serde_json::Value::from(
+                budget["own_quota_bytes"]
                     .as_u64()
-                    .unwrap_or(0)
-                    .saturating_sub(budget["used_bytes"].as_u64().unwrap_or(0)),
+                    .unwrap_or(remaining)
+                    .saturating_sub(used),
             );
             budget["minimum_quota_bytes"] =
                 serde_json::Value::from(crate::accounts::virtuals::minimum_quota(config));

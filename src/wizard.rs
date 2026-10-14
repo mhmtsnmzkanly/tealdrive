@@ -424,7 +424,7 @@ fn run_inner(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
-            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | tls status | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
+            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | tls status | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size>/own set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
             Ok(())
         }
         ["init"] => {
@@ -659,6 +659,12 @@ fn run_inner(args: Vec<String>) -> Result<()> {
             storage::check_pool(bytes(size)?)?;
             store()?.set_pool(&Authority::Root, bytes(size)?)?;
             println!("Root pool updated.");
+            Ok(())
+        }
+        ["budget", "own", "set", id, size] => {
+            root()?;
+            crate::accounts::virtuals::set_own_quota(&mut store()?, &config()?, id, bytes(size)?)?;
+            println!("Admin fixed own-file quota updated; sessions must refresh.");
             Ok(())
         }
         ["budget", "set", id, size] => {

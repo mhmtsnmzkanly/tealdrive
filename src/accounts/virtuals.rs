@@ -43,7 +43,7 @@ impl VirtualConfig {
 }
 
 use super::store::{
-    account, manage, now, number, pending_reserved, root_parent, Account, AccountKind,
+    account, fixed_own, manage, now, number, pending_reserved, root_parent, Account, AccountKind,
     AccountStore, Authority, NewAccount, Role, StoreError,
 };
 use crate::config::{AllowedRoot, AppConfig};
@@ -438,15 +438,27 @@ impl AccountStore {
         if target.role != Role::Admin {
             return Err(StoreError::Forbidden);
         }
-        let (limit,reserved,pending):(i64,i64,i64)=self.connection.query_row("SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0),coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0),(SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state)",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+        let (limit,reserved,pending,own):(i64,i64,i64,Option<String>)=self.connection.query_row("SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0),coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0),(SELECT coalesce(sum(CASE WHEN key LIKE 'virtual_create_v1:%' THEN CASE WHEN json_extract(value,'$.owner')=?1 AND json_extract(value,'$.account_id') IS NULL THEN json_extract(value,'$.quota') ELSE 0 END ELSE 0 END),0) FROM security_state),(SELECT value FROM security_state WHERE key='admin_own_quota_v1:'||?1)",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
         let reserved = reserved
             .checked_add(pending)
             .ok_or(StoreError::QuotaExceeded)?;
-        if reserved > limit {
+        let own = own
+            .map(|v| {
+                v.parse::<i64>()
+                    .ok()
+                    .filter(|v| *v > 0)
+                    .ok_or(StoreError::InvalidInput)
+            })
+            .transpose()?;
+        if reserved
+            .checked_add(own.unwrap_or(0))
+            .ok_or(StoreError::QuotaExceeded)?
+            > limit
+        {
             return Err(StoreError::QuotaExceeded);
         }
         Ok(
-            serde_json::json!({"limit_bytes":limit,"reserved_bytes":reserved,"remaining_bytes":limit-reserved}),
+            serde_json::json!({"limit_bytes":limit,"reserved_bytes":reserved,"remaining_bytes":limit-reserved-own.unwrap_or(0),"own_quota_bytes":own,"own_quota_mode":if own.is_some(){"fixed"}else{"remainder"}}),
         )
     }
     pub(crate) fn set_child_quota_with<F: FnOnce(u64) -> Result<(), StoreError>>(
@@ -480,12 +492,15 @@ impl AccountStore {
         let allocated = allocated
             .checked_add(pending_reserved(&tx, owner, "")?)
             .ok_or(StoreError::QuotaExceeded)?;
-        if number(bytes)? > limit - (allocated - number(target.quota_bytes.unwrap_or(0))?) {
+        let own = fixed_own(&tx, owner)?;
+        if number(bytes)?
+            > limit - (allocated - number(target.quota_bytes.unwrap_or(0))?) - own.unwrap_or(0)
+        {
             return Err(StoreError::QuotaExceeded);
         }
-        before(
-            (limit - allocated + number(target.quota_bytes.unwrap_or(0))? - number(bytes)?) as u64,
-        )?;
+        before(own.unwrap_or(
+            limit - allocated + number(target.quota_bytes.unwrap_or(0))? - number(bytes)?,
+        ) as u64)?;
         tx.execute("INSERT INTO security_state(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![format!("virtual_quota_sync_v1:{id}"),serde_json::json!({"version":1,"account_id":id}).to_string()])?;
         tx.execute(
             "UPDATE accounts SET quota_bytes=?1,generation=generation+1,updated_at=?2 WHERE id=?3",
@@ -575,10 +590,17 @@ pub(crate) fn provision(
         let uid = allocate(store, cfg)?;
         let old_limit = store.effective_quota(&actor.id)?.unwrap_or(0);
         if let Some((parent_root, _, used)) = &parent {
-            if quota > old_limit.saturating_sub(*used) {
+            let next_limit = if fixed_own(&store.connection, &actor.id)?.is_some() {
+                old_limit
+            } else {
+                old_limit
+                    .checked_sub(quota)
+                    .ok_or(StoreError::QuotaExceeded)?
+            };
+            if next_limit < *used {
                 return Err(StoreError::QuotaExceeded);
             }
-            native_set(cfg, parent_root, actor.uid, old_limit - quota)?;
+            native_set(cfg, parent_root, actor.uid, next_limit)?;
         }
         let intent = Intent {
             version: 1,
@@ -604,7 +626,12 @@ pub(crate) fn provision(
                 return Err(StoreError::Forbidden);
             }
             let (limit,allocated):(i64,i64)=tx.query_row("SELECT coalesce((SELECT limit_bytes FROM admin_budgets WHERE account_id=?1),0),coalesce((SELECT sum(quota_bytes) FROM accounts WHERE owner_admin_id=?1),0)",[&actor.id],|r|Ok((r.get(0)?,r.get(1)?)))?;
-            if number(quota)? > limit - allocated - pending_reserved(&tx, &actor.id, "")? {
+            if number(quota)?
+                > limit
+                    - allocated
+                    - pending_reserved(&tx, &actor.id, "")?
+                    - fixed_own(&tx, &actor.id)?.unwrap_or(0)
+            {
                 return Err(StoreError::QuotaExceeded);
             }
             tx.execute(
@@ -877,13 +904,15 @@ pub(crate) fn set_quota(
         return Err(StoreError::QuotaExceeded);
     }
     let old = target.quota_bytes.unwrap_or(0);
-    let old_parent = store.budget(&owner.id)?["remaining_bytes"]
-        .as_u64()
-        .ok_or(StoreError::InvalidInput)?;
-    let new_parent = old_parent
-        .checked_add(old)
-        .and_then(|v| v.checked_sub(bytes))
-        .ok_or(StoreError::QuotaExceeded)?;
+    let old_parent = store.effective_quota(&owner.id)?.unwrap_or(0);
+    let new_parent = if fixed_own(&store.connection, &owner.id)?.is_some() {
+        old_parent
+    } else {
+        old_parent
+            .checked_add(old)
+            .and_then(|v| v.checked_sub(bytes))
+            .ok_or(StoreError::QuotaExceeded)?
+    };
     if let Some((_, _, used)) = &parent {
         if new_parent < *used {
             return Err(StoreError::QuotaExceeded);
@@ -945,9 +974,7 @@ pub(crate) fn set_budget(
         return Err(StoreError::InvalidInput);
     }
     let held = own_reservation(store, cfg, &target)?;
-    let old_remaining = store.budget(id)?["remaining_bytes"]
-        .as_u64()
-        .ok_or(StoreError::InvalidInput)?;
+    let old_remaining = store.effective_quota(id)?.unwrap_or(0);
     let new_remaining = std::cell::Cell::new(old_remaining);
     let result = store.set_admin_budget_with(&Authority::Root, id, bytes, |remaining| {
         new_remaining.set(remaining);
@@ -975,6 +1002,49 @@ pub(crate) fn set_budget(
             Ok(())
         }
     }
+}
+/// Root explicit transition to a fixed own-file quota; never changes child limits.
+pub(crate) fn set_own_quota(
+    store: &mut AccountStore,
+    cfg: &AppConfig,
+    id: &str,
+    bytes: u64,
+) -> Result<(), StoreError> {
+    let _global = lock()?;
+    if cfg.virtual_accounts.enforcement == Enforcement::UserQuota && bytes % 1024 != 0 {
+        return Err(StoreError::InvalidInput);
+    }
+    let target = store.get(id)?;
+    if target.kind != AccountKind::Virtual || target.role != Role::Admin {
+        return Err(StoreError::Forbidden);
+    }
+    let held = own_reservation(store, cfg, &target)?;
+    let old = store.effective_quota(id)?.ok_or(StoreError::InvalidInput)?;
+    let result = store.set_admin_own_with(&Authority::Root, id, bytes, |limit| {
+        if let Some((root, _, used)) = &held {
+            if limit < *used {
+                return Err(StoreError::QuotaExceeded);
+            }
+            if limit < old {
+                native_set(cfg, root, target.uid, limit)?;
+            }
+        }
+        Ok(())
+    });
+    if let Err(error) = result {
+        if let Some((root, _, _)) = &held {
+            let _ = native_set(cfg, root, target.uid, old);
+        }
+        return Err(error);
+    }
+    if let Some((root, _, _)) = &held {
+        native_set(cfg, root, target.uid, bytes)?;
+    }
+    store.connection.execute(
+        "DELETE FROM security_state WHERE key=?1",
+        [format!("virtual_quota_sync_v1:{id}")],
+    )?;
+    Ok(())
 }
 /// Root repair of committed quota changes; never changes allocation metadata.
 pub(crate) fn sync_limits(store: &mut AccountStore, cfg: &AppConfig) -> Result<(), StoreError> {
@@ -1484,6 +1554,143 @@ mod tests {
             serde_json::from_str::<Intent>(&saved).unwrap().account_id,
             Some(child.id)
         );
+    }
+    #[test]
+    fn fixed_own_quota_reserves_budget_and_survives_child_resize() {
+        let mut store = AccountStore::memory();
+        let parent = admin(&mut store, "fixed", 200000);
+        store.set_pool(&Authority::Root, 1000).unwrap();
+        store
+            .set_admin_budget(&Authority::Root, &parent.id, 1000)
+            .unwrap();
+        let called = std::cell::Cell::new(false);
+        assert!(matches!(
+            store.set_admin_own_with(&actor(&parent), &parent.id, 300, |_| {
+                called.set(true);
+                Ok(())
+            }),
+            Err(StoreError::Forbidden)
+        ));
+        assert!(!called.get());
+        assert!(store
+            .set_admin_own_with(&Authority::Root, &parent.id, 300, |_| Err(
+                StoreError::QuotaExceeded
+            ))
+            .is_err());
+        assert_eq!(store.effective_quota(&parent.id).unwrap(), Some(1000));
+        store
+            .set_admin_own_with(&Authority::Root, &parent.id, 300, |_| Ok(()))
+            .unwrap();
+        let parent = store.get(&parent.id).unwrap();
+        assert_eq!(parent.generation, 2);
+        assert_eq!(store.budget(&parent.id).unwrap()["remaining_bytes"], 700);
+        let create = |quota| NewAccount {
+            username: "fixedchild".into(),
+            uid: 200001,
+            gid: 200001,
+            home: "/home/fixedchild".into(),
+            kind: AccountKind::Virtual,
+            role: Role::User,
+            owner_admin_id: Some(parent.id.clone()),
+            quota_bytes: Some(quota),
+        };
+        assert!(matches!(
+            store.create(&actor(&parent), create(701)),
+            Err(StoreError::QuotaExceeded)
+        ));
+        let child = store.create(&actor(&parent), create(600)).unwrap();
+        assert_eq!(store.effective_quota(&parent.id).unwrap(), Some(300));
+        assert!(matches!(
+            store.set_child_quota_with(
+                &actor(&parent),
+                &child.id,
+                child.generation,
+                701,
+                |_| panic!("overbook reached native quota")
+            ),
+            Err(StoreError::QuotaExceeded)
+        ));
+        let child = store
+            .set_child_quota_with(&actor(&parent), &child.id, child.generation, 700, |limit| {
+                assert_eq!(limit, 300);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.budget(&parent.id).unwrap()["remaining_bytes"], 0);
+        assert!(matches!(
+            store.set_admin_budget(&Authority::Root, &parent.id, 999),
+            Err(StoreError::QuotaExceeded)
+        ));
+        store
+            .set_child_quota_with(&actor(&parent), &child.id, child.generation, 400, |limit| {
+                assert_eq!(limit, 300);
+                Ok(())
+            })
+            .unwrap();
+        store
+            .set_admin_budget_with(&Authority::Root, &parent.id, 800, |limit| {
+                assert_eq!(limit, 300);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(store.effective_quota(&parent.id).unwrap(), Some(300));
+        assert_eq!(store.budget(&parent.id).unwrap()["remaining_bytes"], 100);
+        assert!(matches!(
+            store.set_admin_own_with(&Authority::Root, &parent.id, 401, |_| panic!(
+                "overbook reached callback"
+            )),
+            Err(StoreError::QuotaExceeded)
+        ));
+        assert!(store
+            .set_admin_own_with(&Authority::Root, &child.id, 100, |_| Ok(()))
+            .is_err());
+    }
+    #[test]
+    fn fixed_own_quota_includes_pending_provisioning_and_rejects_corrupt_state() {
+        let mut store = AccountStore::memory();
+        let parent = admin(&mut store, "fixedpending", 200000);
+        store.set_pool(&Authority::Root, 1000).unwrap();
+        store
+            .set_admin_budget(&Authority::Root, &parent.id, 1000)
+            .unwrap();
+        let intent = Intent {
+            version: 1,
+            owner: parent.id.clone(),
+            name: "pending".into(),
+            quota: 800,
+            uid: 200001,
+            account_id: None,
+        };
+        store
+            .connection
+            .execute(
+                "INSERT INTO security_state(key,value) VALUES(?1,?2)",
+                params![
+                    key(&parent.id, &uuid::Uuid::new_v4().to_string()).unwrap(),
+                    serde_json::to_string(&intent).unwrap()
+                ],
+            )
+            .unwrap();
+        assert!(matches!(
+            store.set_admin_own_with(&Authority::Root, &parent.id, 201, |_| Ok(())),
+            Err(StoreError::QuotaExceeded)
+        ));
+        store
+            .set_admin_own_with(&Authority::Root, &parent.id, 200, |_| Ok(()))
+            .unwrap();
+        assert_eq!(store.effective_quota(&parent.id).unwrap(), Some(200));
+        assert_eq!(store.budget(&parent.id).unwrap()["remaining_bytes"], 0);
+        store
+            .connection
+            .execute(
+                "UPDATE security_state SET value='-1' WHERE key=?1",
+                [format!("admin_own_quota_v1:{}", parent.id)],
+            )
+            .unwrap();
+        assert!(matches!(
+            store.effective_quota(&parent.id),
+            Err(StoreError::InvalidInput)
+        ));
     }
     #[test]
     fn quota_authority_and_cas_precede_external_effects_and_failure_rolls_back() {

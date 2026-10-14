@@ -236,3 +236,20 @@ Typed AuditQuery/AuditRecord/AuditPage; result `{items,nextCursor,hasMore}`. Lim
 `getInfo().authentication.undo` Root journal ve web hesapları açıkken true. `files.undo.list(AuditQuery)` typed UndoPage/UndoCandidate döndürür; `apply({operationId,expectedState})` Root kayıt ve gerçek dosya doğrulamasından geçer. `getPreferences`/`setPreferences({hours,expectedRevision})` kendi süre tercihidir; null Root üst sınırını izler. Event `files.changed` operation=undo ile gelir. Kullanım, hata/claim/crash davranışı ve gerçek sınırlar [UNDO.md](UNDO.md) içindedir.
 
 HTTP download/preview yanıtındaki `x-tealdrive-request-id`, protected range kaydının requestId'sidir. Akış tüketildikten sonra `files.audit.list({requestId:response.headers.get('x-tealdrive-request-id')})` ile ilişkilendirilebilir. bytesRead/rangeNextOffset helper teslimini ifade eder; tarayıcı diske kaydetme veya tam indirme kanıtı değildir.
+
+
+### Adminin kendi kotası ile dağıtılabilir bütçe
+
+```js
+const budget = await api.admin.quota.getBudget();
+// Root fixed rezervasyonu yaptıysa: "fixed"; eski hesaplarda "remainder".
+console.log(budget.ownQuotaMode);
+// Yeni alt hesaplara dağıtılabilecek alan (fixed modda own kullanım tekrar düşülmez).
+console.log(budget.availableBytes);
+// Adminin kendi dosyaları için kalan gerçek alan.
+console.log(budget.ownAvailableBytes);
+// Fixed modda sabit kişisel limit, legacy modda null.
+console.log(budget.ownQuotaBytes);
+```
+
+Bu alanlar additive ve eski server'larda optionaldır. `usedBytes` helper ölçümüdür; ayrılan bütçe gerçek disk kullanımı değildir. Kişisel kota Root CLI ile değiştirilir, web kritik Root bütçesini yükseltemez.

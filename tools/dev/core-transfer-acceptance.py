@@ -48,6 +48,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
             if os.waitstatus_to_exitcode(status)!=0 or sent!=2:raise RuntimeError('Virtual admin provisioning failed')
         finally:os.close(terminal)
         account=json.loads(output[output.index(b'{'):].decode())
+        run(['/home/tealdrive/bin/tealdrive-wizard','budget','own','set',account['id'],'32MiB'])
         run(['/home/tealdrive/bin/tealdrive-wizard','account','scope',account['id'],'global'])
         (base/'panel-account-id').write_text(account['id'])
         manifest['username']='tealdrive'
@@ -80,6 +81,10 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         home=Path(db.execute('SELECT home FROM accounts WHERE id=?',(account_id,)).fetchone()[0]);db.close()
         import hashlib
         digest=hashlib.sha256((home/'core-large.bin').read_bytes()).hexdigest()
+        rejected=subprocess.run(['/home/tealdrive/bin/tealdrive-wizard','budget','own','set',account_id,'8MiB'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        if rejected.returncode==0:raise RuntimeError('Own quota below actual usage accepted')
+        run(['/home/tealdrive/bin/tealdrive-wizard','storage','sync'])
+        print('PASS: fixed own quota, 17MiB transfer, below-usage shrink rejected, native sync')
         old_status=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','storage','status']))
         run(['/home/tealdrive/bin/tealdrive-wizard','storage','check'])
         run(['/home/tealdrive/bin/tealdrive-wizard','storage','expand','--pool-size','128MiB'])

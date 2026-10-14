@@ -131,3 +131,17 @@ sudo tealdrive-ctl start
 ```
 
 --pool-size net dağıtılabilir toplamı ifade eder,artış miktarı değildir. Physical image daha büyük hazırlanır ve mevcut host blokları baştan ayrılır. Init explicit native virtual mode açar; mevcut image/mount/home ezilmez. Grow eski dosya ve User UID kotalarını korur. Root-owned expansion.json yarıda kalan aynı target'ı sürdürür. Disk/resize/validation hatasında eski pool korunur; retry aynı komutla yapılır. Shrink yok. Başka uygulamaların aynı FS'ye yazması online ext4 büyütmesinde kernel tarafından yönetilir; operasyonun bağımsız backup/snapshot olduğu iddia edilmez. Bu komutlar source aşamasındadır,production image henüz değiştirilmedi.
+
+
+### Sabit admin kişisel kotası
+
+```sh
+# Root tarafından verilen toplam bütçe (kişisel + alt hesap tahsisleri)
+tealdrive-wizard budget set ADMIN_ID 10GiB
+# Bu bütçenin 1 GiB kısmını adminin kendi dosyalarına ayır
+tealdrive-wizard budget own set ADMIN_ID 1GiB
+# Commit edilmiş kernel limitlerini metadata ile eşitle
+tealdrive-wizard storage sync
+```
+
+Komut yalnız aktif sanal RoleAdmin kabul eder. Kullanım altına küçültme, fazla tahsis, Linux servis hesabına uygulama reddedilir. Kişisel kotanın değişmesi mevcut oturumları geçersiz kılar. Çocuk kotası verilmesi bu sabit kotayı küçültmez. Henüz explicit geçiş yapılmamış eski adminler remainder modunda kalır.

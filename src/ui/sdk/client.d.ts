@@ -516,6 +516,11 @@ export type AccountVersion =
   | { expectedGeneration: number; expectedRevision?: never }
   | { expectedRevision: string; expectedGeneration?: never };
 export interface AdminBudget {
+  /** Fixed own-file quota, null for legacy remainder allocation. Root changes it. */
+  ownQuotaBytes?: number | null;
+  ownQuotaMode?: "fixed" | "remainder";
+  /** Helper-measured capacity available for this admin's own files. */
+  ownAvailableBytes?: number;
   /** Minimum allocation with native storage and reserved operation log space. */ minimumQuotaBytes?: number;
   limitBytes: number;
   reservedBytes: number;

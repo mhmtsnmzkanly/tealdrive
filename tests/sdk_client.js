@@ -142,7 +142,7 @@ globalThis.crypto = webcrypto;
         this.reply(
           M.OperationStarted,
           {
-            transfer_id: "11111111-1111-4111-8111-111111111111",
+            transfer_id: TealDriveWire.uuidBytes("11111111-1111-4111-8111-111111111111"),
             chunk_size: 4,
           },
           f.requestId,
@@ -504,12 +504,17 @@ globalThis.crypto = webcrypto;
   const progress = [];
   const file = new Blob(["example"]);
   Object.defineProperty(file, "name", { value: "example.txt" });
+  await assert.rejects(api.files.upload({file,resumeTransferId:"bad"}),e=>e.code==="INVALID_ARGUMENT");
+  let publicTransfer;
   await api.files.upload({
+    onTransfer: value => {publicTransfer=value.transferId;},
     directory: "uploads",
     file,
     onProgress: (p) => progress.push(p.transferredBytes),
   });
   assert.deepEqual(progress, [4, 7]);
+  assert.equal(publicTransfer,"11111111-1111-4111-8111-111111111111");
+  await api.files.abortUpload({transferId:publicTransfer});
   await assert.rejects(api.files.goTo("/gone"), (e) => e.code === "NOT_FOUND");
   assert.equal(api.files.getCurrentDirectory(), "/musics");
   assert.ok(

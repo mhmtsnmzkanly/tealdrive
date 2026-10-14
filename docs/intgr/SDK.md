@@ -307,3 +307,8 @@ await api.handshake();
 ```
 
 Aynı loader fonksiyonunu paylaşan eşzamanlı istemciler tek initialize promise kullanır; başarısız initialize sonraki denemeyi engellemez. Aksi halde wasm-bindgen global instance'ı yarışla değiştirilip mevcut opaque handle'lar bozulabilir. Gerekirse `fetch`, `WebSocket`, `location` dependency adapter'ları typed options olarak verilebilir; cookie/CSRF/Origin güvenlik sözleşmesini adaptör korumalıdır. Cross-origin erişim/CORS veya cookie güvenlik kuralları SDK tarafından sessizce gevşetilmez. Wire/contract override'ları test altyapısı içindir; public TypeScript adapter yüzeyi değildir.
+
+
+### Aktarım kimliğinin public biçimi
+
+`onTransfer().transferId`, reconnect hatasındaki `params.resumeTransferId` ve belirsiz commit hatasındaki `params.transferId` standart tireli UUID metnidir. SDK MessagePack binary UUID'yi bu biçime dönüştürür; resume/abort çağrılarında wire byte temsiline geri çevirir. Kimliği aynı HttpOnly session dışında kullanmak yetki vermez. Geçersiz resume kimliği `INVALID_ARGUMENT` üretir.

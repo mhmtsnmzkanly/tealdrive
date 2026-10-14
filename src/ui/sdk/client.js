@@ -294,7 +294,7 @@ export class TealDriveClient {
       abortUpload: async (o) => {
         object(o,["transferId","signal"]);
         if(typeof o.transferId!=="string"||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(o.transferId))fail("INVALID_ARGUMENT");
-        return publicValue(await this._request("UploadAbort",{transfer_id:o.transferId,reason:"explicit user cancellation"},o));
+        return publicValue(await this._request("UploadAbort",{transfer_id:this._wire.uuidBytes(o.transferId),reason:"explicit user cancellation"},o));
       },
       download: async (o) => this._download(o),
       getDownloadUrl: (o) => this._fileUrl("download", o),
@@ -1921,6 +1921,9 @@ export class TealDriveClient {
   }
   async _upload(options = {}) {
     object(options, ["rootId", "directory", "file", "signal", "onProgress", "resumable", "resumeTransferId", "onTransfer"]);
+    if(options.resumeTransferId !== undefined && (typeof options.resumeTransferId!=="string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(options.resumeTransferId)))fail("INVALID_ARGUMENT",{params:{field:"resumeTransferId"}});
+    if(options.resumable !== undefined && typeof options.resumable!=="boolean")fail("INVALID_ARGUMENT",{params:{field:"resumable"}});
+    if(options.onTransfer !== undefined && typeof options.onTransfer!=="function")fail("INVALID_ARGUMENT",{params:{field:"onTransfer"}});
     const file = options.file;
     if (
       !file ||
@@ -1937,7 +1940,7 @@ export class TealDriveClient {
     if (options.resumeTransferId && !(this._hello.upload_resume_seconds > 0)) fail("FEATURE_NOT_SUPPORTED");
     const retain = options.resumable !== false && (this._hello.upload_resume_seconds ?? 0) > 0;
     try {
-      const begin = options.resumeTransferId ? await this._request("UploadResume", {transfer_id:options.resumeTransferId},options) : await this._request(
+      const begin = options.resumeTransferId ? await this._request("UploadResume", {transfer_id:this._wire.uuidBytes(options.resumeTransferId)},options) : await this._request(
         "UploadBegin",
         {
           ...ref,
@@ -1949,7 +1952,8 @@ export class TealDriveClient {
         },
         options,
       );
-      transfer = begin.transfer_id;
+      const transferHex = this._wire.uuidKey(begin.transfer_id);
+      transfer = `${transferHex.slice(0,8)}-${transferHex.slice(8,12)}-${transferHex.slice(12,16)}-${transferHex.slice(16,20)}-${transferHex.slice(20)}`;
       integer(begin.chunk_size, 1, this._limits.max_chunk_size, "chunkSize");
       let offset = begin.bytes_received ?? 0;
       integer(offset,0,file.size,"resumeOffset");
@@ -1988,7 +1992,7 @@ export class TealDriveClient {
       committing = true;
       const result = await this._request(
         "UploadEnd",
-        { transfer_id: transfer, total_size: file.size, sha256: null },
+        { transfer_id: this._wire.uuidBytes(transfer), total_size: file.size, sha256: null },
         options,
       );
       return publicValue(result);
@@ -2002,7 +2006,7 @@ export class TealDriveClient {
       if (transfer && this._ready)
         try {
           await this._request("UploadAbort", {
-            transfer_id: transfer,
+            transfer_id: this._wire.uuidBytes(transfer),
             reason: "client cancellation or failure",
           });
         } catch {}

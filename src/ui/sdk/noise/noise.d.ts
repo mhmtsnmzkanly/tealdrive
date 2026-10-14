@@ -3,7 +3,6 @@
 
 export class NoiseClient {
     free(): void;
-    [Symbol.dispose](): void;
     finish(message: Uint8Array): void;
     constructor(key: Uint8Array);
     open(cipher: Uint8Array): Uint8Array;
@@ -13,7 +12,6 @@ export class NoiseClient {
 
 export class Sha256Stream {
     free(): void;
-    [Symbol.dispose](): void;
     finish(): Uint8Array;
     constructor();
     update(bytes: Uint8Array): void;

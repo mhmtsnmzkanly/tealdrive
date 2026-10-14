@@ -20,7 +20,7 @@ use crate::session::store::{InMemorySessionStore, SessionLookupResult, SessionSt
 use crate::ui::mime_for_path;
 use crate::ws::server::{extract_session_id, WsHelperBackend, WsServerState};
 
-pub const STREAM_CHUNK_SIZE: usize = 64 * 1024;
+pub const STREAM_CHUNK_SIZE: usize = crate::limits::MAX_CHUNK_SIZE;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DownloadQueryParams {
@@ -181,7 +181,9 @@ fn create_helper_stream<H: WsHelperBackend + 'static>(
                     ),
                 ));
             }
-            request.limits.max_chunk_size = (STREAM_CHUNK_SIZE as u64).min(remaining) as usize;
+            request.limits.max_chunk_size = (STREAM_CHUNK_SIZE.min(policy.limits.max_chunk_size)
+                as u64)
+                .min(remaining) as usize;
             let req = request.clone();
             let client = helper.clone();
             let snapshot = policy.clone();
@@ -393,7 +395,7 @@ where
         &root_id,
         &relative_path,
         0,
-        STREAM_CHUNK_SIZE,
+        STREAM_CHUNK_SIZE.min(cfg.limits.max_chunk_size),
     );
 
     let filename = Path::new(&relative_path.0)

@@ -86,6 +86,27 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         generated=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','channel','keygen','/home/tealdrive/tls/channel.key']))
         (base/'channel-public-key').write_text(generated['publicKey'])
     env={**os.environ,'TMPDIR':'/home/tealdrive/data/runtime/tmp'}
+    large_bytes=int(os.environ.get('TEALDRIVE_CORE_LARGE_BYTES','0'))
+    if large_bytes:
+        if large_bytes<17*1024*1024 or large_bytes>1024*1024*1024:raise RuntimeError('Large fixture must be17MiB..1GiB')
+        with (base/'core-large.bin').open('xb') as fixture:
+            block=b'\x5a'*65536
+            remaining=large_bytes
+            while remaining:
+                count=min(remaining,len(block));fixture.write(block[:count]);remaining-=count
+    import threading
+    peak={'serverKiB':0,'helperKiB':0};monitor_stop=threading.Event()
+    def monitor():
+        while not monitor_stop.wait(.05):
+            for process in Path('/proc').iterdir():
+                if not process.name.isdigit():continue
+                try:
+                    command=(process/'comm').read_text().strip()
+                    field='serverKiB' if command=='tealdrive-server'[:15] else 'helperKiB' if command=='tealdrive-helper'[:15] else None
+                    if field:
+                        status=(process/'status').read_text();line=next(l for l in status.splitlines() if l.startswith('VmRSS:'));peak[field]=max(peak[field],int(line.split()[1]))
+                except (OSError,StopIteration):pass
+    monitor_thread=threading.Thread(target=monitor,daemon=True);monitor_thread.start()
     log=(base/'server.log').open('wb')
     server=subprocess.Popen(['/usr/sbin/runuser','-u','tealdrive','--','/home/tealdrive/bin/tealdrive-server','--config','/home/tealdrive/policy/server.toml','--helper-bin','/home/tealdrive/bin/tealdrive-helper'],env=env,stdout=log,stderr=log,start_new_session=True)
     try:
@@ -95,7 +116,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 with socket.create_connection(('127.0.0.1',13106),timeout=.2):break
             except OSError:time.sleep(.1)
         else:raise RuntimeError('Candidate listener not ready')
-        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id'),'TEALDRIVE_CHANNEL_KEY_FILE':str(base/'channel-public-key'),'TEALDRIVE_BOOTSTRAP_PASSWORD_FILE':str(base/'bootstrap-password')}
+        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id'),'TEALDRIVE_CHANNEL_KEY_FILE':str(base/'channel-public-key'),'TEALDRIVE_BOOTSTRAP_PASSWORD_FILE':str(base/'bootstrap-password'),'TEALDRIVE_CORE_LARGE_FILE':str(base/'core-large.bin') if large_bytes else ''}
         subprocess.run(['node',str(ROOT/'tests/live/core-transfer.cjs')],env=childenv,check=True)
         if os.environ.get('TEALDRIVE_CORE_TLS_RENEWAL')=='1':
             caddy_dir=base/'caddy';caddy_dir.mkdir(mode=0o700)
@@ -135,6 +156,9 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 except subprocess.TimeoutExpired:caddy.kill();caddy.wait()
                 caddylog.close()
         if list((base/'runtime/tmp').glob('.tdrv-upload-*')):raise RuntimeError('Staging leak after completed transfer')
+        if large_bytes:
+            if peak['serverKiB']>=192*1024 or peak['helperKiB']>=192*1024:raise RuntimeError('Large transfer retained too much resident memory')
+            print('PASS: disk-backed large transfer bounded resident memory '+json.dumps(peak))
         print('PASS: private namespace, real setuid helper/User worker, no production home or auth DB writes')
     finally:
         if server.poll() is None:
@@ -142,6 +166,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
             try:server.wait(timeout=15)
             except subprocess.TimeoutExpired:os.killpg(server.pid,signal.SIGKILL);server.wait()
 
+        monitor_stop.set();monitor_thread.join(timeout=2)
         log.close()
     if manifest.get('virtualAdmin'):
         account_id=(base/'panel-account-id').read_text().strip()

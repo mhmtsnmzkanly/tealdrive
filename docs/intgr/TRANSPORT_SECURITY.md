@@ -64,7 +64,7 @@ Key32rawbytes, Root:service0640; parentRoot-owned ve group/world-writable olamaz
 
 Bağlantı: WSS→`TDN1 + serverPublicKey` greeting→Noise NK48byte client handshake→48byte server handshake→encrypted TDRV ServerHello/ClientHello/ProtocolReady→login. Greeting uygulama verisi taşımaz. Sabit prologue sürümü/uygulama bağlamını handshake transcript'ine bağlar. Directional keys ve sıralı nonce/replay denetimi Noise tarafından yönetilir. Her bağlantıda yeni ephemeral key ve nonce dizisi kurulur.15s ilk handshake deadline, mevcut pre-auth slots/60s auth deadline korunur. Çözme/fragment/protokol hatası bağlantıyı kapatır.
 
-Noise65535byte record sınırı nedeniyle TDRV frame'leri60000byte parçalar halinde şifrelenir. Encrypted plaintext'in ilk byte'ı0(devam)/1(son), devam parçaları tam60000byte olmalıdır. Frame toplamı Root max_frame_payload+header sınırını aşamaz. Sıra değiştirme/bit-flip/replay AEAD doğrulamasında reddedilir. Frame/chunk uygulama limitleri büyütülmez;17MiB aktarım hâlâ bounded64KiB helper stream ve256KiB upload chunks kullanır. WebSocket close/ping metadata'sı şifrelenmiş uygulama payload'ı değildir.
+Noise65535byte record sınırı nedeniyle TDRV frame'leri60000byte parçalar halinde şifrelenir. Encrypted plaintext'in ilk byte'ı0(devam)/1(son), devam parçaları tam60000byte olmalıdır. Frame toplamı Root max_frame_payload+header sınırını aşamaz. Sıra değiştirme/bit-flip/replay AEAD doğrulamasında reddedilir. Frame/chunk uygulama limitleri büyütülmez;17MiB aktarım hâlâ yapılandırmaya göre en fazla256KiB helper stream ve256KiB upload chunks kullanır. WebSocket close/ping metadata'sı şifrelenmiş uygulama payload'ı değildir.
 
 ```js
 import { createClient } from '/sdk/v1/tealdrive.js';

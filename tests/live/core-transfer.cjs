@@ -64,6 +64,10 @@ const fs=require('node:fs');
    if(statuses.some(status=>status!==200))throw Error('Virtual global management denied');
   }
 
+  if(process.env.TEALDRIVE_CORE_LARGE_FILE){
+   await page.evaluate(()=>{const input=document.createElement('input');input.type='file';input.id='largeFixture';input.hidden=true;document.body.append(input);});
+   await page.locator('#largeFixture').setInputFiles(process.env.TEALDRIVE_CORE_LARGE_FILE);
+  }
   const result=await page.evaluate(async({channelKey})=>{
    const {createClient}=await import('/sdk/v1/tealdrive.js');
    if(channelKey){
@@ -79,15 +83,15 @@ const fs=require('node:fs');
    const client=createClient({timeoutMs:120000,...(channelKey?{encryption:'required',trustedServerKeys:[channelKey]}:{})});await client.handshake();
    if(channelKey&&(!client.getInfo().transport.encryptedWebSocket||client.getInfo().transport.keyTrust!=='pinned'))throw Error('Encrypted pinned channel unavailable');
    const bytes=new Uint8Array(17*1024*1024);bytes.fill(0x5a);
-   const file=new File([bytes],'core-large.bin');
+   const file=document.querySelector('#largeFixture')?.files?.[0]??new File([bytes],'core-large.bin');
    const progress=[];
    const upload=await client.files.upload({directory:'/',file,onProgress:p=>progress.push(p.transferredBytes)});
-   if(upload.bytesWritten!==bytes.length)throw Error('Wrong commit byte count');
-   if(progress.at(-1)!==bytes.length||progress.some((n,i)=>i&&n<=progress[i-1]))throw Error('Progress not monotonic');
+   if(upload.bytesWritten!==file.size)throw Error('Wrong commit byte count');
+   if(progress.at(-1)!==file.size||progress.some((n,i)=>i&&n<=progress[i-1]))throw Error('Progress not monotonic');
    const response=await client.files.download({path:'/core-large.bin'});
    const reader=response.body.getReader();let total=0;
    while(true){const {done,value}=await reader.read();if(done)break;for(const byte of value)if(byte!==0x5a)throw Error('Download content changed');total+=value.length;}
-   if(total!==bytes.length)throw Error('Incomplete streaming download');
+   if(total!==file.size)throw Error('Incomplete streaming download');
    const range=await fetch(client.files.getDownloadUrl({path:'/core-large.bin'}),{headers:{Range:'bytes=1048576-1049599'}});
    if(range.status!==206||(await range.arrayBuffer()).byteLength!==1024)throw Error('Range failed');
    console.log('core-step: large upload/download/range passed');
@@ -121,6 +125,14 @@ const fs=require('node:fs');
    catch(error){cancelled=error.code==='ABORTED';}
    if(!cancelled)throw Error('Cancellation did not reject upload');
    console.log('core-step: cancellation passed');
+   let retainedId;
+   try{await client.files.upload({directory:'/',file:new File([bytes.slice(0,1048576)],'core-abort-retained.bin'),onProgress:()=>client.disconnect()});}
+   catch(error){retainedId=error.params?.resumeTransferId;}
+   if(!retainedId)throw Error('No retained abort fixture');
+   await new Promise(resolve=>setTimeout(resolve,100));await client.handshake();
+   try{await client.files.abortUpload({transferId:retainedId});}catch(error){console.log("core-step: retained abort failed "+error.code);throw error;}
+   console.log("core-step: retained abort passed");
+
    const original=client._request.bind(client);
    const rejected=[];
    for(const kind of ['permissions','truncate']){
@@ -141,7 +153,7 @@ const fs=require('node:fs');
    console.log('core-step: rejected staging checks passed');
    let listing;try{listing=await client.files.list({path:'/'});}catch(error){console.log('core-step: list failed '+error.code);throw error;}
    console.log('core-step: listed '+listing.entries?.length);
-   if(listing.entries.some(entry=>entry.name==='core-abort.bin'||entry.name==='core-resume-mismatch.bin'||entry.name.startsWith('core-bad-')))throw Error('Failed upload published a target');
+   if(listing.entries.some(entry=>entry.name==='core-abort-retained.bin'||entry.name==='core-abort.bin'||entry.name==='core-resume-mismatch.bin'||entry.name.startsWith('core-bad-')))throw Error('Failed upload published a target');
    if(channelKey){
     const send=client._socket.send.bind(client._socket);let captured;
     client._socket.send=bytes=>{captured=new Uint8Array(bytes).slice();send(bytes);};
@@ -182,4 +194,4 @@ const fs=require('node:fs');
   await page.click('#logoutBtn');
   console.log('PASS large transfer '+JSON.stringify(result));
  }finally{await browser.close();}
-})().catch(error=>{const known=['Wrong commit byte count','Progress not monotonic','Download content changed','Incomplete streaming download','Range failed','Cancellation did not reject upload','Tampered staging was published','Failed upload published a target','Unexpected staging count','Unknown fixture manipulation'];const reason=known.find(v=>error.message?.includes(v));console.error('Core transfer acceptance failed: '+(reason||error.code||error.name));process.exitCode=1;});
+})().catch(error=>{const known=['No retained abort fixture','Wrong commit byte count','Progress not monotonic','Download content changed','Incomplete streaming download','Range failed','Cancellation did not reject upload','Tampered staging was published','Failed upload published a target','Unexpected staging count','Unknown fixture manipulation'];const reason=known.find(v=>error.message?.includes(v));console.error('Core transfer acceptance failed: '+(reason||error.code||error.message?.slice(0,600)||error.name));process.exitCode=1;});

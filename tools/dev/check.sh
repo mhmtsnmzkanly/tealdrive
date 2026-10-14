@@ -7,8 +7,8 @@ cd -- "$tealdrive_repo_dir"
 case "${1:-}" in
   unit)
     cargo fmt --all -- --check
-    cargo clippy --locked --all-targets -- -D warnings
-    cargo test --locked
+    cargo clippy --locked --workspace --all-targets -- -D warnings
+    cargo test --locked --workspace
     ;;
   proxy-admin)
     exec python3 tools/dev/proxy-admin-check.py

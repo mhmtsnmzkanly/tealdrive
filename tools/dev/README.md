@@ -151,3 +151,12 @@ Cleaner runtime UID staging, open FD/cwd/exe paths, mounted trees ve arbitrary /
 Core transfer kabulü: `TEALDRIVE_CORE_TRANSFER_ACCEPTANCE=1 TEALDRIVE_TEST_WEB_PASSWORD_FILE=/root/private-test-password python3 tools/dev/core-transfer-acceptance.py`. Root, unshare/mount, mevcut onaylı test hesabı, private web parola dosyası ve güncel target/debug dört binary gerekir. Production auth/home/config/binaries değiştirilmez; private namespace/cloned DB ve ephemeral fixture kullanılır.
 
 Aynı kabulde `TEALDRIVE_CORE_VIRTUAL_ADMIN=1` eklenirse private /etc ve128MiB kernel-quota filesystem ile servis-adlı virtual alias/global scope/revoke kabulü de çalışır. Host OS hesabı veya production quota volume oluşturulmaz/değiştirilmez.
+
+Yeni çekirdek kabul seçenekleri (güncel dört debug binary gerekir):
+
+- `TEALDRIVE_CORE_CHANNEL=1`: gerçek browser WASM/pins/replay/tamper, parallel runtime loader.
+- `TEALDRIVE_CORE_BOOTSTRAP=1`: private fresh auth records, random admin + ilk parola değişimi.
+- `TEALDRIVE_CORE_MIGRATION=1`: private Linux source credential/content→virtual admin (bootstrap alternatifi).
+- `TEALDRIVE_CORE_TLS_RENEWAL=1`: gerçek private Caddy çift güven + canlı sertifika geçişi, unrelated config reddi.
+
+`TEALDRIVE_FRESH_ACCEPTANCE=1 python3 tools/dev/fresh-install-acceptance.py` boş home/private NSS/systemd ile tek komut native pool + ilk admin kurulumunu doğrular. `tools/dev/build-channel.sh` pinned wasm-bindgen/Cargo.lock ile embedded WASM'ı yeniden üretir; `channel-notices.py` ilgili license notices üretir. Bunlar reusable dev araçlarıdır, deployment sırasında çalıştırılan kullanıcı uygulama kodu değildir.

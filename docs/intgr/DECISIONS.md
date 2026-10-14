@@ -132,3 +132,8 @@ User/files ana namespace adının kesin onayı hâlâ yok; son örnekler files k
 - Önceki açık retention notları artık karar beklemiyor: history504saat, trash504saat, silinen virtual hesap36saat, Root undo üst sınırı varsayılan24saat; kullanıcı1..Root üst sınırı seçer.
 - TLS uygulama şifrelemesinin ön koşuludur. Noise standart NK protokolüdür; REST ve native HTTP download TLS kapsamındadır. Bağımsız key pin olmadan güven TLS discovery'dir; bağımsız güvenlik denetimi veya endpoint compromise koruması iddiası yoktur.
 - Geliştirme verileri namespace fixture'larında tutulur. Kalıcı faydalı araçlar tools/dev ve tools/ops altında kalır; geçici fixture/derleme çıktıları ve yayın doğrulaması sonrası otomatik güncelleme yedekleri temizlenir. Kaynak kullanıcı home'ları ve audit kayıtları yedek sayılıp silinmez.
+
+
+### SDK tamamlanma sonucu düzeltmesi
+
+Son public API karşılaştırmasında upload callback/resume dışında success-result transferId'nin de normalize edilmesi gerektiği görüldü. `UploadResult extends OperationResult` bytesWritten/transferId/sha256Verified alanlarını açık tanımlar; success cevabına gerçek wire requestId ve UPLOAD operation eklenir. Bu, önceki OperationResult tüketicisiyle tip uyumunu korur. Rust-generated contract ile binary UUID regression ve strict TypeScript kontrolü, ardından yeni release/public transfer kabulü yapılır. Kalıcı fonksiyon isimleri değişmez.

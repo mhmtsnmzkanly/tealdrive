@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "version": "20261014-87e5c3e",
+  "sha256": {
+    "tealdrive-server": "40fb024f47fe755d0d2ebf19c0cfe783578c94f65b8995f276085d9b6c42521c",
+    "tealdrive-helper": "46876e7d4743450ae8a4d523358b0c9c47505e4af08bdb77851ebe7476d42cc7",
+    "tealdrive-wizard": "a9a6cbe82c952b220aaff697ba9813d6618f914a6b64cc200f3b8ebab0003fbc",
+    "tealdrive-ctl": "a5c7a0c2d0824a8ac7d006a0e0df80eba92efaed23aa60d1ecf0865e0e9e29f1"
+  }
+}

@@ -8,10 +8,10 @@
  * const API = createClient(); await API.handshake(); await API.auth.login(...);
  * handshake WS bağlantısını ve sürümlü protokolü başlatır; login aynı WS üzerinde yapılır.
  * Pre-auth kanalda yalnızca sınırlı handshake/auth; dosya/admin mesajları AUTH_REQUIRED.
- * İleride anahtar anlaşması handshake aşamasına eklenebilir; bu taslak kripto implementasyonu değildir.
+ * Güncel handshake server isterse standart Noise NK kanalını TLS yanında başlatır; SDK uygulaması gömülü WASM kullanır.
  * Handshake tamamlanmadan ağ yöntemleri HANDSHAKE_REQUIRED verir; on/disconnect istisnadır.
  * Login olmadan dosya/yönetim yöntemleri AUTH_REQUIRED verir.
- * HTTPS/WSS şifrelemeyi sağlar; handshake özel kripto veya HTTP üzerinde güvenli JS sağlamaz.
+ * HTTPS/WSS zorunluluğu korunur; Noise yalnız WS payload kapsamındadır, REST/native download TLS kullanır. HTTP üzerinden dağıtılmış JS için güven iddiası yoktur.
  * TLS_REQUIRED, CONNECTION_FAILED, PROTOCOL_UNSUPPORTED transport hatalarıdır.
  * Ortak ağ hataları: CONNECTION_FAILED, SERVER_SHUTTING_DOWN, TIMEOUT, VALIDATION_FAILED.
  * Mutasyonlar ayrıca AUDIT_UNAVAILABLE veya OPERATION_STATUS_UNKNOWN verebilir.
@@ -697,3 +697,29 @@ export const examples = {
   deleteLivePath: API => API.files.deletePermanently({rootId:"home",path:"obsolete.bin"}),
 
 };
+
+
+/**
+ * SDK1.1: encrypted WS, reconnect ve public UUID örnekleri.
+ * Bu fonksiyon çağrılmadan ağ veya dosya işlemi yapmaz.
+ * @param {import('./src/ui/sdk/client.js').TealDriveClient} API
+ * @param {File} file
+ * @param {AbortSignal} signal
+ * @example await transferExamples(API, selectedFile, controller.signal);
+ * @throws {TealDriveError} QUOTA_EXCEEDED, RESUME_FILE_MISMATCH, ABORTED,
+ * UPLOAD_COMMIT_UNCONFIRMED (yayın gerçekleşmiş olabilir; otomatik tekrar etmeyin).
+ */
+export async function transferExamples(API, file, signal) {
+  let resumeTransferId;
+  try {
+    await API.files.upload({directory:'/', file, signal, resumable:true,
+      onTransfer: transfer => { resumeTransferId=transfer.transferId; },
+      onProgress: progress => console.log(progress.transferredBytes, progress.totalBytes)});
+  } catch (error) {
+    if (!error.params?.resumeTransferId) throw error;
+    await API.handshake();
+    await API.files.upload({directory:'/', file, signal, resumeTransferId:error.params.resumeTransferId});
+  }
+  // İptal gerekirse: await API.files.abortUpload({transferId:resumeTransferId});
+  // Ticket yalnız aynı HttpOnly session ve server'ın bekletme penceresinde geçerlidir.
+}

@@ -160,3 +160,10 @@ Yeni çekirdek kabul seçenekleri (güncel dört debug binary gerekir):
 - `TEALDRIVE_CORE_TLS_RENEWAL=1`: gerçek private Caddy çift güven + canlı sertifika geçişi, unrelated config reddi.
 
 `TEALDRIVE_FRESH_ACCEPTANCE=1 python3 tools/dev/fresh-install-acceptance.py` boş home/private NSS/systemd ile tek komut native pool + ilk admin kurulumunu doğrular. `tools/dev/build-channel.sh` pinned wasm-bindgen/Cargo.lock ile embedded WASM'ı yeniden üretir; `channel-notices.py` ilgili license notices üretir. Bunlar reusable dev araçlarıdır, deployment sırasında çalıştırılan kullanıcı uygulama kodu değildir.
+
+
+### Canlı sanal global admin ve büyük aktarım
+
+`tests/live/panel-admin.cjs` salt okunur migration kabulüdür: explicit `TEALDRIVE_PANEL_ADMIN_ACCEPTANCE=1`, URL/private admin password file; isteğe bağlı `TEALDRIVE_TEST_ORIGIN_HOST` ile direct Caddy resolver. `tealdrive` virtual/global,128MiB own quota ve mevcut93byte dosya beklentisini bu kurulum için doğrular.
+
+`tests/live/large-transfer.cjs`: `TEALDRIVE_LARGE_TRANSFER_ACCEPTANCE=1`, `TEALDRIVE_TEST_USERNAME=tealdrive-test`, URL ve private web password file. Public proxy üzerinden17MiB encrypted WS upload/stream HTTP download/Range ve typed completion kontrolü; finally yalnız kendi UUID dosyasını gerçek owner UID ile siler. `NODE_PATH=tools/dev/node_modules` tam yolu kullanılmalıdır. Bu testler gerçek service restart yapmaz; ayrı `check.sh live production-files` restart/unsaved editor kabulüdür.

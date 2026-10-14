@@ -1,8 +1,8 @@
 # TealDrive geliştirme ve kullanım belgeleri
 
-2026-10-13: planlanan çekirdek uygulandı ve bu sunucuda yeni sürüme geçildi. Güncel teslim ve sınırlar [FINAL_REPORT.md](FINAL_REPORT.md), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md), işlerin kapanışı [PLAN.md](PLAN.md) içindedir. Önceki hedef şemalar [history](history/) altında korunur; eski örnekleri çalışan parser'a vermeyin.
+2026-10-14: yetkilendirilen çekirdek aşamaları uygulandı ve bu sunucuda yeni sürüme geçildi. Güncel teslim ve sınırlar [FINAL_REPORT.md](FINAL_REPORT.md), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md), işlerin kapanışı [PLAN.md](PLAN.md) içindedir. Önceki hedef şemalar [history](history/) altında korunur; eski örnekleri çalışan parser'a vermeyin.
 
-Yeni yetkilendirilmiş çekirdek geliştirme: [NEXT_PHASES.md](NEXT_PHASES.md). Buradaki yeni işler önceki teslimden ayrıdır; kabul edilmeden canlı özellik sayılmaz.
+14 Ekim iki yeni çekirdek aşaması da tamamlandı ve canlıya alındı. Güncel durum [PHASE_PROGRESS.md](PHASE_PROGRESS.md), kapanan kapsam [NEXT_PHASES.md](NEXT_PHASES.md), ayrıntılı sonuç [FINAL_REPORT.md](FINAL_REPORT.md) içindedir.
 
 | Belge | Konu |
 |---|---|
@@ -23,6 +23,6 @@ Yeni yetkilendirilmiş çekirdek geliştirme: [NEXT_PHASES.md](NEXT_PHASES.md). 
 
 Dört binary vardır: server, işlem başına setuid helper, setuid olmayan Wizard ve ayrı ctl. SDK/UI bunlara gömülür; ilave daemon veya kullanıcı başına helper binary yoktur. Caddy zorunlu değildir; direct TLS ve güvenilir yerel TLS proxy desteklenir.
 
-Root kritik tavanı ve ilk admini belirler. Sistem hesabı NSS UID/GID/home kullanır. Sanal hesap ayrı locked/nologin Linux UID/GID kullanır; sanal admin yalnız kendi tenant'ını yönetir. Panel yöneticisi Root olmaz. Kişisel politikalar yalnız yetkiyi daraltır.
+Root kritik tavanı ve ilk admini belirler. Sistem hesabı NSS UID/GID/home kullanır. Sanal hesap ayrı locked/nologin Linux UID/GID kullanır; tenant sanal admin yalnız kendi tenant'ını yönetir; Root global scope verilen sanal admin genel panel yönetimi yapar. Panel yöneticisi Root olmaz. Kişisel politikalar yalnız yetkiyi daraltır.
 
-Kullanıcı dosyaları SQLite'a girmez. Root DB hesap/parola özeti/tahsis/nesil ve korumalı kayıtları tutar. Web parola ve grant/token değerleri browser storage'a veya raporlara yazılmaz. Ek uygulama şifrelemesi, MFA/SSH kapatma, kullanıcı uygulamalarının süreç yönetimi bu teslim kapsamı dışındadır.
+Kullanıcı dosyaları SQLite'a girmez. Root DB hesap/parola özeti/tahsis/nesil ve korumalı kayıtları tutar. Web parola ve grant/token değerleri browser storage'a veya raporlara yazılmaz. Ek Noise WebSocket şifrelemesi TLS yanında uygulanmıştır. MFA/SSH kapatma, hosting süreç/domain/DB yönetimi ve tam user-data disaster recovery bu iki aşamanın dışındadır.

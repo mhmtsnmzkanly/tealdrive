@@ -64,7 +64,7 @@ Values are bytes or counts, not MiB strings.
 | `max_control_payload` | 262144 | 1..frame limit |
 | `max_decompressed_control_payload` | 4194304 | decompression bound |
 | `max_chunk_size` | 262144 | <=262144; chunk + 32-byte subheader must fit frame |
-| `max_in_flight_upload` | 1048576 | 1..3145728; currently also whole-file upload limit |
+| `max_in_flight_upload` | 1073741824 | 1..68719476736; bounded chunk transfer, also subject to Root staging budget and account quota |
 | `max_directory_page_size` | 500 | <=500 |
 | `default_directory_page_size` | 200 | <= maximum |
 | `max_text_edit_size` | 131072 | <= half control payload limit |
@@ -364,3 +364,17 @@ confinement prevents escaping the pinned root; noncooperative external mutations
 race application policy preflight. These restrictions are not a separate backup or
 immutable-data boundary. Per-user layers are currently configured by root in TOML;
 web/CLI policy management will use the protected account-management boundary.
+
+
+## TLS, encrypted WebSocket and system storage (2026-10-14)
+
+The current complete Root schema and operational examples are in
+[intgr/CONFIGURATION.md](intgr/CONFIGURATION.md). `server.channel_key_path` is an
+optional Root-owned 32-byte Noise private key; when set, TLS and the encrypted WS
+handshake are required. Configure `require_tls=true` and a valid direct certificate
+pair or trusted TLS proxy. These are Root policy, not web-editable settings.
+
+`system_storage` defaults: metadata DB pages512MiB, staging4GiB/128 transfers,
+minimum free disk1GiB, upload resume1800seconds (0 disables, maximum86400).
+The staging ledger coordinates cooperating processes sharing TMPDIR; it is not
+an OS-wide hard quota. WAL storage is not included in the SQLite page cap.

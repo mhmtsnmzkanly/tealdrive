@@ -55,3 +55,10 @@ Disk son ölçüm:118GiB filesystem,20GiB used/94GiB available. Önceki genel30�
 `/root/tealdrive-runtime-backups` içindeki legacy/stage/final migration, metadata/key/user/binary/Caddy yedekleri ve release-bundle kopyaları silindi. `/home/tealdrive/storage/update-backup-*`, previous-tealdrive.service ve auth/accounts.db*.backup da kaldırıldı.5backup root altında156file,1807131092logical byte silindi. Live process FD/cwd/exe ve mount referansları önce denetlendi; symlink-safe removal kullanıldı.
 
 Aktif native image/mount,4installed binary, current config/key/SQLite, password otomasyon dosyaları, audit logs ve gerçek kullanıcı dosyaları korunur. Önceki belgelerde listelenen rollback konumları artık mevcut değildir. Yeni Wizard update/restore ileride yeniden backup üretebilir; bu işlem mevcut yedekleri silmiştir. Son public browser login/socket/logout passed.
+
+
+## 14 Ekim 2026 kapanış
+
+4376known Root fixture directory/63temporary file fd/mount korumalı temizleyiciyle silindi. İlk cargo clean7993file/2.6GiB kaldırdı. Son SDK completion düzeltmesinin release derlemesi için cache yeniden üretildi; son kabul sonrası1629file/523.6MiB daha temizlendi. Reusable fresh/core/panel-admin/public-large transfer testleri tools/dev/tests/live içinde kalır.
+
+Completed development timer/service ve `/root/.local/state/tealdrive-scheduled` (prompt/start/log/private temporary admin credential/config/file manifest) kaldırıldı. Successful update'in otomatik metadata/binary backup ve previous service kopyası kullanıcının önceki talebine uygun silindi; güncel kaynak Git'tedir, eski binary rollback kopyası yoktur. Kullanıcı home'ları/legacy source, active DB/key/config/image/audit ve migration recovery journal korunur. Mevcut özel test credential dosyaları Git dışındadır ve korunur. Scheduler artık başka tur başlatmaz.

@@ -17,8 +17,8 @@ compatibility, real PAM/setuid/kernel isolation and Chromium/TLS were tested.
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 cargo build --locked --release --bins
 ```
 
@@ -43,11 +43,19 @@ NGINX/Apache or another correctly configured TLS proxy can be used.
   shutdown notification preserving unsaved editor text.
 - Offline install/update/repair/rollback/backup/restore/uninstall and separate ctl.
 
-Uploads default to1MiB (configuration maximum3MiB); text edits default128KiB.
-HTTP downloads stream larger files. Upload resume and arbitrary server-side shell
-execution are not provided. No admin is silently created; Root assigns the first
-administrator. Filesystem races with external programs and the security scope are
-explained in the [final report](docs/intgr/FINAL_REPORT.md).
+Uploads default to 1 GiB with a configurable 64 GiB hard ceiling; account quota,
+staging budget and available disk space also apply. Uploads use bounded chunks and
+can resume within the same session (30-minute default window); server restart does
+not restore a pending upload. HTTP downloads stream with Range support. Text edits
+default to 128 KiB. Root may create a fresh virtual global administrator with a
+random temporary password and mandatory first password change. The service Linux
+account remains locked/nologin and separate from every file identity.
+
+Backend TLS supports live certificate refresh and Root-managed proxy trust renewal.
+An optional standard Noise NK channel encrypts WebSocket application messages in
+addition to TLS; REST and native HTTP downloads remain TLS-only. See the
+[security scope](docs/intgr/TRANSPORT_SECURITY.md) and
+[current delivery report](docs/intgr/FINAL_REPORT.md).
 
 ## Documentation
 

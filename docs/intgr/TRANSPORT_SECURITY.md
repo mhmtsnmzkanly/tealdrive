@@ -2,7 +2,7 @@
 
 ## Durum
 
-Backend TLS mevcut üretimde etkin. Yeni source sürümünde Root-owned PEM çifti60s aralıkla doğrulanıp canlı rustls config'e yüklenir. Hatalı key/cert/mode/symlink son doğrulanmış çifti değiştirmez; mevcut WS bağlantıları korunur, yeni bağlantılar yenilenen çiftle kurulur. Düz HTTP fallback yok. TLS'nin etkinlik/bind değişimi hâlâ restart gerektirir. Bu özelliğin canlı yayını henüz yapılmadı.
+Backend TLS mevcut üretimde etkin. Yeni source sürümünde Root-owned PEM çifti60s aralıkla doğrulanıp canlı rustls config'e yüklenir. Hatalı key/cert/mode/symlink son doğrulanmış çifti değiştirmez; mevcut WS bağlantıları korunur, yeni bağlantılar yenilenen çiftle kurulur. Düz HTTP fallback yok. TLS'nin etkinlik/bind değişimi hâlâ restart gerektirir. 14 Ekim release ile canlıda etkinleştirildi.
 
 Yeni Root Wizard `tls status` sertifika geçerlilik tarihleri/public fingerprint,30gün yenileme uyarısı ve çift doğrulamasını gösterir. Private key veya parola göstermez.
 
@@ -84,7 +84,10 @@ await api.auth.login({ username, password });
 
 Embedded runtime yaklaşık139KiB WASM+9KiBJS'dir; yalnız encrypted greeting geldiğinde yüklenir, CDN kullanılmaz. `/sdk/v1/noise.js` ve `noise_bg.wasm` custom UI tarafından override edilemez. CSP `wasm-unsafe-eval` ile WebAssembly derlemesine izin verir; JS unsafe-eval eklenmez. Rebuild: `tools/dev/build-channel.sh`; wasm-bindgen-cli0.2.122 ve wasm32 target gerektirir. Cargo.lock, Rust kaynakları ve artifactlar repodadır; third-party notices aynı dizindedir.
 
-Kabul: Cacophony NK handshake/ciphertext/transcript/directional transport vektörü, native wrongkey/replay/tamper/fresh ephemerals, gerçek ChromiumWASM↔Rust17MiB pinned transfer, wrong pin, exact replay ve bit-flip rejection passed. Required/pin plaintext downgrade SDK regression testleri de vardır. Üretimde bu source özelliği henüz etkinleştirilmedi.
+Kabul: Cacophony NK handshake/ciphertext/transcript/directional transport vektörü, native wrongkey/replay/tamper/fresh ephemerals, gerçek ChromiumWASM↔Rust17MiB pinned transfer, wrong pin, exact replay ve bit-flip rejection passed. Required/pin plaintext downgrade SDK regression testleri de vardır. 14 Ekim üretimde channel_key_path ile etkinleştirildi; public Chromium aktarımı geçti.
 
 
 Caddy adaptörü ayrıca private admin API'den aktif JSON'u alır ve yalnız trust dosyası yolu normalize edilerek aday JSON ile eşitliğini arar. Başka sitenin ayarı, environment expansion veya diskte henüz yüklenmemiş başka bir değişiklik varsa otomatik reload reddedilir; generic prepare/externalreload/activate akışı kullanılır. Böylece Root CLI ortamında eksik bir environment variable başka domainin DNS/TLS credential'ını sessizce silemez. Active/adapted JSON hiçbir zaman loga verilmez. Bu karşılaştırma gerçek private Caddy TLS kabulünde de geçti.
+
+
+Canlı günlük `tealdrive-tls-renewal.timer` etkindir;30gün eşikte yeniler. Mevcut sertifika2027-10-13T21:06:35UTC sonuna kadar geçerli olduğundan son kontrol no-op oldu. Production Caddy active JSON ve temiz ortamda adapte edilmiş disk config eşitliği doğrulandı; gerçek rotasyon/dualtrust kabulü private namespace'de yapıldı. Yeni bağımsız custom client pin'i Root tarafından ayrı güvenilir kanaldan alınmalıdır.

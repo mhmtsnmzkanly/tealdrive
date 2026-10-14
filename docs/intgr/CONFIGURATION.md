@@ -70,7 +70,7 @@ Direct TLS için behind_tls_proxy=false, tls_cert_path ve tls_key_path birlikte 
 
 Çöp kutusu retention Root lifecycle saatidir. Split panelde legacy trash_retention_days düzenlenmez. Undo kullanıcı tercihi1..Root undo_max_hours; null Root sınırını izler. Legacy audit retention_days giriş uyumu vardır; yeni süreler saat cinsindedir.
 
-## Yeni aşama: Root sistem alanı bütçeleri (source sürümü)
+## Root sistem alanı bütçeleri (yayınlandı)
 
 ```toml
 [system_storage]
@@ -78,9 +78,25 @@ max_metadata_db_bytes = 536870912
 max_staging_bytes = 4294967296
 max_staging_transfers = 128
 staging_min_free_bytes = 1073741824
+upload_resume_seconds = 1800
 ```
 
-Bunlar kullanıcıya dağıtılan native havuz kotası değildir; Root ayarlarıdır. SQLite cap data pages içindir; WAL boyutu checkpoint/reader davranışına bağlıdır. Staging reservation tek server process'indeki aktif transferleri kapsar; OS-wide service UID quota değildir. Root max upload değeri staging byte bütçesini aşamaz. Production release yapılmadan bu ayarlar mevcut binary'ye verilmemeli.
+Bunlar kullanıcıya dağıtılan native havuz kotası değildir; Root ayarlarıdır. SQLite cap data pages içindir; WAL boyutu checkpoint/reader davranışına bağlıdır. Staging ledger aynı TMPDIR kullanan cooperating süreçlerde aktif declared byte ve orphan actual byte sayar; OS-wide service UID quota değildir. Root max upload değeri staging byte bütçesini aşamaz. 14 Ekim release bu alanları destekler; eski binary ile yeni şema kullanılmaz.
 
 
 Root `[system_storage] upload_resume_seconds = 1800` bekleyen bağlantı kesintisi süresidir;0kapalı,max86400. Web overlay değiştiremez. Aynı runtime TMPDIR kullanan server prosesleri private file ledger ile aktif declared bytes, orphan actual bytes ve transfer sayısını ortak hesaplar. Farklı TMPDIR ayrı bütçe alanıdır; dağıtım runtime dizinini sabit tutmalıdır.
+
+
+## Ek WebSocket kanalı
+
+```toml
+[server]
+# Aynı mevcut server bloğunda, TLS ayarlarının yanında:
+channel_key_path = "/home/tealdrive/tls/channel.key"
+require_tls = true
+
+[limits]
+max_in_flight_upload = 1073741824
+```
+
+Root `tealdrive-wizard channel keygen /home/tealdrive/tls/channel.key` yalnız yeni dosya üretir; private key32byte/Root:service0640, çıktı yalnız public key içerir. Key path ayarını helper/server birlikte alır; değişim restart ister. Root upload tavanı en fazla64GiB ve system staging byte bütçesini aşamaz; native kullanıcının kotası ayrıca uygulanır. Tam Root dosyası `tealdrive-wizard config apply /root/approved.toml` ile doğrulanıp yayınlanır. `config validate` parametresiz mevcut dosyaları doğrular.

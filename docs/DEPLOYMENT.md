@@ -12,8 +12,8 @@ Debian/Ubuntu PAM örneği common-auth/common-account kullanır; dağıtım fark
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 cargo build --locked --release --bins
 sudo python3 tools/ops/package-release.py \
   --bin-dir /root/tealdrive/target/release \
@@ -35,6 +35,21 @@ tealdrive-wizard init
 ```
 
 Wizard TTY parola girişinde echo kapatır. Parola argv/env'ye verilmez. Web enrollment da desteklenir; ilk PAM kanıtı kısa ömürlü/tek kullanımlıktır. Sonraki giriş web parolasıdır; Linux parolası kalıcı tutulmaz. Sanal admin provisioning Root tarafından ayrıca yapılır.
+
+## Yeni kurulumda sanal genel admin (önerilen akış)
+
+```sh
+# Fresh host: belirtilen net havuz fiziksel olarak önceden ayrılır.
+sudo /root/approved-tealdrive-release/tealdrive-wizard install \
+  --bundle /root/approved-tealdrive-release \
+  --pool-size 30GiB --admin-own-quota 1GiB
+sudo tealdrive-wizard diagnose
+# İlk random parola Root-private /home/tealdrive/auth/bootstrap.json içindedir.
+# TLS/origin ayarını tamamladıktan sonra servisi başlatın.
+sudo tealdrive-ctl start
+```
+
+Bu seçenekler shared native image ve bütçeden ayrılan own quota ile sanal global `tealdrive` adminini kurar. Linux servis hesabı aynı adlı web hesabına dönüştürülmez; ayrı generated UID/GID ve home kullanılır. Random parola argv/stdout/log'a yazılmaz; ilk web girişinde farklı parola belirlenmeden dosya/yönetim yetkisi verilmez. Eski `install --bundle` akışı yukarıdaki explicit Linux enrollment için kullanılabilir; iki provisioning biçimini körlemesine üst üste çalıştırmayın. İmaj sonradan Root `storage expand --pool-size SIZE` ile büyütülür; shrink desteklenmez.
 
 ## TLS seçenekleri
 

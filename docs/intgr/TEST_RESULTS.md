@@ -466,3 +466,15 @@ Eşzamanlı loader kabulü wasm-bindgen global instance init yarışını yakala
 - Fresh four-binary install64MiBnet/32MiBown: preallocated native image, random Root-private credential, ayrı locked/nologin virtual UID/globaladmin, zorunlu ilk parola değişim flag'i, idempotent bootstrap, diagnose ve namespace cleanup tekrar passed.
 - Fake same-name backend certificate: private Caddy502, fake backend'e0HTTPrequest; strict proxy certificate verification tekrar passed.
 - Release dört binary optimized build ve checksummed manifest paket tamamlandı. Kaynak değerlendirmesi bağımsız güvenlik audit'i veya uzun süreli yük testi değildir. Production kabulü aşağıya ayrı eklenir.
+
+
+## 14 Ekim 2026 — canlı yayın kabulü
+
+Dört installed binary SHA256 manifest ile eşleşti; Root diagnose config/database/identity healthy, serviceUID995. `tealdrive-admin`→virtual/global `tealdrive` migration source5entry/4891byte ve target digest/owner/mode eşitliğiyle tamamlandı; password hash korunur. Kullanıcının test/hello gpt.md93byte dosyası source+target aynıdır. Yeni accountUID200000, serviceUID995 değişmedi. Direct Caddy ve public domain gerçek Chromium admin login/read/quota/global config/Noise/logout passed; bundan sonra eski web account suspended yapıldı.
+
+Live direct Caddy production-files: mevcut60byte kullanıcı dosyası korunumu, CRUD/revision conflict/chmod protected undo/download audit korelasyonu, gerçek systemd restart/shutdownpopup/unsaved editor/relogin passed. Live public domain17MiB: encrypted WS upload17825792byte/68progress, stream HTTP download aynıbyte/content, Range206 passed; UUIDfixture ownerUID ile silindi. Root `storage check` kernelquota/mount/netpool512MiB healthy; admin own128MiB, childremaining384MiB. Günlük TLSrenewal timer enabled; fresh cert30day check no-op; production Caddy active/adapted equality passed.
+
+Geçici staging/production transfer fixture dosyası kalmadı. Servis NRestarts0/ExecMainStatus0, server/Caddy/GCtimer/TLSrenewaltimer active. Source/full suite633passed/0failed ve açık13ignored; normal koşuda atlanan host tests ayrıca başarı varsayılmadı. Yeni SDK completion-result tip/UUID düzeltmesi Rust-generated contract ile Node regression ve ES2022 TypeScript kontrolde passed; güncel release/public aktarım kabulü aşağıdadır.
+
+
+Son SDK düzeltmesi `87e5c3e` ile release20261014-87e5c3e dört binary yeniden yayınlandı. Public17MiB upload/download/Range ve `UploadResult.transferId:string/bytesWritten/operation/requestId` gerçek tarayıcı kabulü tekrar passed. Dört installed hash [RELEASE_MANIFEST.json](RELEASE_MANIFEST.json) ile eşleşti; source/target kullanıcı dosyası ve korunmuş password hash/suspended old account yeniden doğrulandı. Root diagnose healthy; NRestarts0/ExecMainStatus0. Son incremental release cache1629file/523.6MiB, updatebackup ve duplicatebundle kaldırıldı. Disk118GiBtotal/19GiBused/95GiBfree; timer/server/Caddy active.

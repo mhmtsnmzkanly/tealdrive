@@ -1,43 +1,36 @@
-# Sunucunun mevcut durumu — 2026-10-13
+# Sunucunun mevcut durumu — 14 Ekim 2026
 
-[Dizin](README.md) · [Bitiş raporu](FINAL_REPORT.md)
+[Dizin](README.md) · [Bitiş raporu](FINAL_REPORT.md) · [İlerleme](PHASE_PROGRESS.md)
 
 | Alan | Mevcut değer |
 |---|---|
 | URL | https://tdrive.novastrum.dev |
-| Backend | 127.0.0.1:13100; TLS; plaintext handshake reddi |
-| Servis | tealdrive.service; enabled, User/Group tealdrive |
-| Servis NSS home | /home/tealdrive; nologin; UID995/GID986 |
-| Working directory | /home/tealdrive/data/runtime |
-| Binaryler | /home/tealdrive/bin; dört /usr/local/bin kısayolu |
-| Root ayarları | /home/tealdrive/policy/server.toml ve helper.toml |
-| Root key/metadata | policy/helper.key ve auth/accounts.db; içerikleri rapora alınmaz |
-| Panel çalışma ayarı | /home/tealdrive/config/settings.toml |
-| Test hesabı | tealdrive-test; Linux UID/GID1000, DB RoleUser, active |
-| Kullanıcı kökü | Gerçek /home/tealdrive-test; legacy dosyalar üzerine yazılmadan kopyalandı |
-| Sanal depolama | 1GiB ext4 image; Root pool512MiB; ayrı UID quota; admin otomatik oluşturulmadı |
-| Journal/control audit | enabled; retention504h; undo upper24h |
-| Lifecycle | trash504h, staging24h, deleted virtual36h; hourly timer enabled |
-| Merkezi audit | /home/tealdrive/logs/server/audit.jsonl;10MiB,5archive,504h |
-| TLS/proxy | Direct backend TLS + Caddy certificate validation; secure cookies/exact origin; trusted loopback XRealIp |
-| Caddy admin | private /run/caddy-admin/admin.sock; service UID erişemez |
+| Aktif paket |20261014-87e5c3e; dört installed hash manifest ile doğrulandı|
+| Backend |127.0.0.1:13100; direct TLS; plaintext reddi|
+| Servis |tealdrive.service enabled/active; Linux UID995/GID986, locked/nologin|
+| Binary/PATH |/home/tealdrive/bin dört binary; /usr/local/bin symlinks; yalnız helper4755|
+| Root config/key |policy/server.toml644, helper.toml600/helper.key600; private TLS/channel key Root:service640|
+| Metadata |/home/tealdrive/auth/accounts.db Root600, parent700; schema2|
+| Panel overlay |/home/tealdrive/config/settings.toml servis600|
+| Web admin |tealdrive;virtual/global/UID200000; eski web parola hash'i korunur|
+| Admin home |/home/tealdrive/virtual-homes/tdv_200000 owner200000:200000 mode700|
+| Eski admin |tealdrive-admin LinuxUID1001;web suspended;orijinal home/dosyalar korunur|
+| Test user |tealdrive-test LinuxUID1000 RoleUser active;home/legacy dosyalar korunur|
+| Virtual storage |1GiBpreallocated ext4/usrquota;netpool512MiB;nodev,nosuid,noexec|
+| Admin quota |budget512MiB;own128MiB;childremaining384MiB|
+| Transfer |Root/server/helper1GiB ceiling;chunk<=256KiB;same-session resume1800s|
+| Ek kanal |NoiseNK WS etkin;REST/nativeHTTP TLS-only;default trust TLS-discovery|
+| Certificate |policy/origin-cert.pem;expiry2027-10-13T21:06:35UTC;60s live refresh|
+| TLS timer |tealdrive-tls-renewal.timer enabled/active;daily30day threshold|
+| Retention |history504h/undoRootmax24h/trash504h/staging24h/deletedvirtual36h;hourlyGC|
+| Audit |logs/server/audit.jsonl;10MiB/5archive/504h;Root protected canonical records ayrı|
+| Caddy |private /run/caddy-admin/admin.sock;backend pinned cert+SNI;skipverify yok|
+| Disk |118GiB total/19GiBused/95GiBfree;build peakte92GiBfree|
 
-Web parola modeli aktiftir. Linux parolası ve mevcut web parolası değiştirilmedi; web parola Linux parolasıyla aynı olmak zorunda değildir. Özel parola dosyaları Root dışında okunamaz ve Git'te değildir. İlk admin Root Wizard ile belirlenir; eski server config'teki admin_users adı DB RoleUser hesabını otomatik admin yapmaz.
+Cloudflare IP yalnız resmi trusted CIDR ve CF-Connecting-IP overwrite üzerinden alınır; backend yalnız loopback XRealIp'ye güvenir. Public/direct health200 ve gerçek Chromium admin login/logout geçti. Public17MiB upload/download/Range, direct CRUD/undo/audit+systemd restart/shutdownpopup/relogin geçti.
 
-`Web test.md`60bayt ve26legacy regular file SHA karşılaştırmasıyla korundu. Legacy /srv/tealdrive-test orijinali geri dönüş için tutulur; canlı panel home'u kullanır. Kullanıcı tarafından değiştirilmiş home'un üstüne eski yedek körlemesine restore edilmez.
+Kullanıcının `test/hello gpt.md`93byte dosyası source+newhome SHA/mode/owner ile doğrulandı. Source toplam5entry/4891regularbyte korundu. Dedicated browser test UUID dosyaları temizlendi. `/srv/tealdrive-test` orijinal kullanıcı verisidir; backup diye silinmez. Eski explicit hidden/sensitive home politikası korunur; fresh install `.env` açık, sistem sır dizinleri kapalı varsayılanını kullanır.
 
-Rollback: /root/tealdrive-runtime-backups/final-migration-20261013 Root700; eski config/unit/Caddyfile, kullanıcı dosyaları ve metadata backup, retired executablelar içerir. Aktif eski test/candidate executablelar ve public setuid kopyaları kaldırıldı. Caddy DNS credential veya key değerleri hiçbir belgeye alınmadı.
+Kullanıcı bütün yedekleri silmeyi istedi: önceki ve bu successful update'in otomatik metadata/binary/unit yedekleri yoktur. Kaynak Linux home'ları gerçek kullanıcı verisidir; korunur. Root admin-migration.json recovery/idempotence kaydıdır, rollback data backup değildir; korunur. Sonraki Wizard update tekrar safety backup üretebilir. Aktif config/DB/key/audit silinmez veya rapora dump edilmez.
 
-Caddy yalnız resmî Cloudflare CIDR'lerinden CF-Connecting-IP kabul eder, X-Real-IP'yi üzerine yazar; backend yalnız loopback proxy'ye güvenir. Audit gerçek dış istemciIP31.58.91.190 ve socket peer127.0.0.1 ayrımını gösterdi. Son public Cloudflare HTTPS200 ve gerçek Chromium login/logout geçti; önceki403 son kabulde tekrarlanmadı, edge politikası gelecekte farklı otomatik isteği reddedebilir.
-
-Sistem entegrasyon istisnaları PAM ve systemd dosyalarıdır. Eski deploy/operasyon yedekleri otomatik silinmedi; kullanıcı verisi veya güvenlik kaydı geliştirme çıktısı sayılmadı. Tüm önceki bağlam [history arşivinde](history/CONTEXT-before-final-2026-10-13.md) korunur.
-
-Backend sertifikası policy/origin-cert.pem Root644; private TLS key tls/origin-key.pem Root:tealdrive0640. Caddy yalnız bu sertifikayı trust pool ile doğrular ve SNI tealdrive-origin.local kullanır; skip-verify yoktur. Böylece servis dururken sıradan OS kullanıcısının loopback portu taklit etmesi backend kimliğini sağlayamaz. Sertifika1yıl geçerlidir; süresi dolmadan Root cert/key ve Caddy trust pool birlikte yenilenir.
-
-Teslim sonrası temizlik: target cache ve /tmp test artıkları silindi. Eski6rollback /root/tealdrive-runtime-backups/legacy-development-backups altında; LOCATIONS.json eşleme dosyası Root600. Root backup parent700. Aktif binary/config/DB/key/userdata ve private password dosyaları aynıdır.
-
-## Kullanıcı talebiyle bütün mevcut TealDrive yedeklerinin silinmesi — 2026-10-13
-
-`/root/tealdrive-runtime-backups` içindeki legacy/stage/final migration, metadata/key/user/binary/Caddy yedekleri ve release-bundle kopyaları silindi. `/home/tealdrive/storage/update-backup-*`, previous-tealdrive.service ve auth/accounts.db*.backup da kaldırıldı.5backup root altında156file,1807131092logical byte silindi. Live process FD/cwd/exe ve mount referansları önce denetlendi; symlink-safe removal kullanıldı.
-
-Aktif native image/mount,4installed binary, current config/key/SQLite, password otomasyon dosyaları, audit logs ve gerçek kullanıcı dosyaları korunur. Önceki belgelerde listelenen rollback konumları artık mevcut değildir. Yeni Wizard update/restore ileride yeniden backup üretebilir; bu işlem mevcut yedekleri silmiştir. Son public browser login/socket/logout passed.
+Completed development timer/service ve Root scheduled state kaldırıldı; başka Codex süreci kurulmadı. Tekrarlanabilir araçlar repoda, Node Playwright bağımlılıkları tools/dev altında korunur. Rusttarget/Pythoncache/tempfixtures/releasebundle temizlendi. Parola/anahtarlar Git'e veya rapora yazılmaz. Tarihsel bağlam [arşivde](history/CONTEXT-before-20261014-completion.md); eski backup yolları artık geçerli değildir.

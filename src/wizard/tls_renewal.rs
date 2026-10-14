@@ -254,6 +254,45 @@ fn caddy_reload(path: &Path, old: &Path, trust: &Path) -> Result<()> {
     if !parent.is_dir() || parent.mode() & 0o077 != 0 {
         return Err("Caddy admin socket directory must be private".into());
     }
+    // Missing environment expansion must never rewrite another site's settings.
+    let active = zeroize::Zeroizing::new(utility(
+        "/usr/bin/curl",
+        &[
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--max-time",
+            "5",
+            "--unix-socket",
+            text(socket_path)?,
+            "http://localhost/config/",
+        ],
+    )?);
+    let mut current: serde_json::Value = serde_json::from_slice(&active)?;
+    let mut candidate = json.clone();
+    fn normalize(value: &mut serde_json::Value, old: &str, trust: &str) {
+        match value {
+            serde_json::Value::String(v) if v == old || v == trust => {
+                *v = "TEALDRIVE_TRUST_PATH".into()
+            }
+            serde_json::Value::Array(v) => {
+                for item in v {
+                    normalize(item, old, trust)
+                }
+            }
+            serde_json::Value::Object(v) => {
+                for item in v.values_mut() {
+                    normalize(item, old, trust)
+                }
+            }
+            _ => {}
+        }
+    }
+    normalize(&mut current, text(old)?, text(trust)?);
+    normalize(&mut candidate, text(old)?, text(trust)?);
+    if current != candidate {
+        return Err("Caddy adapter would change unrelated active settings or environment expansion; use generic proxy renewal".into());
+    }
     utility(
         "/usr/bin/caddy",
         &[

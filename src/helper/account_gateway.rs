@@ -1011,7 +1011,7 @@ fn dispatch(
         }
         AccountCommand::Validate(grant) => {
             let mut account = store
-                .verify_grant(&grant, &caller, at)
+                .verify_restricted_grant(&grant, &caller, at)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
             // Server caches must never extend a Root-revoked management scope.
@@ -1178,7 +1178,7 @@ fn dispatch(
             new_password,
         } => {
             let account = store
-                .verify_grant(&grant, &caller, at)
+                .verify_restricted_grant(&grant, &caller, at)
                 .map_err(GatewayFailure::from)?;
             validate_account(config, &account)?;
             let reservation = store

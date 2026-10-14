@@ -26,6 +26,7 @@ const BINARIES: [&str; 4] = [
     "tealdrive-ctl",
 ];
 const UNIT: &str = "tealdrive.service";
+mod bootstrap;
 mod storage;
 mod tls;
 mod tls_renewal;
@@ -355,6 +356,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
                     | "virtual"
                     | "gc"
                     | "storage"
+                    | "tls"
+                    | "channel"
+                    | "bootstrap"
             )
         );
     let readonly = matches!(
@@ -598,6 +602,14 @@ fn run_inner(args: Vec<String>) -> Result<()> {
                 &serde_json::json!({"virtual_purged":purged,"operation_logs_expired":expired,"trash_cleaned":cleanup.trash_cleaned,"trash_skipped":cleanup.trash_skipped,"staging_cleaned":staged.staging_cleaned,"staging_skipped":staged.staging_skipped}),
             )
         }
+        ["bootstrap", "admin", budget, own] => {
+            root()?;
+            bootstrap::admin(bytes(budget)?, bytes(own)?)
+        }
+        ["account", "require-password-change", id] => {
+            root()?;
+            print(&store()?.require_password_change(&Authority::Root, id)?)
+        }
         ["virtual", "admin", "create", name, budget, request] => {
             root()?;
             let password = secret("New virtual admin web password")?;
@@ -732,6 +744,17 @@ fn run_inner(args: Vec<String>) -> Result<()> {
         ["restore", directory] => {
             root()?;
             restore(Path::new(directory))
+        }
+        ["install", "--bundle", directory, "--pool-size", pool, "--admin-own-quota", own] => {
+            root()?;
+            let pool = bytes(pool)?;
+            let own = bytes(own)?;
+            if own == 0 || own > pool {
+                return Err("Admin own quota must fit the pool".into());
+            }
+            install(Path::new(directory), false)?;
+            storage::init_pool(pool)?;
+            bootstrap::admin(pool, own)
         }
         ["install", "--bundle", directory] | ["update", "--bundle", directory] => {
             root()?;
@@ -946,9 +969,15 @@ fn running() -> Result<bool> {
         let Ok(args) = std::fs::read(entry.path().join("cmdline")) else {
             continue;
         };
-        if args.split(|byte| *byte == 0).next()
-            == Some(b"/home/tealdrive/bin/tealdrive-server".as_slice())
-        {
+        let command = args.split(|byte| *byte == 0).next().unwrap_or_default();
+        let named = std::str::from_utf8(command)
+            .ok()
+            .and_then(|p| Path::new(p).file_name())
+            .is_some_and(|n| n == "tealdrive-server");
+        let executable = std::fs::read_link(entry.path().join("exe"))
+            .ok()
+            .is_some_and(|p| p.file_name().is_some_and(|n| n == "tealdrive-server"));
+        if named || executable {
             return Ok(true);
         }
     }
@@ -1228,7 +1257,7 @@ fn install(bundle: &Path, update: bool) -> Result<()> {
     }
     install_path_links()?;
     command("/usr/bin/systemctl", &["daemon-reload"])?;
-    println!("Lifecycle timer is installed but not enabled automatically; enable after diagnose and recovery checks.\nInstalled {}. Server not auto-started. Default bind is loopback HTTP only. Configure TLS/proxy+origin before public exposure. Assign first admin with account approve then account admin. Configuration and user data were preserved.",manifest.version);
+    println!("Lifecycle timer is installed but not enabled automatically; enable after diagnose and recovery checks.\nInstalled {}. Server not auto-started. Default bind is loopback HTTP only. Configure TLS/proxy+origin before public exposure. Initialize virtual storage, then bootstrap admin <delegated-budget> <own-quota> for a random-password virtual administrator; legacy Linux approve/admin remains explicit. Configuration and user data were preserved.",manifest.version);
     Ok(())
 }
 fn repair() -> Result<()> {

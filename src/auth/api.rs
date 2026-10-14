@@ -38,6 +38,8 @@ pub struct RootSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginResponse {
+    #[serde(default)]
+    pub password_change_required: bool,
     pub username: String,
     pub uid: u32,
     pub gid: u32,
@@ -47,6 +49,8 @@ pub struct LoginResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionResponse {
+    #[serde(default)]
+    pub password_change_required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -243,6 +247,7 @@ where
                             groups: vec![],
                         },
                         Some(grant),
+                        account.password_change_required,
                     ))),
                     Ok(AccountReply::Enrollment(proof)) => Ok(Err(proof)),
                     Err(GatewayFailure::RateLimited) => Err(AuthError::RateLimited),
@@ -254,12 +259,12 @@ where
             } else {
                 authenticator
                     .authenticate(&auth_req)
-                    .map(|success| Ok((success, None)))
+                    .map(|success| Ok((success, None, false)))
             }
         })
     })
     .await;
-    let (auth_success, auth_grant) =
+    let (auth_success, auth_grant, password_change_required) =
         match auth_result.unwrap_or(Err(AuthError::AuthBackendUnavailable)) {
             Ok(Ok(success)) => success,
             Ok(Err(proof)) => {
@@ -429,11 +434,12 @@ where
         .allowed_roots()
         .iter()
         .filter(|root| {
-            !web_mode
-                || auth_success
-                    .home_dir
-                    .as_ref()
-                    .is_some_and(|home| &root.base_path == home)
+            !password_change_required
+                && (!web_mode
+                    || auth_success
+                        .home_dir
+                        .as_ref()
+                        .is_some_and(|home| &root.base_path == home))
         })
         .map(|r| RootSummary {
             root_id: r.root_id.0.clone(),
@@ -447,6 +453,7 @@ where
         .collect();
 
     let response_body = LoginResponse {
+        password_change_required,
         username: auth_success.username,
         uid: auth_success.uid,
         gid: auth_success.primary_gid,
@@ -543,6 +550,7 @@ where
                     account_generation: None,
                     account_kind: None,
                     role: None,
+                    password_change_required: false,
                     authenticated: false,
                     is_admin: false,
                     username: None,
@@ -588,16 +596,18 @@ where
             };
             let is_admin = cfg.account_policy.is_admin(&session.username)
                 && account.as_ref().is_none_or(|account| {
-                    account.role == crate::accounts::store::Role::Admin && account.global_admin
+                    account.role == crate::accounts::store::Role::Admin
+                        && account.global_admin
+                        && !account.password_change_required
                 });
             let csrf_token = session.csrf_token.clone();
             let roots = cfg
                 .allowed_roots()
                 .iter()
                 .filter(|root| {
-                    account
-                        .as_ref()
-                        .is_none_or(|account| root.base_path == account.home)
+                    account.as_ref().is_none_or(|account| {
+                        !account.password_change_required && root.base_path == account.home
+                    })
                 })
                 .map(|r| RootSummary {
                     root_id: r.root_id.0.clone(),
@@ -627,6 +637,9 @@ where
                     account_generation: account.as_ref().map(|account| account.generation),
                     account_kind: account.as_ref().map(|account| account.kind),
                     role: account.as_ref().map(|account| account.role),
+                    password_change_required: account
+                        .as_ref()
+                        .is_some_and(|a| a.password_change_required),
                     authenticated: true,
                     is_admin,
                     username: Some(session.username),
@@ -649,6 +662,7 @@ where
                     account_generation: None,
                     account_kind: None,
                     role: None,
+                    password_change_required: false,
                     authenticated: false,
                     is_admin: false,
                     username: None,

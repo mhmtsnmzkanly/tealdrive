@@ -18,9 +18,32 @@ const fs=require('node:fs');
   });
   await page.goto('https://tealdrive-origin.local:13106');
   await page.fill('#usernameInput',process.env.TEALDRIVE_TEST_USERNAME);
-  await page.fill('#passwordInput',fs.readFileSync(process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE,'utf8').trim());
+  await page.fill('#passwordInput',fs.readFileSync(process.env.TEALDRIVE_CORE_BOOTSTRAP==='1'?process.env.TEALDRIVE_BOOTSTRAP_PASSWORD_FILE:process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE,'utf8').trim());
   await page.click('#loginForm button[type=submit]');
   await page.waitForSelector('#loginModal.hidden',{state:'attached'});
+  if(process.env.TEALDRIVE_CORE_BOOTSTRAP==='1'){
+   await page.waitForSelector('#accountSecurityModal:not(.hidden)');
+   const restricted=await page.evaluate(async()=>{
+    const session=await(await fetch('/api/session')).json();
+    const status=(await fetch('/api/admin/config')).status;
+    const {createClient}=await import('/sdk/v1/tealdrive.js');const client=createClient();await client.handshake();
+    let denied=false;try{await client.files.list({rootId:'home',path:'/'});}catch(error){denied=error.code==='PASSWORD_CHANGE_REQUIRED';}
+    // A custom/hostile client that removes the presentation flag still hits server enforcement.
+    client._session.passwordChangeRequired=false;client._session.roots=[{rootId:'home'}];
+    let serverDenied=false;try{await client.files.list({rootId:'home',path:'/'});}catch(error){serverDenied=error.code==='PERMISSION_DENIED';}
+    client.disconnect();return {restricted:session.password_change_required,noRoots:session.roots.length===0,adminDisabled:!session.is_admin,status,denied,serverDenied};
+   });
+   if(!restricted.restricted||!restricted.noRoots||!restricted.adminDisabled||restricted.status!==403||!restricted.denied||!restricted.serverDenied)throw Error('First-login restriction bypassed');
+   await page.fill('#accountCurrentPassword',fs.readFileSync(process.env.TEALDRIVE_BOOTSTRAP_PASSWORD_FILE,'utf8').trim());
+   const replacement=fs.readFileSync(process.env.TEALDRIVE_TEST_WEB_PASSWORD_FILE,'utf8').trim();
+   await page.fill('#accountNewPassword',replacement);await page.fill('#accountConfirmPassword',replacement);
+   await page.click('#accountPasswordForm button[type=submit]');
+   await page.waitForSelector('#loginModal:not(.hidden)');
+   await page.fill('#usernameInput',process.env.TEALDRIVE_TEST_USERNAME);await page.fill('#passwordInput',replacement);
+   await page.click('#loginForm button[type=submit]');await page.waitForSelector('#loginModal.hidden',{state:'attached'});
+   console.log('core-step: random bootstrap, restricted UI/SDK/server, first password change and re-login passed');
+  }
+
   if(process.env.TEALDRIVE_EXPECT_GLOBAL==='True'){
    if(await page.locator('#settingsBtn').isDisabled())throw Error('Virtual global settings disabled');
    const statuses=await page.evaluate(async()=>[(await fetch('/api/admin/config')).status,(await fetch('/api/admin/accounts/system')).status]);

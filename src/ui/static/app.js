@@ -778,7 +778,20 @@
     getAuthClient().catch(()=>{});
   }
 
+  let passwordChangeRequired=false;
   function onSessionActive() {
+    passwordChangeRequired=Boolean(state.session.password_change_required);
+    if(passwordChangeRequired){
+      el.loginModal.classList.add('hidden');el.userInfo.classList.remove('hidden');el.settingsBtn.disabled=true;
+      el.userBadge.textContent=state.session.username;
+      document.getElementById('accountSecurityCloseBtn').classList.add('hidden');
+      document.getElementById('accountRevokeBtn').classList.add('hidden');
+      document.getElementById('accountSecurityError').textContent=t('Change your temporary password before using files or administration.');
+      document.getElementById('accountSecurityModal').classList.remove('hidden');
+      document.getElementById('accountCurrentPassword').focus();
+      return;
+    }
+    document.getElementById('accountSecurityCloseBtn').classList.remove('hidden');
     const uiAccount=state.session.account_id??String(state.session.uid);
     if(document.documentElement)document.documentElement.dataset.uiAccount=uiAccount;
     window.TealDriveI18n?.bindAccount(uiAccount).catch(()=>{});
@@ -867,6 +880,7 @@
     finally { button.disabled=false; }
   };
   function closeAccountSecurity() {
+    if(passwordChangeRequired)return;
     for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
     document.getElementById('accountSecurityModal').classList.add('hidden');
   }
@@ -888,7 +902,7 @@
     for (const id of ['accountCurrentPassword','accountNewPassword','accountConfirmPassword']) document.getElementById(id).value='';
     if(newPassword!==confirmed){document.getElementById('accountSecurityError').textContent=t('Passwords do not match.');return;}
     const button=event.submitter; if(button)button.disabled=true;
-    try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.changePassword({currentPassword,newPassword}); closeAccountSecurity(); location.reload(); }
+    try { const client=await getAuthClient(); await client.auth.getSession(); await client.auth.changePassword({currentPassword,newPassword}); passwordChangeRequired=false;closeAccountSecurity(); location.reload(); }
     catch(error){document.getElementById('accountSecurityError').textContent=error.message;}
     finally{if(button)button.disabled=false;}
   };

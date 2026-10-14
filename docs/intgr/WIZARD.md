@@ -150,3 +150,20 @@ Komut yalnız aktif sanal RoleAdmin kabul eder. Kullanım altına küçültme, f
 ### Backend TLS yenileme
 
 `tls prepare NAME`, `tls activate NAME [--caddy /etc/caddy/Caddyfile]`, `tls renew NAME --caddy PATH`, `tls auto NAME --caddy PATH` Root komutlarıdır. Prepare çifti yayınlamaz; activate proxy çift güven hazırlandıktan sonra yayınlar. Renew30gün eşiği kullanır, auto günlük systemd kontrolünü kurar. Ayrıntılar ve generic proxy akışı: [TRANSPORT_SECURITY.md](TRANSPORT_SECURITY.md). Bu komutlar genel panel adminine açık değildir.
+
+
+### İlk sanal panel admini
+
+```sh
+# Fresh install: pool native imajı + ilk admin tek çağrıda hazırlanır.
+tealdrive-wizard install --bundle ./release --pool-size 30GiB --admin-own-quota 1GiB
+# Veya temel install sonrası, server kapalıyken ayrı adımlar:
+tealdrive-wizard storage init --pool-size 30GiB
+tealdrive-wizard bootstrap admin 30GiB 1GiB
+# Root-only credential file; değer stdout/journal/argv'ye otomatik yazılmaz.
+sudo jq -r '.password' /home/tealdrive/auth/bootstrap.json
+```
+
+Panel adı`tealdrive`, generated NSS hesabı`tdv_UID`; Linux servis hesabı nologin/locked kalır. Rastgele web parolası ilk girişte değişmelidir. Root-only bootstrap state0600 retry/idempotency için korunur; tekrar bootstrap completed hesabın parolasını sıfırlamaz. İlk parola değiştikten sonra dosyadaki başlangıç parolası geçersizdir; Root bu credential dosyasını kaldırabilir. Mevcut global admin varsa fresh bootstrap reddedilir; mevcut kurulum için açık migration/provisioning kullanılır. Kurulum Root TLS/origin politikasını ayrıca seçer; loopback HTTP default public exposure için kullanılmaz.
+
+`account require-password-change ID` Root-only komutu var olan bir hesabı kısıtlı parola değişim oturumuna geçirir; generation yenilenir. Limited session yalnız session/cookie/logout/parola değişimi için geçerlidir; normal helper grant ve FS/yönetim işlemleri reddedilir. Aynı geçici parola yeni parola olarak seçilemez.

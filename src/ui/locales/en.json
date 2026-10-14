@@ -315,5 +315,6 @@
   "Storage is full or the account quota has been reached.": "Storage is full or the account quota has been reached.",
   "Finalizing upload...": "Finalizing upload...",
   "Connection interrupted. Resuming upload...": "Connection interrupted. Resuming upload...",
-  "The selected file does not match the interrupted upload.": "The selected file does not match the interrupted upload."
+  "The selected file does not match the interrupted upload.": "The selected file does not match the interrupted upload.",
+  "Change your temporary password before using files or administration.": "Change your temporary password before using files or administration."
 }

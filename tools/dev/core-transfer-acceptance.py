@@ -25,31 +25,44 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         run(['/usr/sbin/mke2fs','-q','-t','ext4','-F','-O','quota','-E','quotatype=usrquota',str(image)])
         run(['/usr/bin/mount','-o','loop,nodev,nosuid,noexec,usrquota',str(image),'/home/tealdrive/virtual-homes'])
         os.chmod('/home/tealdrive/virtual-homes',0o711)
+        # Fresh virtual fixture metadata only; the production DB is a private clone.
+        db=sqlite3.connect('/home/tealdrive/auth/accounts.db')
+        db.executescript("DELETE FROM session_grants; DELETE FROM admin_budgets; DELETE FROM accounts; DELETE FROM enrollment; DELETE FROM security_state WHERE key!='dummy_password_hash';")
+        db.commit();db.close()
         run(['/home/tealdrive/bin/tealdrive-wizard','pool','set','64MiB'])
-        # Root TTY password input with verified echo disabled; no argv/env secret.
-        import pty, select, termios, uuid
-        pid,terminal=pty.fork()
-        if pid==0:
-            os.execv('/home/tealdrive/bin/tealdrive-wizard',['tealdrive-wizard','virtual','admin','create','tealdrive','64MiB',str(uuid.uuid4())])
-        output=b'';sent=0;deadline=time.monotonic()+30
-        try:
-            while time.monotonic()<deadline:
-                ready,_,_=select.select([terminal],[],[],.2)
-                if ready:
-                    try:data=os.read(terminal,65536)
-                    except OSError:break
-                    if not data:break
-                    output+=data
-                prompt=b'New virtual admin web password: ' if sent==0 else b'Confirm web password: '
-                if sent<2 and prompt in output:
-                    if termios.tcgetattr(terminal)[3]&termios.ECHO:raise RuntimeError('Secret prompt has echo enabled')
-                    os.write(terminal,(base/'password').read_bytes().strip()+b'\n');sent+=1
-            _,status=os.waitpid(pid,0)
-            if os.waitstatus_to_exitcode(status)!=0 or sent!=2:raise RuntimeError('Virtual admin provisioning failed')
-        finally:os.close(terminal)
-        account=json.loads(output[output.index(b'{'):].decode())
-        run(['/home/tealdrive/bin/tealdrive-wizard','budget','own','set',account['id'],'32MiB'])
-        run(['/home/tealdrive/bin/tealdrive-wizard','account','scope',account['id'],'global'])
+        if os.environ.get('TEALDRIVE_CORE_BOOTSTRAP')=='1':
+            result=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','bootstrap','admin','64MiB','32MiB']))
+            state=json.loads(Path(result['credentialFile']).read_text())
+            (base/'bootstrap-password').write_text(state['password']);(base/'bootstrap-password').chmod(0o600)
+            account=result['account']
+            if not account['password_change_required'] or not account['global_admin'] or account['kind']!='virtual':raise RuntimeError('Bootstrap account scope/restriction incorrect')
+            repeated=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','bootstrap','admin','64MiB','32MiB']))
+            if repeated['account']['id']!=account['id'] or not repeated['existing']:raise RuntimeError('Bootstrap was not idempotent')
+        else:
+            # Root TTY password input with verified echo disabled; no argv/env secret.
+            import pty, select, termios, uuid
+            pid,terminal=pty.fork()
+            if pid==0:
+                os.execv('/home/tealdrive/bin/tealdrive-wizard',['tealdrive-wizard','virtual','admin','create','tealdrive','64MiB',str(uuid.uuid4())])
+            output=b'';sent=0;deadline=time.monotonic()+30
+            try:
+                while time.monotonic()<deadline:
+                    ready,_,_=select.select([terminal],[],[],.2)
+                    if ready:
+                        try:data=os.read(terminal,65536)
+                        except OSError:break
+                        if not data:break
+                        output+=data
+                    prompt=b'New virtual admin web password: ' if sent==0 else b'Confirm web password: '
+                    if sent<2 and prompt in output:
+                        if termios.tcgetattr(terminal)[3]&termios.ECHO:raise RuntimeError('Secret prompt has echo enabled')
+                        os.write(terminal,(base/'password').read_bytes().strip()+b'\n');sent+=1
+                _,status=os.waitpid(pid,0)
+                if os.waitstatus_to_exitcode(status)!=0 or sent!=2:raise RuntimeError('Virtual admin provisioning failed')
+            finally:os.close(terminal)
+            account=json.loads(output[output.index(b'{'):].decode())
+            run(['/home/tealdrive/bin/tealdrive-wizard','budget','own','set',account['id'],'32MiB'])
+            run(['/home/tealdrive/bin/tealdrive-wizard','account','scope',account['id'],'global'])
         (base/'panel-account-id').write_text(account['id'])
         manifest['username']='tealdrive'
         manifest['expectGlobal']=True
@@ -67,7 +80,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 with socket.create_connection(('127.0.0.1',13106),timeout=.2):break
             except OSError:time.sleep(.1)
         else:raise RuntimeError('Candidate listener not ready')
-        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id'),'TEALDRIVE_CHANNEL_KEY_FILE':str(base/'channel-public-key')}
+        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id'),'TEALDRIVE_CHANNEL_KEY_FILE':str(base/'channel-public-key'),'TEALDRIVE_BOOTSTRAP_PASSWORD_FILE':str(base/'bootstrap-password')}
         subprocess.run(['node',str(ROOT/'tests/live/core-transfer.cjs')],env=childenv,check=True)
         if os.environ.get('TEALDRIVE_CORE_TLS_RENEWAL')=='1':
             caddy_dir=base/'caddy';caddy_dir.mkdir(mode=0o700)

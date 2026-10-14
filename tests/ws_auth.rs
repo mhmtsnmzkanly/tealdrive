@@ -232,6 +232,7 @@ impl tealdrive::auth::Authenticator for GatewayFixture {
             kind: AccountKind::Linux,
             role: Role::User,
             global_admin: false,
+            password_change_required: false,
             owner_admin_id: None,
             status: AccountStatus::Active,
             login_enabled: true,

@@ -176,6 +176,18 @@ impl AccountStore {
         caller: &CallerBinding,
         at: u64,
     ) -> Result<Account, StoreError> {
+        let account = self.verify_restricted_grant(grant, caller, at)?;
+        if account.password_change_required {
+            return Err(StoreError::Forbidden);
+        }
+        Ok(account)
+    }
+    pub fn verify_restricted_grant(
+        &self,
+        grant: &SessionGrant,
+        caller: &CallerBinding,
+        at: u64,
+    ) -> Result<Account, StoreError> {
         if &grant.caller != caller || grant.expires_at <= at {
             return Err(StoreError::Forbidden);
         }
@@ -192,7 +204,7 @@ impl AccountStore {
         caller: &CallerBinding,
         at: u64,
     ) -> Result<(), StoreError> {
-        self.verify_grant(grant, caller, at)?;
+        self.verify_restricted_grant(grant, caller, at)?;
         self.connection.execute(
             "UPDATE session_grants SET revoked=1 WHERE nonce=?1",
             [&grant.nonce],
@@ -366,6 +378,59 @@ mod tests {
                 },
             )
             .unwrap()
+    }
+    #[test]
+    fn first_password_change_grant_cannot_authorize_operations_and_rotates_on_change() {
+        let mut store = AccountStore::memory();
+        let account = user(&mut store);
+        let account = store
+            .set_password(&Authority::Root, &account.id, "initial-bootstrap-password")
+            .unwrap();
+        let binding = caller();
+        let old = store
+            .issue_grant(&account.id, account.generation, binding.clone(), 1000, 300)
+            .unwrap();
+        let account = store
+            .require_password_change(&Authority::Root, &account.id)
+            .unwrap();
+        assert!(store.verify_restricted_grant(&old, &binding, 1001).is_err());
+        let restricted = store
+            .issue_grant(&account.id, account.generation, binding.clone(), 1000, 300)
+            .unwrap();
+        assert!(
+            store
+                .verify_restricted_grant(&restricted, &binding, 1001)
+                .unwrap()
+                .password_change_required
+        );
+        assert!(matches!(
+            store.verify_grant(&restricted, &binding, 1001),
+            Err(StoreError::Forbidden)
+        ));
+        assert!(store
+            .set_password(&Authority::Root, &account.id, "initial-bootstrap-password")
+            .is_err());
+        let changed = store
+            .set_password(
+                &Authority::Root,
+                &account.id,
+                "replacement-private-password",
+            )
+            .unwrap();
+        assert!(!changed.password_change_required);
+        assert!(store
+            .verify_restricted_grant(&restricted, &binding, 1001)
+            .is_err());
+        assert!(store
+            .verify_password("alice", "initial-bootstrap-password")
+            .is_err());
+        assert_eq!(
+            store
+                .verify_password("alice", "replacement-private-password")
+                .unwrap()
+                .id,
+            account.id
+        );
     }
     #[test]
     fn logout_only_revokes_one_nonce_and_suspend_invalidates_all() {

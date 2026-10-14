@@ -1108,6 +1108,17 @@ where
                     }
                 };
 
+                if account.as_ref().is_some_and(|a| a.password_change_required)
+                    && frame.header.message_type.is_operation()
+                {
+                    let response = operation_failed_response(
+                        frame.header.request_id,
+                        frame.header.message_type,
+                        &TealDriveError::PermissionDenied,
+                    )?;
+                    send_frame(&mut sender, &shutdown, &response).await?;
+                    continue;
+                }
                 let request_id = frame.header.request_id;
                 if account.as_ref().is_some_and(|account| {
                     account.kind == crate::accounts::store::AccountKind::Virtual

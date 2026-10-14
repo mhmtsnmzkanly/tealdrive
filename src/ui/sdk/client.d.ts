@@ -79,6 +79,7 @@ export interface Session {
   accountKind?: "linux" | "virtual";
   role?: "user" | "admin";
   authenticated: true;
+  passwordChangeRequired?: boolean;
   isAdmin: boolean;
   username: string;
   uid: number;
@@ -254,6 +255,8 @@ export interface AccountMetadata {
   loginEnabled: boolean;
   generation: number;
   passwordEnrolled: boolean;
+  /** Restricted session must change web password before file/admin operations. */
+  passwordChangeRequired?: boolean;
   quotaBytes: number | null;
   undoHours: number | null;
   createdAt: number;

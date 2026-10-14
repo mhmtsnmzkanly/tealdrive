@@ -64,6 +64,8 @@ pub struct Account {
     pub role: Role,
     #[serde(default)]
     pub global_admin: bool,
+    #[serde(default)]
+    pub password_change_required: bool,
     pub owner_admin_id: Option<String>,
     pub status: AccountStatus,
     pub login_enabled: bool,
@@ -191,9 +193,10 @@ pub(super) fn row_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> 
         deleted_at: row_optional_u64(row, 16)?,
         deny_enrollment: row.get(17)?,
         global_admin: row.get(18)?,
+        password_change_required: row.get(19)?,
     })
 }
-pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment,(role='admin' AND coalesce((SELECT value='global' FROM security_state WHERE key='panel_scope:'||accounts.id),kind='linux'))";
+pub(super) const COLUMNS:&str="id,username,uid,gid,home,kind,role,owner_admin_id,status,login_enabled,generation,web_password_hash IS NOT NULL,quota_bytes,undo_hours,created_at,updated_at,deleted_at,deny_enrollment,(role='admin' AND coalesce((SELECT value='global' FROM security_state WHERE key='panel_scope:'||accounts.id),kind='linux')),EXISTS(SELECT 1 FROM security_state WHERE key='password_change_required:'||accounts.id)";
 fn apply_metadata_budget(connection: &Connection, budget: u64) -> Result<(), StoreError> {
     let page_size: i64 = connection.pragma_query_value(None, "page_size", |row| row.get(0))?;
     let page_size = u64::try_from(page_size).map_err(|_| StoreError::InvalidInput)?;
@@ -803,6 +806,31 @@ impl AccountStore {
         tx.commit()?;
         Ok(())
     }
+    /// Root marks an active account for a restricted first-login session.
+    pub fn require_password_change(
+        &mut self,
+        actor: &Authority,
+        id: &str,
+    ) -> Result<Account, StoreError> {
+        if !matches!(actor, Authority::Root) {
+            return Err(StoreError::Forbidden);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target = account(&tx, id)?;
+        if target.status != AccountStatus::Active {
+            return Err(StoreError::Forbidden);
+        }
+        tx.execute("INSERT INTO security_state(key,value) VALUES(?1,'1') ON CONFLICT(key) DO UPDATE SET value='1'",[format!("password_change_required:{id}")])?;
+        tx.execute(
+            "UPDATE accounts SET generation=generation+1,updated_at=?1 WHERE id=?2",
+            params![number(now())?, id],
+        )?;
+        let result = account(&tx, id)?;
+        tx.commit()?;
+        Ok(result)
+    }
     pub fn set_password(
         &mut self,
         actor: &Authority,
@@ -822,6 +850,20 @@ impl AccountStore {
         if target.status == AccountStatus::Deleted {
             return Err(StoreError::Forbidden);
         }
+        if target.password_change_required {
+            let old: zeroize::Zeroizing<String> = zeroize::Zeroizing::new(tx.query_row(
+                "SELECT web_password_hash FROM accounts WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )?);
+            if super::password::verify(password, &old)? {
+                return Err(StoreError::InvalidInput);
+            }
+        }
+        tx.execute(
+            "DELETE FROM security_state WHERE key=?1",
+            [format!("password_change_required:{id}")],
+        )?;
         tx.execute("UPDATE accounts SET web_password_hash=?1,generation=generation+1,updated_at=?2 WHERE id=?3",params![hash.as_str(),number(now())?,id])?;
         let result = account(&tx, id)?;
         tx.commit()?;

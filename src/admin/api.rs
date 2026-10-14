@@ -73,7 +73,9 @@ where
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
         || account.is_some_and(|account| {
-            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+            account.role != crate::accounts::store::Role::Admin
+                || !account.global_admin
+                || account.password_change_required
         })
     {
         return (
@@ -150,7 +152,9 @@ where
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
         || account.is_some_and(|account| {
-            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+            account.role != crate::accounts::store::Role::Admin
+                || !account.global_admin
+                || account.password_change_required
         })
     {
         return (
@@ -283,7 +287,9 @@ where
     let cfg = state.config.load();
     if !cfg.account_policy.is_admin(&session.username)
         || account.is_some_and(|account| {
-            account.role != crate::accounts::store::Role::Admin || !account.global_admin
+            account.role != crate::accounts::store::Role::Admin
+                || !account.global_admin
+                || account.password_change_required
         })
     {
         return (

@@ -625,6 +625,15 @@ pub fn run_secure_helper<R: Read, W: Write>(
                             ),
                         );
                     };
+                    if account.password_change_required {
+                        return write_helper_response(
+                            writer,
+                            &HelperResponse::permission_denied(
+                                &request,
+                                "Password change required.",
+                            ),
+                        );
+                    }
                     config = crate::policy::home::resolve(
                         &config,
                         &account,
@@ -752,6 +761,9 @@ pub fn run_secure_helper<R: Read, W: Write>(
                 else {
                     return Err(TealDriveError::PermissionDenied);
                 };
+                if account.password_change_required {
+                    return Err(TealDriveError::PermissionDenied);
+                }
                 let trusted = crate::helper::security::trusted_config()
                     .map_err(|_| TealDriveError::PermissionDenied)?;
                 let mut trusted = crate::policy::home::resolve(

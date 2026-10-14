@@ -281,3 +281,8 @@ try {
 ```
 
 `getInfo().transfers.uploadResumeSeconds` kalan transferin en fazla ne kadar tutulacağını ilan eder (Rootdefault1800s);0desteksiz/kapalıdır. `resumable:false` eski disconnect-cleanup davranışını seçer. `onTransfer` transferId,resumedBytes,expiresInSeconds döndürür. Resume aynı oturum, aynı root/path/name/size ve eşleşen prefix gerektirir; yanlış dosya `RESUME_FILE_MISMATCH` ile reddedilir ve staging abort edilir. SHA256 incremental64KiB bellekle hesaplanır. Başka oturum, TTL sonu veya serverrestart sonrası transfer geri alınamaz. Commit cevabı kaybolduysa resume token verilmez; hedefi kontrol etmeden yeniden yükleyip overwrite denenmez. BrowserStorage'a File içeriği veya parola yazılmaz; reload için aynı File tekrar seçilmelidir.
+
+
+### İlk girişte geçici parola
+
+Session metadata `passwordChangeRequired` olduğunda dosya/yönetim erişimi yoktur; roots boş ve isAdminfalse'dur. Custom UI kendi parola formunu gösterip `api.auth.changePassword({currentPassword,newPassword})` çağırır; sonra yeni parolayla yeniden login gerekir. SDK bu durumdaki diğer API'leri `PASSWORD_CHANGE_REQUIRED` ile reddeder; bu bir UI kuralı değil protected helper/server yetki sınırıdır. Yeni parola geçici paroladan farklı olmalıdır.

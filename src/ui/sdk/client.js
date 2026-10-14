@@ -703,6 +703,7 @@ export class TealDriveClient {
   ) {
     try {
       this._require(auth);
+      if(auth && this._session?.passwordChangeRequired)fail("PASSWORD_CHANGE_REQUIRED");
     } catch (error) {
       return Promise.reject(error);
     }
@@ -775,6 +776,7 @@ export class TealDriveClient {
   }
   async _http(url, method = "GET", body = {}, auth = true, detailed = false) {
     this._require(auth);
+    if(this._session?.passwordChangeRequired && !["/api/auth/password","/api/session","/api/logout"].includes(url))fail("PASSWORD_CHANGE_REQUIRED");
     if (method === "GET" && body && Object.keys(body).length) {
       const params = new URLSearchParams(
         Object.entries(body)
@@ -1419,6 +1421,7 @@ export class TealDriveClient {
   }
   _ref(options = {}) {
     this._require();
+    if(this._session?.passwordChangeRequired)fail("PASSWORD_CHANGE_REQUIRED");
     const rootId = options.rootId ?? this._state.rootId;
     if (
       typeof rootId !== "string" ||

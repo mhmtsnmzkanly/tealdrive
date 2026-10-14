@@ -453,10 +453,12 @@ where
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
-                _ = expiry_shutdown.draining() => break,
+                _ = expiry_shutdown.draining() => {crate::upload::resume::clear();break;},
                 _ = timer.tick() => {
+                    crate::upload::resume::purge(None);
                     let disallowed = expiry_store.lock().await.take_disallowed(&expiry_config.load().account_policy);
                     for session in disallowed {
+                        crate::upload::resume::purge(Some(session.session_id));
                         let mut event = AuditEvent::new(RequestId::new(), session.username, session.uid, session.gid, crate::audit::event::AuditAction::SessionRevoked, AuditStatus::Denied);
                         event.reason = Some(AuditReason::AccountNotAllowed);
                         event.session_id_hash = crate::audit::context::session_hash(session.session_id);
@@ -465,6 +467,7 @@ where
                     }
                     let expired = expiry_store.lock().await.take_expired(InMemorySessionStore::now_epoch_seconds());
                     for session in expired {
+                        crate::upload::resume::purge(Some(session.session_id));
                         let mut event = AuditEvent::session_expired(RequestId::new(), session.username, session.uid, session.gid);
                         event.session_id_hash = crate::audit::context::session_hash(session.session_id);
                         event.ip = session.ip;
@@ -919,6 +922,7 @@ struct UploadCleanup {
     sink: Arc<JsonlAuditSink>,
     shutdown: crate::shutdown::Shutdown,
     audit_context: crate::audit::context::AuditContext,
+    resume_seconds: u64,
 }
 impl std::ops::Deref for UploadCleanup {
     type Target = WsConnectionContext;
@@ -934,7 +938,15 @@ impl std::ops::DerefMut for UploadCleanup {
 impl Drop for UploadCleanup {
     fn drop(&mut self) {
         for upload in self.context.active_uploads.values() {
-            let _ = std::fs::remove_file(&upload.staging_path);
+            let retained = upload.retain_on_disconnect
+                && upload.bytes_received > 0
+                && self.resume_seconds > 0
+                && !self.shutdown.is_draining();
+            if retained {
+                crate::upload::resume::suspend(&self.context, upload.clone(), self.resume_seconds);
+            } else {
+                let _ = std::fs::remove_file(&upload.staging_path);
+            }
             let mut event = AuditEvent::new(
                 RequestId::new(),
                 &self.context.username,
@@ -944,7 +956,14 @@ impl Drop for UploadCleanup {
                 AuditStatus::Cancelled,
             );
             self.audit_context.enrich(&mut event);
-            event.phase = Some("transfer_aborted".into());
+            event.phase = Some(
+                if retained {
+                    "transfer_suspended"
+                } else {
+                    "transfer_aborted"
+                }
+                .into(),
+            );
             event.reason = Some(if self.shutdown.is_draining() {
                 AuditReason::Shutdown
             } else {
@@ -1016,6 +1035,7 @@ where
         sink: audit_sink.clone(),
         shutdown: shutdown.clone(),
         audit_context: crate::audit::context::current(),
+        resume_seconds: config.load().system_storage.upload_resume_seconds,
     };
     let initial_config = config.load_full();
     let (mut sender, mut receiver) = socket.split();
@@ -1950,6 +1970,7 @@ mod tests {
         let (upload, _) = crate::upload::transfer::upload_begin_request(
             &context.user_context(),
             crate::protocol::payload::UploadBeginRequest {
+                retain_on_disconnect: false,
                 root_id: RootId::new("home"),
                 relative_path: RelativePath::new(""),
                 filename: "incomplete.txt".into(),
@@ -1972,6 +1993,7 @@ mod tests {
                 sink,
                 shutdown: Default::default(),
                 audit_context: Default::default(),
+                resume_seconds: 0,
             };
             panic!("dispatch error");
         });

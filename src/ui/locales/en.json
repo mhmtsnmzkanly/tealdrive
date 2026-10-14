@@ -313,5 +313,7 @@
   "File exceeds the server upload limit ({limit}).": "File exceeds the server upload limit ({limit}).",
   "Upload cancelled.": "Upload cancelled.",
   "Storage is full or the account quota has been reached.": "Storage is full or the account quota has been reached.",
-  "Finalizing upload...": "Finalizing upload..."
+  "Finalizing upload...": "Finalizing upload...",
+  "Connection interrupted. Resuming upload...": "Connection interrupted. Resuming upload...",
+  "The selected file does not match the interrupted upload.": "The selected file does not match the interrupted upload."
 }

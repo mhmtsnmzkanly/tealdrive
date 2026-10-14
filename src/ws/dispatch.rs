@@ -279,6 +279,18 @@ where
         MessageType::UploadBegin => Ok(DispatchDecision::Outbound(vec![
             handle_upload_begin_frame_with_service(context, &frame, config)?,
         ])),
+        MessageType::UploadResume => {
+            let request: crate::protocol::payload::UploadResumeRequest =
+                decode_msgpack(&frame.payload)?;
+            let (upload, response) =
+                crate::upload::resume::take(context, request.transfer_id, config)?;
+            context.active_uploads.insert(upload.transfer_id, upload);
+            let header = TdrvHeader::new(MessageType::OperationStarted, frame.header.request_id, 0);
+            Ok(DispatchDecision::Outbound(vec![TdrvFrame::new(
+                header,
+                encode_msgpack(&response)?,
+            )?]))
+        }
         MessageType::UploadChunk => Ok(DispatchDecision::Outbound(vec![
             handle_upload_chunk_frame_with_service(context, &frame, config)?,
         ])),
@@ -2442,6 +2454,7 @@ mod tests {
         sha256: Option<String>,
     ) -> UploadBeginRequest {
         UploadBeginRequest {
+            retain_on_disconnect: false,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(""),
             filename: filename.to_owned(),

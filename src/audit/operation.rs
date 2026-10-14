@@ -60,7 +60,7 @@ pub fn action(message: MessageType) -> AuditAction {
         SaveTextFile => AuditAction::SaveTextFile,
         SearchFiles => AuditAction::SearchFiles,
         ListTrash => AuditAction::ListTrash,
-        UploadBegin | UploadChunk | UploadEnd | UploadAbort => AuditAction::Upload,
+        UploadBegin | UploadChunk | UploadEnd | UploadAbort | UploadResume => AuditAction::Upload,
         DownloadBegin => AuditAction::Download,
         CreateFolder => AuditAction::CreateFolder,
         RenameFile => AuditAction::Rename,

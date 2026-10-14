@@ -728,15 +728,28 @@
     el.uploadFileName.textContent = file.name;
     try {
       const client = await getAuthClient();
-      await client.files.upload({rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
+      const uploadOptions={rootId:state.currentRoot,directory:state.currentPath,file,signal:uploadController.signal,onProgress:progress=>{
         const percentage = progress.totalBytes ? Math.round(100*progress.transferredBytes/progress.totalBytes) : 100;
         el.uploadProgressBar.style.width = `${percentage}%`;
         el.uploadPercent.textContent = percentage === 100 ? t('Finalizing upload...') : `${percentage}%`;
-      }});
+      }};
+      let resumeTransferId;
+      for(let attempt=0;;attempt++){
+        try{if(resumeTransferId)await client.handshake();await client.files.upload({...uploadOptions,resumeTransferId});break;}
+        catch(error){
+          const next=error.params?.resumeTransferId ?? resumeTransferId;
+          if(attempt>=3 || !next || !["CONNECTION_CLOSED","CONNECTION_FAILED","HANDSHAKE_REQUIRED","TIMEOUT"].includes(error.code) || uploadController.signal.aborted)throw error;
+          resumeTransferId=next;
+          el.uploadPercent.textContent=t('Connection interrupted. Resuming upload...');
+          await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
+          if(uploadController.signal.aborted)throw new Error(t('Upload cancelled.'));
+        }
+      }
       showToast('Upload completed','success'); loadDirectory(state.currentPath);
     } catch (error) {
       const messages = {
         FILE_TOO_LARGE: t('File exceeds the server upload limit ({limit}).', {limit:formatBytes(authClient?.getInfo().limits.max_in_flight_upload)}),
+        RESUME_FILE_MISMATCH: t('The selected file does not match the interrupted upload.'),
         ABORTED: t('Upload cancelled.'),
         DISK_FULL: t('Storage is full or the account quota has been reached.'),
       };

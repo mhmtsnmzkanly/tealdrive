@@ -81,3 +81,6 @@ staging_min_free_bytes = 1073741824
 ```
 
 Bunlar kullanıcıya dağıtılan native havuz kotası değildir; Root ayarlarıdır. SQLite cap data pages içindir; WAL boyutu checkpoint/reader davranışına bağlıdır. Staging reservation tek server process'indeki aktif transferleri kapsar; OS-wide service UID quota değildir. Root max upload değeri staging byte bütçesini aşamaz. Production release yapılmadan bu ayarlar mevcut binary'ye verilmemeli.
+
+
+Root `[system_storage] upload_resume_seconds = 1800` bekleyen bağlantı kesintisi süresidir;0kapalı,max86400. Web overlay değiştiremez. Aynı runtime TMPDIR kullanan server prosesleri private file ledger ile aktif declared bytes, orphan actual bytes ve transfer sayısını ortak hesaplar. Farklı TMPDIR ayrı bütçe alanıdır; dağıtım runtime dizinini sabit tutmalıdır.

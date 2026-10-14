@@ -258,3 +258,26 @@ Bu alanlar additive ve eski server'larda optionaldır. `usedBytes` helper ölç�
 ### Şifreli WS transport
 
 `createClient({encryption:'required',trustedServerKeys:[PUBLIC_HEX_KEY]})` ardından `await api.handshake()` kullanılır. Bu ayarlar dosya/auth API'lerini değiştirmez. Default `auto` server greeting gerektiriyorsa Noise kurar. `getInfo().transport` negotiated WS encryption, protocol ve key trust türünü döndürür. TLS discovery ile bağımsız pin birbirinden ayrıdır; HTTP routes/native download kapsam dışında olduğundan `httpEncryptedChannel:false` gösterilir. Ayrıntılı kullanım/sınırlar: [TRANSPORT_SECURITY.md](TRANSPORT_SECURITY.md).
+
+
+### Kesintiden sonra upload
+
+```js
+const api=createClient();
+await api.handshake();
+let transfer;
+try {
+  await api.files.upload({directory:'/uploads',file,
+    onTransfer: info => { transfer=info.transferId; },
+    onProgress: info => renderProgress(info.transferredBytes,info.totalBytes)
+  });
+} catch(error) {
+  if(!error.params?.resumeTransferId) throw error;
+  await api.handshake(); // Aynı HttpOnly oturum; yeni WS ve gerekiyorsa Noise handshake.
+  await api.files.upload({directory:'/uploads',file,
+    resumeTransferId:error.params.resumeTransferId
+  });
+}
+```
+
+`getInfo().transfers.uploadResumeSeconds` kalan transferin en fazla ne kadar tutulacağını ilan eder (Rootdefault1800s);0desteksiz/kapalıdır. `resumable:false` eski disconnect-cleanup davranışını seçer. `onTransfer` transferId,resumedBytes,expiresInSeconds döndürür. Resume aynı oturum, aynı root/path/name/size ve eşleşen prefix gerektirir; yanlış dosya `RESUME_FILE_MISMATCH` ile reddedilir ve staging abort edilir. SHA256 incremental64KiB bellekle hesaplanır. Başka oturum, TTL sonu veya serverrestart sonrası transfer geri alınamaz. Commit cevabı kaybolduysa resume token verilmez; hedefi kontrol etmeden yeniden yükleyip overwrite denenmez. BrowserStorage'a File içeriği veya parola yazılmaz; reload için aynı File tekrar seçilmelidir.

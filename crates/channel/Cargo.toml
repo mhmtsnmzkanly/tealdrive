@@ -7,6 +7,7 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 [dependencies]
+sha2 = "0.10"
 snow = { version = "=0.10.0", default-features = false, features = ["default-resolver", "use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 snow = { version = "=0.10.0", default-features = false, features = ["std"] }

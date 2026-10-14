@@ -313,5 +313,7 @@
   "File exceeds the server upload limit ({limit}).": "Dosya sunucunun yükleme sınırını ({limit}) aşıyor.",
   "Upload cancelled.": "Yükleme iptal edildi.",
   "Storage is full or the account quota has been reached.": "Depolama dolu veya hesap kotasına ulaşıldı.",
-  "Finalizing upload...": "Yükleme tamamlanıyor..."
+  "Finalizing upload...": "Yükleme tamamlanıyor...",
+  "Connection interrupted. Resuming upload...": "Bağlantı kesildi. Yüklemeye devam ediliyor...",
+  "The selected file does not match the interrupted upload.": "Seçilen dosya yarım kalan yüklemeyle eşleşmiyor."
 }

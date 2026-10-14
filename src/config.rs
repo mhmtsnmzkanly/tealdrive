@@ -63,6 +63,7 @@ pub struct SystemStorageConfig {
     pub max_metadata_db_bytes: u64,
     pub max_staging_bytes: u64,
     pub max_staging_transfers: u32,
+    pub upload_resume_seconds: u64,
     pub staging_min_free_bytes: u64,
 }
 impl Default for SystemStorageConfig {
@@ -71,6 +72,7 @@ impl Default for SystemStorageConfig {
             max_metadata_db_bytes: 512 * 1024 * 1024,
             max_staging_bytes: 4 * 1024 * 1024 * 1024,
             max_staging_transfers: 128,
+            upload_resume_seconds: 1800,
             staging_min_free_bytes: 1024 * 1024 * 1024,
         }
     }
@@ -203,6 +205,7 @@ impl AppConfig {
             || self.system_storage.max_staging_bytes < self.limits.max_in_flight_upload as u64
             || self.system_storage.max_staging_bytes > 64 * 1024 * 1024 * 1024
             || self.system_storage.staging_min_free_bytes < 64 * 1024 * 1024
+            || self.system_storage.upload_resume_seconds > 86400
             || !(1..=4096).contains(&self.system_storage.max_staging_transfers)
         {
             return Err(TealDriveError::Validation);

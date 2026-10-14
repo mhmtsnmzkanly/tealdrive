@@ -11,16 +11,28 @@ export class NoiseClient {
     start(): Uint8Array;
 }
 
+export class Sha256Stream {
+    free(): void;
+    [Symbol.dispose](): void;
+    finish(): Uint8Array;
+    constructor();
+    update(bytes: Uint8Array): void;
+}
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_noiseclient_free: (a: number, b: number) => void;
+    readonly __wbg_sha256stream_free: (a: number, b: number) => void;
     readonly noiseclient_finish: (a: number, b: number, c: number) => [number, number];
     readonly noiseclient_new: (a: number, b: number) => [number, number, number];
     readonly noiseclient_open: (a: number, b: number, c: number) => [number, number, number, number];
     readonly noiseclient_seal: (a: number, b: number, c: number) => [number, number, number, number];
     readonly noiseclient_start: (a: number) => [number, number, number, number];
+    readonly sha256stream_finish: (a: number) => [number, number];
+    readonly sha256stream_new: () => number;
+    readonly sha256stream_update: (a: number, b: number, c: number) => void;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

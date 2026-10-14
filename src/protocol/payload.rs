@@ -34,6 +34,8 @@ pub struct AuthenticationCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerHelloPayload {
     #[serde(default)]
+    pub upload_resume_seconds: u64,
+    #[serde(default)]
     pub authentication: AuthenticationCapabilities,
     pub protocol_version: u8,
     pub server_name: String,
@@ -224,6 +226,8 @@ impl SaveTextFileRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UploadBeginRequest {
+    #[serde(default)]
+    pub retain_on_disconnect: bool,
     pub root_id: RootId,
     pub relative_path: RelativePath,
     pub filename: String,
@@ -247,6 +251,21 @@ pub struct UploadBeginResponse {
     pub chunk_size: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadResumeRequest {
+    pub transfer_id: TransferId,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadResumeResponse {
+    pub transfer_id: TransferId,
+    pub root_id: RootId,
+    pub relative_path: RelativePath,
+    pub filename: String,
+    pub total_size: u64,
+    pub bytes_received: u64,
+    pub chunk_size: usize,
+    pub prefix_sha256: String,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UploadEndRequest {
     pub transfer_id: TransferId,
@@ -495,6 +514,7 @@ mod tests {
     fn server_hello() -> ServerHelloPayload {
         let limits = Limits::default();
         ServerHelloPayload {
+            upload_resume_seconds: 0,
             authentication: AuthenticationCapabilities::default(),
             protocol_version: 1,
             server_name: "tealdrive".to_owned(),
@@ -787,6 +807,7 @@ mod tests {
     #[test]
     fn msgpack_upload_begin_request_roundtrip() {
         let value = UploadBeginRequest {
+            retain_on_disconnect: false,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new("uploads"),
             filename: "photo.jpg".to_owned(),
@@ -853,6 +874,7 @@ mod tests {
     #[test]
     fn upload_begin_too_large_chunk_size_rejected() {
         let request = UploadBeginRequest {
+            retain_on_disconnect: false,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new("uploads"),
             filename: "photo.jpg".to_owned(),

@@ -80,6 +80,44 @@ export class NoiseClient {
     }
 }
 if (Symbol.dispose) NoiseClient.prototype[Symbol.dispose] = NoiseClient.prototype.free;
+
+export class Sha256Stream {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        Sha256StreamFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_sha256stream_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    finish() {
+        const ptr = this.__destroy_into_raw();
+        const ret = wasm.sha256stream_finish(ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    constructor() {
+        const ret = wasm.sha256stream_new();
+        this.__wbg_ptr = ret;
+        Sha256StreamFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {Uint8Array} bytes
+     */
+    update(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.sha256stream_update(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) Sha256Stream.prototype[Symbol.dispose] = Sha256Stream.prototype.free;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -113,6 +151,9 @@ function __wbg_get_imports() {
 const NoiseClientFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_noiseclient_free(ptr, 1));
+const Sha256StreamFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_sha256stream_free(ptr, 1));
 
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();

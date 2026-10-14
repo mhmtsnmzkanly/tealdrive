@@ -19,6 +19,7 @@ pub enum HandshakeState {
 
 pub fn create_server_hello_frame(config: &AppConfig) -> Result<TdrvFrame, TealDriveError> {
     let payload = ServerHelloPayload {
+        upload_resume_seconds: config.system_storage.upload_resume_seconds,
         authentication: crate::protocol::payload::AuthenticationCapabilities {
             web_password: config.web_accounts.enabled,
             password_change: config.web_accounts.enabled,

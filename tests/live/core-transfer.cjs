@@ -54,6 +54,30 @@ const fs=require('node:fs');
    const range=await fetch(client.files.getDownloadUrl({path:'/core-large.bin'}),{headers:{Range:'bytes=1048576-1049599'}});
    if(range.status!==206||(await range.arrayBuffer()).byteLength!==1024)throw Error('Range failed');
    console.log('core-step: large upload/download/range passed');
+   let interrupted;
+   const resumeFile=new File([bytes.slice(0,2*1024*1024)],'core-resume.bin');
+   try{await client.files.upload({directory:'/',file:resumeFile,onProgress:()=>client.disconnect()});}
+   catch(error){interrupted=error.params?.resumeTransferId;}
+   if(!interrupted)throw Error('Interrupted upload did not expose resume transfer');
+   await new Promise(resolve=>setTimeout(resolve,100));await client.handshake();
+   let resumedBytes=0;
+   const resumed=await client.files.upload({directory:'/',file:resumeFile,resumeTransferId:interrupted,onTransfer:t=>{resumedBytes=t.resumedBytes;}});
+   if(resumed.bytesWritten!==resumeFile.size||resumedBytes<=0)throw Error('Resume did not preserve received bytes');
+   const resumedDownload=await client.files.download({path:'/core-resume.bin'});
+   const resumedContent=new Uint8Array(await resumedDownload.arrayBuffer());
+   if(resumedContent.length!==resumeFile.size||resumedContent.some(b=>b!==0x5a))throw Error('Resume changed file content');
+   console.log('core-step: new WS same-session resume, prefix hash and complete bytes passed');
+   let mismatchTransfer;
+   try{await client.files.upload({directory:'/',file:new File([bytes.slice(0,1048576)],'core-resume-mismatch.bin'),onProgress:()=>client.disconnect()});}
+   catch(error){mismatchTransfer=error.params?.resumeTransferId;}
+   if(!mismatchTransfer)throw Error('Mismatch fixture did not retain transfer');
+   await new Promise(resolve=>setTimeout(resolve,100));await client.handshake();
+   let mismatch=false;
+   try{await client.files.upload({directory:'/',file:new File([new Uint8Array(1048576)],'core-resume-mismatch.bin'),resumeTransferId:mismatchTransfer});}
+   catch(error){mismatch=error.code==='RESUME_FILE_MISMATCH';}
+   if(!mismatch)throw Error('Wrong file prefix accepted for resume');
+
+
    const controller=new AbortController();
    let cancelled=false;
    try{await client.files.upload({directory:'/',file:new File([bytes.slice(0,1048576)],'core-abort.bin'),signal:controller.signal,onProgress:()=>controller.abort()});}
@@ -80,7 +104,7 @@ const fs=require('node:fs');
    console.log('core-step: rejected staging checks passed');
    let listing;try{listing=await client.files.list({path:'/'});}catch(error){console.log('core-step: list failed '+error.code);throw error;}
    console.log('core-step: listed '+listing.entries?.length);
-   if(listing.entries.some(entry=>entry.name==='core-abort.bin'||entry.name.startsWith('core-bad-')))throw Error('Failed upload published a target');
+   if(listing.entries.some(entry=>entry.name==='core-abort.bin'||entry.name==='core-resume-mismatch.bin'||entry.name.startsWith('core-bad-')))throw Error('Failed upload published a target');
    if(channelKey){
     const send=client._socket.send.bind(client._socket);let captured;
     client._socket.send=bytes=>{captured=new Uint8Array(bytes).slice();send(bytes);};

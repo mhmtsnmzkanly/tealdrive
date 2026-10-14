@@ -106,6 +106,7 @@ pub struct UploadState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveUpload {
+    pub retain_on_disconnect: bool,
     _staging_reservation: std::sync::Arc<StageReservation>,
     pub transfer_id: TransferId,
     pub root_id: RootId,
@@ -169,12 +170,12 @@ impl UploadHelper for HelperProcessClient {
     }
 }
 
-pub fn upload_begin_request(
+pub(crate) fn validate_upload(
     user_context: &UserContext,
-    request: UploadBeginRequest,
+    request: &UploadBeginRequest,
     config: &AppConfig,
     policy_engine: &PolicyEngine<'_>,
-) -> Result<(ActiveUpload, UploadBeginResponse), TealDriveError> {
+) -> Result<(RelativePath, SafeFileName), TealDriveError> {
     let policy_engine = &policy_engine.for_user(&user_context.username);
     request.validate(&config.limits)?;
 
@@ -230,17 +231,26 @@ pub fn upload_begin_request(
         }
     }
 
+    if root
+        .quota_bytes
+        .is_some_and(|limit| request.total_size > limit)
+    {
+        return Err(TealDriveError::DiskFull);
+    }
+    Ok((parent_rel, filename))
+}
+pub fn upload_begin_request(
+    user_context: &UserContext,
+    request: UploadBeginRequest,
+    config: &AppConfig,
+    policy_engine: &PolicyEngine<'_>,
+) -> Result<(ActiveUpload, UploadBeginResponse), TealDriveError> {
+    let (parent_rel, filename) = validate_upload(user_context, &request, config, policy_engine)?;
     let transfer_id = TransferId::new();
     let temp_name = TempUploadName::new(&transfer_id);
     let negotiated_chunk_size = request.chunk_size.min(config.limits.max_chunk_size).max(1);
     let staging_path = std::env::temp_dir().join(temp_name.as_str());
 
-    if root
-        .quota_bytes
-        .is_some_and(|quota| request.total_size > quota)
-    {
-        return Err(TealDriveError::DiskFull);
-    }
     let permit = reserve_staging(
         STAGING_RESERVED.clone(),
         request.total_size,
@@ -275,6 +285,7 @@ pub fn upload_begin_request(
     }
 
     let active_upload = ActiveUpload {
+        retain_on_disconnect: request.retain_on_disconnect,
         _staging_reservation: permit,
         transfer_id,
         root_id: request.root_id,
@@ -573,6 +584,7 @@ mod tests {
         sha256: Option<String>,
     ) -> UploadBeginRequest {
         UploadBeginRequest {
+            retain_on_disconnect: false,
             root_id: RootId::new("home"),
             relative_path: RelativePath::new(""),
             filename: filename.to_owned(),

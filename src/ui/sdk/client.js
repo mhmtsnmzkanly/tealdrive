@@ -570,6 +570,7 @@ export class TealDriveClient {
         keyTrust: this._channel ? (this._trustedServerKeys.length ? "pinned" : "tls-discovery") : "tls",
         httpEncryptedChannel: false,
       }),
+      transfers: freeze({uploadResumeSeconds:this._hello.upload_resume_seconds ?? 0}),
       authenticated: Boolean(this._session),
     });
   }
@@ -647,7 +648,7 @@ export class TealDriveClient {
     if (
       [M.OperationStarted, M.OperationProgress].includes(type) &&
       !(
-        (pending.method === "UploadBegin" && type === M.OperationStarted) ||
+        (["UploadBegin", "UploadResume"].includes(pending.method) && type === M.OperationStarted) ||
         (pending.method === "UploadChunk" && type === M.OperationProgress)
       )
     ) {
@@ -1890,7 +1891,7 @@ export class TealDriveClient {
     return response;
   }
   async _upload(options = {}) {
-    object(options, ["rootId", "directory", "file", "signal", "onProgress"]);
+    object(options, ["rootId", "directory", "file", "signal", "onProgress", "resumable", "resumeTransferId", "onTransfer"]);
     const file = options.file;
     if (
       !file ||
@@ -1903,8 +1904,11 @@ export class TealDriveClient {
     const max = this._limits.max_in_flight_upload;
     if (file.size > max) fail("FILE_TOO_LARGE");
     let transfer = null;
+    let committing = false;
+    if (options.resumeTransferId && !(this._hello.upload_resume_seconds > 0)) fail("FEATURE_NOT_SUPPORTED");
+    const retain = options.resumable !== false && (this._hello.upload_resume_seconds ?? 0) > 0;
     try {
-      const begin = await this._request(
+      const begin = options.resumeTransferId ? await this._request("UploadResume", {transfer_id:options.resumeTransferId},options) : await this._request(
         "UploadBegin",
         {
           ...ref,
@@ -1912,13 +1916,28 @@ export class TealDriveClient {
           total_size: file.size,
           chunk_size: this._limits.max_chunk_size,
           sha256: null,
+          retain_on_disconnect: retain,
         },
         options,
       );
       transfer = begin.transfer_id;
       integer(begin.chunk_size, 1, this._limits.max_chunk_size, "chunkSize");
-      let offset = 0,
-        index = 0;
+      let offset = begin.bytes_received ?? 0;
+      integer(offset,0,file.size,"resumeOffset");
+      if (options.resumeTransferId) {
+        if (begin.total_size !== file.size || begin.filename !== file.name || begin.root_id !== ref.root_id || begin.relative_path !== ref.relative_path) fail("RESUME_FILE_MISMATCH");
+        const module = await import(new URL("./noise.js",import.meta.url));await module.default();
+        const hash = new module.Sha256Stream();
+        let digest;
+        try {
+          for(let start=0;start<offset;start+=65536){if(options.signal?.aborted)fail("ABORTED");hash.update(new Uint8Array(await file.slice(start,Math.min(start+65536,offset)).arrayBuffer()));}
+          digest = hash.finish();
+        } catch(error){hash.free();throw error;}
+        const hex=[...digest].map(b=>b.toString(16).padStart(2,"0")).join("");
+        if(hex!==begin.prefix_sha256)fail("RESUME_FILE_MISMATCH");
+      }
+      options.onTransfer?.({transferId:transfer,resumedBytes:offset,expiresInSeconds:this._hello.upload_resume_seconds ?? 0});
+      let index = Math.floor(offset / begin.chunk_size);
       while (offset < file.size) {
         if (options.signal?.aborted) fail("ABORTED");
         const chunk = new Uint8Array(
@@ -1936,6 +1955,7 @@ export class TealDriveClient {
           totalBytes: file.size,
         });
       }
+      committing = true;
       const result = await this._request(
         "UploadEnd",
         { transfer_id: transfer, total_size: file.size, sha256: null },
@@ -1943,6 +1963,9 @@ export class TealDriveClient {
       );
       return publicValue(result);
     } catch (error) {
+      if (transfer && retain && !committing && ["CONNECTION_CLOSED","CONNECTION_FAILED","HANDSHAKE_REQUIRED"].includes(error.code)) {
+        throw new TealDriveError(error.code,{cause:error,retryable:true,params:{...error.params,resumeTransferId:transfer}});
+      }
       if (transfer && this._ready)
         try {
           await this._request("UploadAbort", {

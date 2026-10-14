@@ -87,7 +87,23 @@ impl Client {
 }
 #[cfg(target_arch = "wasm32")]
 mod browser {
+    use sha2::Digest;
     use wasm_bindgen::prelude::*;
+    #[wasm_bindgen]
+    pub struct Sha256Stream(sha2::Sha256);
+    #[wasm_bindgen]
+    impl Sha256Stream {
+        #[wasm_bindgen(constructor)]
+        pub fn new() -> Self {
+            Self(sha2::Sha256::new())
+        }
+        pub fn update(&mut self, bytes: &[u8]) {
+            self.0.update(bytes);
+        }
+        pub fn finish(self) -> Vec<u8> {
+            self.0.finalize().to_vec()
+        }
+    }
     #[wasm_bindgen]
     pub struct NoiseClient(super::Client);
     fn error(_: snow::Error) -> JsValue {

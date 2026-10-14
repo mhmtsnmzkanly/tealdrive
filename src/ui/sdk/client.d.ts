@@ -124,6 +124,7 @@ export interface ClientState {
   quotaWarning: QuotaWarning;
 }
 export interface ServerInfo {
+  transfers: Readonly<{uploadResumeSeconds:number}>;
   transport: Readonly<{
     encryptedWebSocket: boolean;
     protocol: "Noise_NK_25519_ChaChaPoly_SHA256" | null;
@@ -355,6 +356,11 @@ export interface FilesAPI {
       rootId?: string;
       directory?: string;
       file: File;
+      /** Retain interrupted upload for the advertised reconnect window; default true. */
+      resumable?: boolean;
+      /** Resume this same-session transfer with a matching File; prefix hash is checked. */
+      resumeTransferId?: string;
+      onTransfer?: (transfer:{transferId:string;resumedBytes:number;expiresInSeconds:number})=>void;
       onProgress?: (progress: {
         transferredBytes: number;
         totalBytes: number;

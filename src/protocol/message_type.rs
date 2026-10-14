@@ -29,6 +29,7 @@ pub enum MessageType {
     UploadChunk = 0x0201,
     UploadEnd = 0x0202,
     UploadAbort = 0x0203,
+    UploadResume = 0x0204,
     DownloadBegin = 0x0210,
     DownloadChunk = 0x0211,
     DownloadEnd = 0x0212,
@@ -58,9 +59,9 @@ impl MessageType {
         match self {
             AuthLogin | ClientHello | ListDirectory | FileMetadataRequest | ReadTextFile
             | SaveTextFile | SearchFiles | ListTrash | UploadBegin | UploadChunk | UploadEnd
-            | UploadAbort | DownloadBegin | CreateFolder | RenameFile | MoveFile | CopyFile
-            | MoveToTrash | RestoreFromTrash | DeletePermanently | ChmodFile | CompressZip
-            | CompressTarGz | ExtractArchive => MessageTypeDirection::ClientToServer,
+            | UploadAbort | UploadResume | DownloadBegin | CreateFolder | RenameFile | MoveFile
+            | CopyFile | MoveToTrash | RestoreFromTrash | DeletePermanently | ChmodFile
+            | CompressZip | CompressTarGz | ExtractArchive => MessageTypeDirection::ClientToServer,
             AuthResult | ServerHello | ProtocolReady | ConnectionStatus | DirectoryList
             | FileMetadata | TextFileContent | SearchResults | TrashList | DownloadChunk
             | DownloadEnd | OperationStarted | OperationProgress | OperationDone
@@ -125,6 +126,7 @@ impl TryFrom<u16> for MessageType {
             0x0201 => Ok(UploadChunk),
             0x0202 => Ok(UploadEnd),
             0x0203 => Ok(UploadAbort),
+            0x0204 => Ok(UploadResume),
             0x0210 => Ok(DownloadBegin),
             0x0211 => Ok(DownloadChunk),
             0x0212 => Ok(DownloadEnd),

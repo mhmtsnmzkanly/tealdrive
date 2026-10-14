@@ -4,7 +4,7 @@
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
-## Uygulanan komutlar (13 Ekim 2026)
+## Uygulanan komutlar (14 Ekim 2026)
 
 Dört binary vardır: server, setuid helper, **setuid olmayan** wizard ve bağımsız `tealdrive-ctl`. Wizard kurulum/metadata yönetimini; ctl yalnız sabit `tealdrive.service` birimini yönetir. Caddy zorunlu değildir. Yerel başlangıç 127.0.0.1:13100 HTTP'dir; kamuya açma için proxy/TLS ve origin ayarları gerekir.
 

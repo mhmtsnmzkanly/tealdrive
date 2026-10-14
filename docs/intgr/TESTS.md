@@ -1,12 +1,12 @@
 # TealDrive TESTS geliştirme sözleşmesi
 
-> **Durum:** Hedef geliştirme; yeni komut/şemalar henüz uygulanmış değildir. Mevcut sürüm belgeleri docs kökünde, örnekleri docs/deployment altındadır.
+> **Durum:** Aşağıdaki maddeler tarihsel kabul hedeflerini de içerir; hepsi yapılmış test anlamına gelmez. Gerçekte çalıştırılan testler ve sınırlar [TEST_RESULTS.md](TEST_RESULTS.md), güncel teslim [FINAL_REPORT.md](FINAL_REPORT.md) içindedir.
 
 [Dizin](README.md) · [İş planı](PLAN.md) · [Kararlar](DECISIONS.md)
 
 ## Dokümantasyon taşıması kontrolü
 
-Deployment config testi `tests/config_examples.rs` artık docs/deployment kullanır. Yeni intgr TOML hedef şema örnekleridir; mevcut AppConfig testine verilmez. Linkler, fence ve JS/TOML/JSON/shell sözdizimi kontrol edilir. Bu iş canlı service restart veya feature dağıtımı değildir.
+Deployment config testi `tests/config_examples.rs` artık docs/deployment kullanır. Güncel tam şema CONFIGURATION.md içindedir; history altındaki eski hedef TOML örnekleri çalışan parser referansı değildir. Linkler, fence ve JS/TOML/JSON/shell sözdizimi kontrol edilir. Bu iş canlı service restart veya feature dağıtımı değildir.
 
 
 ### 16. Son kabul ve dokümantasyon — büyük ve bütünleşik
@@ -22,4 +22,4 @@ Deployment config testi `tests/config_examples.rs` artık docs/deployment kullan
 
 ## SDK gezinti/state güncellemesi
 
-2026-10-12 yeni server state, helper path doğrulaması, üç SDK alanı ve event/kalıcı bildirim sözleşmesi [STATE.md](STATE.md) altında. Bu hedef henüz uygulanmış değildir; ilgili kabul testleri orada tanımlanır.
+State, helper path doğrulaması, auth/files/admin ayrımı ve event/kalıcı bildirim davranışı uygulanmıştır. Güncel kullanım [STATE.md](STATE.md), tipler [client.d.ts](../../src/ui/sdk/client.d.ts), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md) içindedir.

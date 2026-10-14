@@ -87,7 +87,7 @@ Default UI yolu custom JS runtime hatasında da açılabilir. CSP script inline/
 
 ## SDK gezinti/state güncellemesi
 
-2026-10-12 yeni server state, helper path doğrulaması, üç SDK alanı ve event/kalıcı bildirim sözleşmesi [STATE.md](STATE.md) altında. Bu hedef henüz uygulanmış değildir; ilgili kabul testleri orada tanımlanır.
+State, helper path doğrulaması, auth/files/admin ayrımı ve event/kalıcı bildirim davranışı uygulanmıştır. Güncel kullanım [STATE.md](STATE.md), tipler [client.d.ts](../../src/ui/sdk/client.d.ts), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md) içindedir.
 
 ## Uygulandı — kaynak dosyaları
 
@@ -106,7 +106,7 @@ System grubunda uygun yerel NSS adayları kayıtlı hesaplardan ayrılır; dropd
 
 **Suspend/Enable** confirmation içerir; cancel hiçbir mutation çağırmaz. Suspend aktif web bağlantılarını keser; dosyalar/OS hesabı korunur. Yeniden açma eski cookie/grant/proof'u canlandırmaz. Loading/error sırasında stale işlem kontrolleri temizlenir; aynı modal içindeki talepler epoch ile izlenir, close sonrası eski cevap render edilmez. Busy sırasında double-submit ve tab değiştirme kapalıdır. Escape/focus return, Tab focus containment ve mobil ayrı tablo düzeni uygulanmıştır. Failed refresh503 gerçek Chromium'da verify edilmiştir (browser intercept; backend outage kabulü sayılmaz).
 
-Başlangıç file-connection göstergesi **Not connected**: gerçek ProtocolReady alınmadan connected işareti gösterilmez. Native UI testleri login modal kapanışını ve gerçek file socket'i bekler; initial HTML sınıfına dayalı false-positive kaldırılmıştır. SDK/full file-manager dönüşümü ve TR/EN henüz ayrı PLAN işidir.
+Başlangıç file-connection göstergesi **Not connected**: gerçek ProtocolReady alınmadan connected işareti gösterilmez. Native UI testleri login modal kapanışını ve gerçek file socket'i bekler; initial HTML sınıfına dayalı false-positive kaldırılmıştır. Dosya UI SDK dönüşümü ve TR/EN uygulanmıştır; güncel sonuç FINAL_REPORT.md içindedir.
 
 
 ## Dil ve kullanıcı tercihi

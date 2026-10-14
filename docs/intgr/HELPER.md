@@ -185,7 +185,7 @@ Bozuk policy fail-closed davranır. Default kullanımı açık hesap kaydıyla t
 
 ## SDK gezinti/state güncellemesi
 
-2026-10-12 yeni server state, helper path doğrulaması, üç SDK alanı ve event/kalıcı bildirim sözleşmesi [STATE.md](STATE.md) altında. Bu hedef henüz uygulanmış değildir; ilgili kabul testleri orada tanımlanır.
+State, helper path doğrulaması, auth/files/admin ayrımı ve event/kalıcı bildirim davranışı uygulanmıştır. Güncel kullanım [STATE.md](STATE.md), tipler [client.d.ts](../../src/ui/sdk/client.d.ts), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md) içindedir.
 
 ## 2026-10-12: Görünmezlik hedefinin son açıklaması
 

@@ -253,3 +253,8 @@ console.log(budget.ownQuotaBytes);
 ```
 
 Bu alanlar additive ve eski server'larda optionaldır. `usedBytes` helper ölçümüdür; ayrılan bütçe gerçek disk kullanımı değildir. Kişisel kota Root CLI ile değiştirilir, web kritik Root bütçesini yükseltemez.
+
+
+### Şifreli WS transport
+
+`createClient({encryption:'required',trustedServerKeys:[PUBLIC_HEX_KEY]})` ardından `await api.handshake()` kullanılır. Bu ayarlar dosya/auth API'lerini değiştirmez. Default `auto` server greeting gerektiriyorsa Noise kurar. `getInfo().transport` negotiated WS encryption, protocol ve key trust türünü döndürür. TLS discovery ile bağımsız pin birbirinden ayrıdır; HTTP routes/native download kapsam dışında olduğundan `httpEncryptedChannel:false` gösterilir. Ayrıntılı kullanım/sınırlar: [TRANSPORT_SECURITY.md](TRANSPORT_SECURITY.md).

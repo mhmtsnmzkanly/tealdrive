@@ -867,7 +867,12 @@ async fn user_discovery_is_admin_only_and_excludes_service_accounts() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    assert!(response
+        .headers()
+        .get_all("vary")
+        .iter()
+        .any(|value| value == "Cookie"));
     let body = json(response).await;
     for user in body["users"].as_array().unwrap() {
         assert!(user["uid"].as_u64().unwrap() >= 1000);
@@ -898,7 +903,12 @@ async fn quota_api_measures_on_helper_and_validates_warning_threshold() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    assert!(response
+        .headers()
+        .get_all("vary")
+        .iter()
+        .any(|value| value == "Cookie"));
     let usage = json(response).await;
     assert!(usage["used_bytes"].as_u64().unwrap() >= 15);
     assert_eq!(usage["source"], "helper");

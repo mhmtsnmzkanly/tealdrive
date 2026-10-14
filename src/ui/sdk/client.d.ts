@@ -124,6 +124,13 @@ export interface ClientState {
   quotaWarning: QuotaWarning;
 }
 export interface ServerInfo {
+  transport: Readonly<{
+    encryptedWebSocket: boolean;
+    protocol: "Noise_NK_25519_ChaChaPoly_SHA256" | null;
+    keyTrust: "pinned" | "tls-discovery" | "tls";
+    /** Native HTTP downloads and REST routes use TLS, outside the Noise channel. */
+    httpEncryptedChannel: false;
+  }>;
   sdkVersion: string;
   protocolVersion: number;
   limits: Readonly<Record<string, number>>;
@@ -610,6 +617,10 @@ export interface AdminAPI {
   quota: { getBudget(): Promise<AdminBudget> };
 }
 export interface ClientOptions {
+  /** auto honors required server encryption; required rejects plaintext WS. TLS remains required. */
+  encryption?: "auto" | "required" | "disabled";
+  /** Out-of-band trusted Noise public keys, 64 hex chars each. Multiple pins support rotation. */
+  trustedServerKeys?: readonly string[];
   stateMode?: "managed" | "client";
   storage?: Storage | null;
   timeoutMs?: number;

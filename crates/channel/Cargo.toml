@@ -1,0 +1,18 @@
+[package]
+name = "tealdrive-channel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+snow = { version = "=0.10.0", default-features = false, features = ["default-resolver", "use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+snow = { version = "=0.10.0", default-features = false, features = ["std"] }
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen = "=0.2.122"
+
+[dev-dependencies]
+serde_json = "1.0"

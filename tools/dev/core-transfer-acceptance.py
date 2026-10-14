@@ -54,6 +54,9 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
         manifest['username']='tealdrive'
         manifest['expectGlobal']=True
         print('PASS: private NSS virtual service-name alias and Root scope assignment')
+    if os.environ.get('TEALDRIVE_CORE_CHANNEL')=='1':
+        generated=json.loads(subprocess.check_output(['/home/tealdrive/bin/tealdrive-wizard','channel','keygen','/home/tealdrive/tls/channel.key']))
+        (base/'channel-public-key').write_text(generated['publicKey'])
     env={**os.environ,'TMPDIR':'/home/tealdrive/data/runtime/tmp'}
     log=(base/'server.log').open('wb')
     server=subprocess.Popen(['/usr/sbin/runuser','-u','tealdrive','--','/home/tealdrive/bin/tealdrive-server','--config','/home/tealdrive/policy/server.toml','--helper-bin','/home/tealdrive/bin/tealdrive-helper'],env=env,stdout=log,stderr=log,start_new_session=True)
@@ -64,7 +67,7 @@ if len(sys.argv)>1 and sys.argv[1]=='--child':
                 with socket.create_connection(('127.0.0.1',13106),timeout=.2):break
             except OSError:time.sleep(.1)
         else:raise RuntimeError('Candidate listener not ready')
-        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id')}
+        childenv={**os.environ,'NODE_PATH':str(ROOT/'tools/dev/node_modules'),'TEALDRIVE_TEST_USERNAME':manifest['username'],'TEALDRIVE_TEST_WEB_PASSWORD_FILE':str(base/'password'),'TEALDRIVE_EXPECT_GLOBAL':str(manifest.get('expectGlobal',False)),'TEALDRIVE_PANEL_ACCOUNT_ID_FILE':str(base/'panel-account-id'),'TEALDRIVE_CHANNEL_KEY_FILE':str(base/'channel-public-key')}
         subprocess.run(['node',str(ROOT/'tests/live/core-transfer.cjs')],env=childenv,check=True)
         if os.environ.get('TEALDRIVE_CORE_TLS_RENEWAL')=='1':
             caddy_dir=base/'caddy';caddy_dir.mkdir(mode=0o700)
@@ -158,6 +161,8 @@ with tempfile.TemporaryDirectory(prefix='.core-transfer-',dir='/root') as name:
     (base/'config/settings.toml').write_text('');os.chown(base/'config/settings.toml',service.pw_uid,service.pw_gid);(base/'config/settings.toml').chmod(0o600)
     for filename in ['server.toml','helper.toml']:
         path=base/'policy'/filename;body=path.read_text().replace('127.0.0.1:13100','127.0.0.1:13106').replace('https://tdrive.novastrum.dev','https://tealdrive-origin.local:13106').replace('/home/tealdrive/logs/server/audit.jsonl','/home/tealdrive/data/runtime/audit.jsonl').replace('max_in_flight_upload = 1048576','max_in_flight_upload = 1073741824')
+        if os.environ.get('TEALDRIVE_CORE_CHANNEL')=='1':
+            body=body.replace('[server]','[server]\nchannel_key_path = "/home/tealdrive/tls/channel.key"')
         path.write_text(body)
     (base/'password').write_bytes(password.read_bytes());(base/'password').chmod(0o600)
     virtual=os.environ.get('TEALDRIVE_CORE_VIRTUAL_ADMIN')=='1'

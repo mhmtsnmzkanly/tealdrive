@@ -342,3 +342,8 @@ Uyumluluk: korumalı `admin_own_quota_v1:ID` kaydı olmayan hesaplarda eski rema
 ## 14 Ekim 2026: backend TLS yenilemesi
 
 Caddy zorunlu yapılmadı. Generic Root prepare→external proxy trust/reload→activate akışı ile isteğe bağlı Caddy adaptörü ayrıldı. Sertifika özel kripto yerine OpenSSL P-256 self-signed SAN/365gün ile üretilir. Caddy adaptörü eski+yeni public güveni önce yükler; Rust listener yeni kimliği sununca ve strict hostname/trust + exact DER doğrulanınca eskisini kaldırır.30gün eşiği ile günlük Root timer kurulabilir. Private Unix Caddy admin zorunluluğu önceki UID izolasyonu kararını korur. Yenileme pending dizini transaction recovery içindir; başarıda eski/yeni private staging temizlenir. Production'da yeni release yayınlanmadan timer kurulmaz.
+
+
+## 14 Ekim 2026: standart ek WS şifrelemesi
+
+Noise NK/Curve25519/ChaChaPoly/SHA256 seçildi; shared Rust Snow0.10.0 native ve WASM arasında aynı implementasyonu kullanır. Snow formal audit iddiası yapılmaz. Root key path opt-in olup etkinleştirildiğinde WS plaintext fallback yasaktır. SDK required ve independent multi-pin listesi destekler; pin yoksa TLS-discovery açık raporlanır. HTTP/REST/cookie/download Noise kapsam dışındadır. Bu sınır endpoint compromise/MITM koruması konusunda yanlış güven oluşturmamak için SDK tiplerine ve getInfo'ya da işlendi. Message fragmentation yalnız taşıma framing'idir; kriptografik protokol yeniden icat edilmez.60000byte nonfinalfragments ve Root toplamframe sınırı vardır. TLS zorunluluğu kaldırılmaz.

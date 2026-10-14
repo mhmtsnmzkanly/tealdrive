@@ -24,7 +24,11 @@ path = "src/bin/tealdrive-wizard.rs"
 name = "tealdrive-ctl"
 path = "src/bin/tealdrive-ctl.rs"
 
+[workspace]
+members = ["crates/channel"]
+
 [dependencies]
+tealdrive-channel = { path = "crates/channel" }
 libc = "0.2"
 axum = { version = "0.7", features = ["ws"] }
 axum-server = { version = "=0.7.3", features = ["tls-rustls-no-provider"] }

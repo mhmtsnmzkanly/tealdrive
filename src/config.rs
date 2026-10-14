@@ -190,6 +190,14 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), TealDriveError> {
+        if self
+            .server
+            .channel_key_path
+            .as_ref()
+            .is_some_and(|p| !p.is_absolute() || self.server.require_tls != Some(true))
+        {
+            return Err(TealDriveError::Validation);
+        }
         if self.system_storage.max_metadata_db_bytes < 16 * 1024 * 1024
             || self.system_storage.max_metadata_db_bytes > 64 * 1024 * 1024 * 1024
             || self.system_storage.max_staging_bytes < self.limits.max_in_flight_upload as u64
@@ -407,6 +415,8 @@ pub struct ServerConfig {
     pub require_tls: Option<bool>,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
+    /// Root-owned 32-byte Noise static key. Some means required on every WS.
+    pub channel_key_path: Option<PathBuf>,
     #[serde(default)]
     pub static_dir: Option<PathBuf>,
 }
@@ -421,6 +431,7 @@ impl ServerConfig {
             && self.require_tls == other.require_tls
             && self.tls_cert_path == other.tls_cert_path
             && self.tls_key_path == other.tls_key_path
+            && self.channel_key_path == other.channel_key_path
     }
     fn validate_transport(
         &self,
@@ -433,6 +444,7 @@ impl ServerConfig {
                 .tls_cert_path
                 .iter()
                 .chain(self.tls_key_path.iter())
+                .chain(self.channel_key_path.iter())
                 .any(|path| {
                     !path.is_absolute()
                         || path
@@ -469,6 +481,7 @@ impl Default for ServerConfig {
             require_tls: None,
             tls_cert_path: None,
             tls_key_path: None,
+            channel_key_path: None,
             static_dir: None,
         }
     }

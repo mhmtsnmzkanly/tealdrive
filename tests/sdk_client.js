@@ -687,6 +687,14 @@ globalThis.crypto = webcrypto;
       (e) => e.code === "HANDSHAKE_REQUIRED",
     );
   }
+  const required=createClient({WebSocket:Socket,location,storage,fetch,encryption:"required"});
+  await assert.rejects(required.handshake(),e=>e.code==="ENCRYPTION_REQUIRED");
+  required.disconnect();
+  const pinned=createClient({WebSocket:Socket,location,storage,fetch,trustedServerKeys:["ab".repeat(32)]});
+  await assert.rejects(pinned.handshake(),e=>e.code==="ENCRYPTION_REQUIRED");
+  pinned.disconnect();
+  assert.throws(()=>createClient({encryption:"unknown"}),e=>e.code==="INVALID_ARGUMENT");
+  assert.throws(()=>createClient({trustedServerKeys:["short"]}),e=>e.code==="INVALID_ARGUMENT");
   assert.ok(TealDriveError);
 })().catch((e) => {
   if (e.stack)

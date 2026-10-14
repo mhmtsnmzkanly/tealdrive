@@ -27,9 +27,20 @@ const fs=require('node:fs');
    if(statuses.some(status=>status!==200))throw Error('Virtual global management denied');
   }
 
-  const result=await page.evaluate(async()=>{
+  const result=await page.evaluate(async({channelKey})=>{
    const {createClient}=await import('/sdk/v1/tealdrive.js');
-   const client=createClient({timeoutMs:120000});await client.handshake();
+   if(channelKey){
+    await new Promise((resolve,reject)=>{
+     const socket=new WebSocket('wss://'+location.host+'/ws/auth');const timer=setTimeout(()=>reject(Error('Plaintext client not rejected')),3000);
+     socket.onopen=()=>socket.send(new Uint8Array(64));
+     socket.onclose=()=>{clearTimeout(timer);resolve();};socket.onerror=()=>{};
+    });
+    const wrong=createClient({encryption:'required',trustedServerKeys:['00'.repeat(32)]});
+    let rejected=false;try{await wrong.handshake();}catch(error){rejected=error.code==='SERVER_KEY_MISMATCH';}finally{wrong.disconnect();}
+    if(!rejected)throw Error('Wrong server pin accepted');
+   }
+   const client=createClient({timeoutMs:120000,...(channelKey?{encryption:'required',trustedServerKeys:[channelKey]}:{})});await client.handshake();
+   if(channelKey&&(!client.getInfo().transport.encryptedWebSocket||client.getInfo().transport.keyTrust!=='pinned'))throw Error('Encrypted pinned channel unavailable');
    const bytes=new Uint8Array(17*1024*1024);bytes.fill(0x5a);
    const file=new File([bytes],'core-large.bin');
    const progress=[];
@@ -70,9 +81,26 @@ const fs=require('node:fs');
    let listing;try{listing=await client.files.list({path:'/'});}catch(error){console.log('core-step: list failed '+error.code);throw error;}
    console.log('core-step: listed '+listing.entries?.length);
    if(listing.entries.some(entry=>entry.name==='core-abort.bin'||entry.name.startsWith('core-bad-')))throw Error('Failed upload published a target');
+   if(channelKey){
+    const send=client._socket.send.bind(client._socket);let captured;
+    client._socket.send=bytes=>{captured=new Uint8Array(bytes).slice();send(bytes);};
+    await client.files.list({path:'/'});
+    client._socket.send=send;
+    const closed=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Replay did not close channel')),3000);client._socket.addEventListener('close',()=>{clearTimeout(timer);resolve();},{once:true});});
+    send(captured);await closed;
+    client.disconnect();await client.handshake();
+    client._socket.send=bytes=>{const cipher=new Uint8Array(bytes).slice();cipher[cipher.length-1]^=1;sendTampered(cipher);};
+    const sendTampered=WebSocket.prototype.send.bind(client._socket);
+    let tampered=false;try{await client.files.list({path:'/'});}catch{tampered=true;}
+    if(!tampered)throw Error('Tampered ciphertext accepted');
+    client.disconnect();await client.handshake();
+    const malformedClosed=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Malformed fragments accepted')),3000);client._socket.addEventListener('close',()=>{clearTimeout(timer);resolve();},{once:true});});
+    client._socket.send(client._channel.seal(new Uint8Array([0,1])));await malformedClosed;
+    console.log('core-step: pinned Noise, plaintext/wrong pin/replay/tamper/malformed fragment rejection passed');
+   }
    client.disconnect();
-   return {uploadBytes:upload.bytesWritten,downloadBytes:total,progressEvents:progress.length,range:true,cancelled,rejected};
-  });
+   return {encryptedChannel:Boolean(channelKey),uploadBytes:upload.bytesWritten,downloadBytes:total,progressEvents:progress.length,range:true,cancelled,rejected};
+  },{channelKey:process.env.TEALDRIVE_CORE_CHANNEL==='1'?fs.readFileSync(process.env.TEALDRIVE_CHANNEL_KEY_FILE,'utf8').trim():null});
 
   if(process.env.TEALDRIVE_EXPECT_GLOBAL==='True'){
    const {execFileSync}=require('node:child_process');

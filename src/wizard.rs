@@ -626,6 +626,22 @@ fn run_inner(args: Vec<String>) -> Result<()> {
             root()?;
             storage::init(bytes(size)?)
         }
+        ["channel", "keygen", path] => {
+            root()?;
+            let _lock = crate::accounts::virtuals::lock()?;
+            let path = Path::new(path);
+            trusted_directory(path.parent().ok_or("Invalid key path")?)?;
+            if path.symlink_metadata().is_ok() {
+                return Err("Channel key already exists; use a new path for rotation".into());
+            }
+            let pair = tealdrive_channel::builder().generate_keypair()?;
+            let key = zeroize::Zeroizing::new(pair.private);
+            atomic(path, &key, 0o640, 0, service_identity()?.primary_gid)?;
+            let public: String = pair.public.iter().map(|b| format!("{b:02x}")).collect();
+            print(
+                &serde_json::json!({"publicKey":public,"keyPath":path,"protocol":tealdrive_channel::PATTERN,"enabled":false}),
+            )
+        }
         ["tls", "prepare", name] => {
             root()?;
             tls_renewal::prepare(name)

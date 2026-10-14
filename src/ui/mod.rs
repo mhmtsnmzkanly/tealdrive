@@ -1,6 +1,29 @@
 pub mod assets;
 pub mod package;
 
+/// Versioned Noise runtime is embedded with the SDK; custom UIs cannot override it.
+pub async fn serve_noise_js() -> Response {
+    let mut response = include_str!("sdk/noise/noise.js").into_response();
+    apply_security_headers(
+        response.headers_mut(),
+        "application/javascript; charset=utf-8",
+    );
+    response
+        .headers_mut()
+        .insert("cache-control", HeaderValue::from_static("no-cache"));
+    response
+}
+pub async fn serve_noise_wasm() -> Response {
+    let mut response = include_bytes!("sdk/noise/noise_bg.wasm")
+        .as_slice()
+        .into_response();
+    apply_security_headers(response.headers_mut(), "application/wasm");
+    response
+        .headers_mut()
+        .insert("cache-control", HeaderValue::from_static("no-cache"));
+    response
+}
+
 #[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,7 +38,7 @@ use axum::response::{Html, IntoResponse, Response};
 use crate::ui::assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLE_CSS};
 use crate::ws::server::{WsHelperBackend, WsServerState};
 
-const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'none';";
+const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; connect-src 'self'; worker-src 'none';";
 
 fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));

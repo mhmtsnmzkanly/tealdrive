@@ -172,7 +172,17 @@ export class TealDriveClient {
       "wire",
       "contract",
       "quotaPollMs",
+      "encryption",
+      "trustedServerKeys",
     ]);
+    this._encryptionMode = options.encryption ?? "auto";
+    if (!["auto", "required", "disabled"].includes(this._encryptionMode)) fail("INVALID_ARGUMENT");
+    this._trustedServerKeys = options.trustedServerKeys ?? [];
+    if (!Array.isArray(this._trustedServerKeys) || this._trustedServerKeys.some(key => typeof key !== "string" || !/^[a-f0-9]{64}$/i.test(key))) fail("INVALID_ARGUMENT");
+    this._channel = null;
+    this._channelPending = false;
+    this._channelPartial = [];
+    this._channelPartialBytes = 0;
     this._mode = options.stateMode ?? "managed";
     if (!["managed", "client"].includes(this._mode)) fail("INVALID_ARGUMENT");
     this._timeout = integer(
@@ -186,6 +196,8 @@ export class TealDriveClient {
       0,
       3600000,
       "quotaPollMs",
+      "encryption",
+      "trustedServerKeys",
     );
     this._quotaTimer = null;
     this._threshold = integer(
@@ -430,6 +442,12 @@ export class TealDriveClient {
     );
     socket.binaryType = "arraybuffer";
     this._socket = socket;
+    this._channel?.free();
+    this._channel = null;
+    this._channelPending = false;
+    this._channelPartial = [];
+    this._channelPartialBytes = 0;
+    let receiveQueue = Promise.resolve();
     this._handshakePromise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         socket.close();
@@ -446,17 +464,52 @@ export class TealDriveClient {
         },
       };
       socket.onmessage = (event) => {
-        if (this._socket !== socket) return;
-        try {
-          this._receive(this._wire.decodeFrame(event.data));
-        } catch (error) {
-          const failure = new TealDriveError("PROTOCOL_ERROR", {
-            cause: error,
-          });
+        receiveQueue = receiveQueue.then(async () => {
+          if (this._socket !== socket) return;
+          const bytes = new Uint8Array(event.data);
+          if (!this._channel && bytes.length === 36 && bytes[0] === 84 && bytes[1] === 68 && bytes[2] === 78 && bytes[3] === 49) {
+            if (this._encryptionMode === "disabled" || protocol !== "https:") fail("ENCRYPTION_REQUIRED");
+            const key = bytes.slice(4);
+            const hex = [...key].map(b => b.toString(16).padStart(2, "0")).join("");
+            if (this._trustedServerKeys.length && !this._trustedServerKeys.some(pin => pin.toLowerCase() === hex)) fail("SERVER_KEY_MISMATCH");
+            const module = await import(new URL("./noise.js", import.meta.url));
+            await module.default();
+            if (this._socket !== socket) return;
+            this._channel = new module.NoiseClient(key);
+            this._channelPending = true;
+            socket.send(this._channel.start());
+            return;
+          }
+          if (this._channelPending) {
+            this._channel.finish(bytes);
+            this._channelPending = false;
+            return;
+          }
+          if (this._channel) {
+            if (bytes.length > 65535) fail("ENCRYPTED_CHANNEL_FAILED");
+            const plain = this._channel.open(bytes);
+            if (plain.length < 2 || plain.length > 60001 || (plain[0] === 0 && plain.length !== 60001) || plain[0] > 1) fail("ENCRYPTED_CHANNEL_FAILED");
+            this._channelPartialBytes += plain.length - 1;
+            const maximum = (this._hello?.max_frame_size ?? 1048576) + 256;
+            if (this._channelPartialBytes > maximum) fail("ENCRYPTED_CHANNEL_FAILED");
+            this._channelPartial.push(plain.slice(1));
+            if (plain[0] === 0) return;
+            const frame = new Uint8Array(this._channelPartialBytes);
+            let offset = 0;
+            for (const fragment of this._channelPartial) {frame.set(fragment, offset); offset += fragment.length;}
+            this._channelPartial = []; this._channelPartialBytes = 0;
+            this._receive(this._wire.decodeFrame(frame));
+          } else {
+            if (this._encryptionMode === "required" || this._trustedServerKeys.length) fail("ENCRYPTION_REQUIRED");
+            this._receive(this._wire.decodeFrame(event.data));
+          }
+        }).catch((error) => {
+          if (this._socket !== socket) return;
+          const failure = error instanceof TealDriveError ? error : new TealDriveError(this._channel || this._channelPending ? "ENCRYPTED_CHANNEL_FAILED" : "PROTOCOL_ERROR", {cause:error});
           this._handshake?.reject(failure);
           this._rejectAll(failure);
           socket.close();
-        }
+        });
       };
       socket.onclose = (event) => {
         if (this._socket !== socket) return;
@@ -469,6 +522,8 @@ export class TealDriveClient {
           this._emit("server.shutdown", { deadlineSeconds: 0 });
         }
         this._ready = false;
+        this._channel?.free(); this._channel = null;
+        this._channelPartial = []; this._channelPartialBytes = 0;
         this._handshakePromise = null;
         this._stopQuotaPolling();
         const error = new TealDriveError(
@@ -509,6 +564,12 @@ export class TealDriveClient {
         self_registration: false,
         ...this._hello.authentication,
       }),
+      transport: freeze({
+        encryptedWebSocket: Boolean(this._channel),
+        protocol: this._channel ? "Noise_NK_25519_ChaChaPoly_SHA256" : null,
+        keyTrust: this._channel ? (this._trustedServerKeys.length ? "pinned" : "tls-discovery") : "tls",
+        httpEncryptedChannel: false,
+      }),
       authenticated: Boolean(this._session),
     });
   }
@@ -521,7 +582,21 @@ export class TealDriveClient {
     this._handshake?.reject(new TealDriveError("CONNECTION_CLOSED"));
     this._socket?.close();
     this._socket = null;
+    this._channel?.free(); this._channel = null;
+    this._channelPartial = []; this._channelPartialBytes = 0;
     this._update({ connection: "disconnected", stale: true });
+  }
+  _sendBytes(data) {
+    if (!this._channel) {this._socket.send(data); return;}
+    const bytes = new Uint8Array(data);
+    for (let offset=0; offset<bytes.length; offset+=60000) {
+      const chunk = bytes.subarray(offset, Math.min(offset+60000,bytes.length));
+      const plain = new Uint8Array(chunk.length+1);
+      plain[0] = offset+chunk.length === bytes.length ? 1 : 0;
+      plain.set(chunk,1);
+      this._socket.send(this._channel.seal(plain));
+      plain.fill(0);
+    }
   }
   _receive(frame) {
     const M = this._contract.messages;
@@ -529,7 +604,7 @@ export class TealDriveClient {
     if (type === M.ServerHello) {
       this._hello = p;
       this._update({ connection: "negotiating" });
-      this._socket.send(
+      this._sendBytes(
         this._wire.encodeFrame(
           M.ClientHello,
           {
@@ -689,7 +764,7 @@ export class TealDriveClient {
       });
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        this._socket.send(this._wire.encodeFrame(type, payload, id, raw));
+        this._sendBytes(this._wire.encodeFrame(type, payload, id, raw));
       } catch (error) {
         this._pending.delete(key);
         cleanup();

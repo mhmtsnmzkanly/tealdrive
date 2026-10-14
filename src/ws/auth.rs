@@ -36,7 +36,7 @@ fn origin_allowed<H>(state: &WsServerState<H>, headers: &HeaderMap) -> bool {
         let Some(host) = headers.get(HOST).and_then(|v| v.to_str().ok()) else {
             return false;
         };
-        let scheme = if cfg.server.behind_tls_proxy {
+        let scheme = if cfg.server.behind_tls_proxy || cfg.server.direct_tls() {
             "https"
         } else {
             "http"
@@ -123,7 +123,7 @@ where
 }
 
 async fn send<T: Serialize>(
-    socket: &mut WebSocket,
+    socket: &mut crate::ws::channel::Socket,
     kind: MessageType,
     id: crate::protocol::RequestId,
     value: &T,
@@ -136,7 +136,7 @@ async fn send<T: Serialize>(
 }
 
 async fn authenticate_socket<H>(
-    mut socket: WebSocket,
+    socket: WebSocket,
     state: WsServerState<H>,
     mut headers: HeaderMap,
     permit: tokio::sync::OwnedSemaphorePermit,
@@ -146,6 +146,7 @@ where
 {
     use crate::errors::TealDriveError;
     let cfg = state.config();
+    let mut socket = crate::ws::channel::Socket::accept(socket, &cfg).await?;
     let hello = crate::ws::handshake::create_server_hello_frame(&cfg)?;
     socket
         .send(Message::Binary(hello.encode()?))
@@ -363,7 +364,7 @@ async fn authenticated_context<H>(
 }
 
 async fn authenticated_socket<H>(
-    socket: WebSocket,
+    socket: crate::ws::channel::Socket,
     state: WsServerState<H>,
     context: crate::ws::connection::WsConnectionContext,
 ) -> Result<(), crate::errors::TealDriveError>

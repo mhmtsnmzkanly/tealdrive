@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -265,6 +265,8 @@ where
             get(crate::fs::history::preferences_handler::<H>)
                 .post(crate::fs::history::set_preferences_handler::<H>),
         )
+        .route("/sdk/v1/noise.js", get(crate::ui::serve_noise_js))
+        .route("/sdk/v1/noise_bg.wasm", get(crate::ui::serve_noise_wasm))
         .route("/sdk/v1/tealdrive.js", get(crate::ui::serve_sdk))
         .route("/sdk/v1/tealdrive.d.ts", get(crate::ui::serve_sdk_types))
         .route("/api/health", get(health_check::<H>))
@@ -474,6 +476,12 @@ where
         }
     }));
     let stop_accepting = shutdown.clone();
+    if let Some(path) = &state.config.load().server.channel_key_path {
+        let key = zeroize::Zeroizing::new(
+            crate::tls::pem(path, true).map_err(|_| TealDriveError::Validation)?,
+        );
+        tealdrive_channel::public_key(&key).map_err(|_| TealDriveError::Validation)?;
+    }
     let tls = crate::tls::load(&state.config.load().server).await?;
     let tls_configuration = state.config.clone();
     let _tls_refresh_task = tls.as_ref().map(|active| {
@@ -808,10 +816,10 @@ where
     ws.on_upgrade(move |socket| async move {
         let _activity = activity;
         let _ = crate::audit::context::REQUEST
-            .scope(
-                audit_context,
-                handle_socket_connection(socket, state, context),
-            )
+            .scope(audit_context, async move {
+                let socket = crate::ws::channel::Socket::accept(socket, &state.config()).await?;
+                handle_socket_connection(socket, state, context).await
+            })
             .await;
     })
     .into_response()
@@ -971,7 +979,7 @@ impl Drop for UploadCleanup {
 }
 
 pub(super) async fn handle_socket_connection<H>(
-    socket: WebSocket,
+    socket: crate::ws::channel::Socket,
     state: WsServerState<H>,
     context: WsConnectionContext,
 ) -> Result<(), TealDriveError>
@@ -1311,7 +1319,7 @@ fn shutdown_notification_frame() -> Result<TdrvFrame, TealDriveError> {
 }
 
 async fn notify_shutdown(
-    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    sender: &mut futures_util::stream::SplitSink<crate::ws::channel::Socket, Message>,
     shutdown: &crate::shutdown::Shutdown,
 ) {
     if let Ok(frame) = shutdown_notification_frame() {
@@ -1322,7 +1330,7 @@ async fn notify_shutdown(
 }
 
 async fn send_frame(
-    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    sender: &mut futures_util::stream::SplitSink<crate::ws::channel::Socket, Message>,
     shutdown: &crate::shutdown::Shutdown,
     frame: &TdrvFrame,
 ) -> Result<(), TealDriveError> {

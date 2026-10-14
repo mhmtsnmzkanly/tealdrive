@@ -5,7 +5,7 @@ use std::{
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::Path,
 };
-fn pem(path: &Path, private: bool) -> std::io::Result<Vec<u8>> {
+pub(crate) fn pem(path: &Path, private: bool) -> std::io::Result<Vec<u8>> {
     for parent in path.ancestors().skip(1) {
         let metadata = std::fs::symlink_metadata(parent)?;
         if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {

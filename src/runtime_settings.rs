@@ -185,6 +185,30 @@ mod tests {
         )
     }
     #[test]
+    fn root_channel_identity_cannot_be_changed_by_overlay() {
+        let (dir, mut settings) = fixture();
+        settings.ceiling.server.require_tls = Some(true);
+        settings.ceiling.server.bind_addr = "127.0.0.1:13000".into();
+        settings.ceiling.server.behind_tls_proxy = true;
+        settings.ceiling.session.secure_cookies = true;
+        settings.ceiling.proxy.trusted_proxies = vec!["127.0.0.1/32".into()];
+        settings.ceiling.security.allowed_origins = vec!["https://drive.test".into()];
+        settings.ceiling.validate().unwrap();
+        let mut requested = settings.ceiling.clone();
+        requested.server.channel_key_path = Some("/home/tealdrive/tls/other.key".into());
+        assert!(matches!(
+            settings.validate(&requested, &settings.ceiling),
+            Err(TealDriveError::PermissionDenied)
+        ));
+        std::fs::write(
+            &settings.path,
+            "[server]\nchannel_key_path='/home/tealdrive/tls/other.key'\n",
+        )
+        .unwrap();
+        assert!(settings.read(&settings.ceiling).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn root_system_storage_budget_cannot_be_changed_by_overlay() {
         let (dir, settings) = fixture();
         let mut requested = settings.ceiling.clone();

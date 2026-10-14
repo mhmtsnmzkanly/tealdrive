@@ -39,6 +39,7 @@ static STAGING_RESERVED: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<Sta
 pub(crate) struct StageReservation {
     bytes: u64,
     counter: std::sync::Arc<std::sync::Mutex<StageUsage>>,
+    _disk: Option<crate::upload::budget::DiskReservation>,
 }
 impl PartialEq for StageReservation {
     fn eq(&self, other: &Self) -> bool {
@@ -71,7 +72,11 @@ fn reserve_staging(
         held.bytes = total;
         held.transfers += 1;
     }
-    Ok(std::sync::Arc::new(StageReservation { bytes, counter }))
+    Ok(std::sync::Arc::new(StageReservation {
+        bytes,
+        counter,
+        _disk: None,
+    }))
 }
 
 fn check_staging_capacity(
@@ -242,6 +247,16 @@ pub fn upload_begin_request(
         config.system_storage.max_staging_bytes,
         config.system_storage.max_staging_transfers,
     )?;
+    let disk = crate::upload::budget::reserve(
+        &staging_path,
+        request.total_size,
+        config.system_storage.max_staging_bytes,
+        config.system_storage.max_staging_transfers,
+    )?;
+    let mut permit = permit;
+    std::sync::Arc::get_mut(&mut permit)
+        .ok_or(TealDriveError::Internal)?
+        ._disk = Some(disk);
     let staging = OpenOptions::new()
         .write(true)
         .create_new(true)

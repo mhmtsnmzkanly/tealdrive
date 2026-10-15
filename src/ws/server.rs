@@ -441,6 +441,7 @@ where
     let audit = state.audit_sink.clone();
     let expiry_config = state.config.clone();
     let expiry_store = state.session_store.clone();
+    let expiry_limiter = state.rate_limiter.clone();
     let expiry_audit = audit.clone();
     let expiry_shutdown = shutdown.clone();
     struct AbortTask(tokio::task::JoinHandle<()>);
@@ -456,6 +457,8 @@ where
                 _ = expiry_shutdown.draining() => {crate::upload::resume::clear();break;},
                 _ = timer.tick() => {
                     crate::upload::resume::purge(None);
+                    let now = InMemorySessionStore::now_epoch_seconds();
+                    expiry_limiter.lock().await.cleanup(now);
                     let disallowed = expiry_store.lock().await.take_disallowed(&expiry_config.load().account_policy);
                     for session in disallowed {
                         crate::upload::resume::purge(Some(session.session_id));
@@ -465,7 +468,7 @@ where
                         event.ip = session.ip;
                         let _ = expiry_audit.emit(&event);
                     }
-                    let expired = expiry_store.lock().await.take_expired(InMemorySessionStore::now_epoch_seconds());
+                    let expired = expiry_store.lock().await.take_expired(now);
                     for session in expired {
                         crate::upload::resume::purge(Some(session.session_id));
                         let mut event = AuditEvent::session_expired(RequestId::new(), session.username, session.uid, session.gid);

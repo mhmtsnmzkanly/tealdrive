@@ -68,6 +68,16 @@ impl InMemoryLoginRateLimiter {
         }
     }
 
+    pub const MAX_RATE_LIMIT_ENTRIES: usize = 10_000;
+
+    pub fn cleanup(&mut self, now: u64) -> usize {
+        let before = self.failures.len();
+        let lockout = self.lockout_duration_seconds;
+        self.failures
+            .retain(|_, (_, last_failed_at)| now.saturating_sub(*last_failed_at) <= lockout);
+        before.saturating_sub(self.failures.len())
+    }
+
     pub fn record_failure(&mut self, key: LoginRateLimitKey) -> LoginRateLimitDecision {
         self.record_failure_at(
             key,
@@ -82,6 +92,19 @@ impl InMemoryLoginRateLimiter {
         lockout_duration_seconds: u64,
         now: u64,
     ) -> LoginRateLimitDecision {
+        if self.failures.len() >= Self::MAX_RATE_LIMIT_ENTRIES {
+            self.cleanup(now);
+            if self.failures.len() >= Self::MAX_RATE_LIMIT_ENTRIES && !self.failures.contains_key(&key) {
+                if let Some(oldest_key) = self
+                    .failures
+                    .iter()
+                    .min_by_key(|(_, (_, last))| *last)
+                    .map(|(k, _)| k.clone())
+                {
+                    self.failures.remove(&oldest_key);
+                }
+            }
+        }
         let entry = self.failures.entry(key.clone()).or_insert((0, now));
         if now >= entry.1 && now.saturating_sub(entry.1) > lockout_duration_seconds {
             *entry = (1, now);
@@ -146,5 +169,25 @@ mod tests {
             limiter.check_at(&key, 2, 60, 170),
             LoginRateLimitDecision::Allowed
         );
+    }
+
+    #[test]
+    fn cleanup_evicts_expired_entries() {
+        let mut limiter = InMemoryLoginRateLimiter::with_lockout(2, 60);
+        let key1 = LoginRateLimitKey {
+            username: "u1".into(),
+            ip: Some("127.0.0.1".into()),
+        };
+        let key2 = LoginRateLimitKey {
+            username: "u2".into(),
+            ip: Some("127.0.0.1".into()),
+        };
+        limiter.record_failure_at(key1, 60, 100);
+        limiter.record_failure_at(key2, 60, 150);
+
+        // At t=180, key1 is expired (180 - 100 = 80 > 60), key2 is active (180 - 150 = 30 <= 60)
+        let removed = limiter.cleanup(180);
+        assert_eq!(removed, 1);
+        assert_eq!(limiter.failures.len(), 1);
     }
 }

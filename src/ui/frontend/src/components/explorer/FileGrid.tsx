@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import type { FileEntry } from '../../sdk/types.ts';
 import { FileItemIcon } from './FileItemIcon.tsx';
 import { FileContextMenu } from './FileContextMenu.tsx';
-import { formatBytes, formatRelativeDate, getFileCategory } from '../../utils/formatters.ts';
+import { CanvasContextMenu } from './CanvasContextMenu.tsx';
+import { formatBytes, getFileCategory } from '../../utils/formatters.ts';
 import { svgToSafeDataUrl } from '../../utils/safeSvg.ts';
 import { Star, MoreVertical, UploadCloud } from 'lucide-react';
 
@@ -23,8 +24,23 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
     setNewFolderOpen,
   } = useTealDrive();
 
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    file: FileEntry;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    position: { x: number; y: number };
+  } | null>(null);
+
   const [dragOver, setDragOver] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchMovedRef = useRef(false);
+  const longPressTriggeredRef = useRef(false);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -52,12 +68,119 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
     }
   };
 
+  // Right-click on file card
+  const handleItemContextMenu = (e: React.MouseEvent, file: FileEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedIds.has(file.id)) {
+      toggleSelect(file.id, false);
+    }
+    setCanvasContextMenu(null);
+    setContextMenu({
+      file,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  // Touch Long-Press on file card
+  const handleItemTouchStart = (e: React.TouchEvent, file: FileEntry) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    touchMovedRef.current = false;
+    longPressTriggeredRef.current = false;
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      try {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(40);
+        }
+      } catch {}
+      if (!selectedIds.has(file.id)) {
+        toggleSelect(file.id, false);
+      }
+      setCanvasContextMenu(null);
+      setContextMenu({
+        file,
+        position: { x: touchStartRef.current.x, y: touchStartRef.current.y },
+      });
+    }, 450);
+  };
+
+  const handleItemTouchMove = (e: React.TouchEvent) => {
+    if (!longPressTimerRef.current) return;
+    if (e.touches.length !== 1) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      return;
+    }
+    const touch = e.touches[0];
+    const dist = Math.hypot(
+      touch.clientX - touchStartRef.current.x,
+      touch.clientY - touchStartRef.current.y
+    );
+    if (dist > 10) {
+      touchMovedRef.current = true;
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleItemTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (longPressTriggeredRef.current) {
+      if (e.cancelable) e.preventDefault();
+      longPressTriggeredRef.current = false;
+    }
+  };
+
+  // Right-click on empty canvas / background
+  const handleCanvasContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu(null);
+    setCanvasContextMenu({
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  // Touch Long-Press on empty canvas
+  const handleCanvasTouchStart = (e: React.TouchEvent) => {
+    // Only trigger if directly on the background canvas
+    if (e.target !== e.currentTarget && !(e.target as HTMLElement).classList.contains('canvas-empty-area')) {
+      return;
+    }
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const coords = { x: touch.clientX, y: touch.clientY };
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      try {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(40);
+        }
+      } catch {}
+      setContextMenu(null);
+      setCanvasContextMenu({ position: coords });
+    }, 500);
+  };
+
   return (
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="relative min-h-[480px] p-6 focus:outline-none"
+      onContextMenu={handleCanvasContextMenu}
+      onTouchStart={handleCanvasTouchStart}
+      onTouchMove={handleItemTouchMove}
+      onTouchEnd={handleItemTouchEnd}
+      onTouchCancel={handleItemTouchEnd}
+      className="relative min-h-[480px] p-6 focus:outline-none select-none canvas-empty-area"
     >
       {/* Drop files overlay */}
       {dragOver && (
@@ -69,13 +192,13 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
       )}
 
       {files.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-4">
+        <div className="flex flex-col items-center justify-center py-20 text-center canvas-empty-area">
+          <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-4 pointer-events-none">
             <UploadCloud className="w-8 h-8 text-teal-500/60" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-200">This directory is empty</h3>
-          <p className="text-xs text-slate-400 max-w-sm mt-1">
-            Drag and drop files here, or create a new folder or document to get started.
+          <h3 className="text-sm font-semibold text-slate-200 pointer-events-none">This directory is empty</h3>
+          <p className="text-xs text-slate-400 max-w-sm mt-1 pointer-events-none">
+            Drag and drop files here, right-click, or long-press to open the action menu.
           </p>
           <div className="mt-4 flex gap-2">
             <button
@@ -100,11 +223,17 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                   toggleSelect(file.id, e.shiftKey || e.metaKey || e.ctrlKey);
                 }}
                 onDoubleClick={() => handleDoubleClick(file)}
-                className={`group relative flex flex-col justify-between p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                onContextMenu={(e) => handleItemContextMenu(e, file)}
+                onTouchStart={(e) => handleItemTouchStart(e, file)}
+                onTouchMove={handleItemTouchMove}
+                onTouchEnd={handleItemTouchEnd}
+                onTouchCancel={handleItemTouchEnd}
+                className={`group relative flex flex-col justify-between p-3 rounded-xl border transition-all cursor-pointer select-none touch-manipulation ${
                   isSelected
                     ? 'bg-teal-950/40 border-teal-500 shadow-md shadow-teal-500/10'
                     : 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800/80 hover:border-slate-700'
                 }`}
+                style={{ WebkitTouchCallout: 'none' }}
               >
                 {/* Top Action Row */}
                 <div className="flex items-center justify-between mb-2">
@@ -136,30 +265,30 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                       <Star className={`w-3.5 h-3.5 ${file.starred ? 'fill-amber-400' : ''}`} />
                     </button>
 
-                    <div className="relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === file.id ? null : file.id);
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 opacity-0 group-hover:opacity-100 transition-all"
-                        title="More actions"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
-
-                      {activeMenuId === file.id && (
-                        <FileContextMenu
-                          file={file}
-                          onClose={() => setActiveMenuId(null)}
-                        />
-                      )}
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setCanvasContextMenu(null);
+                        if (contextMenu?.file.id === file.id) {
+                          setContextMenu(null);
+                        } else {
+                          setContextMenu({
+                            file,
+                            position: { x: rect.right, y: rect.bottom + 4 },
+                          });
+                        }
+                      }}
+                      className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 opacity-0 group-hover:opacity-100 transition-all"
+                      title="More actions"
+                    >
+                      <MoreVertical className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
 
                 {/* Thumbnail / Icon Center */}
-                <div className="h-20 flex items-center justify-center py-2">
+                <div className="h-20 flex items-center justify-center py-2 pointer-events-none">
                   {category === 'image' && file.content?.includes('<svg') ? (
                     <div className="w-16 h-16 rounded overflow-hidden flex items-center justify-center border border-slate-700/50 bg-slate-950 p-1">
                       <img
@@ -179,7 +308,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                 </div>
 
                 {/* File Details Footer */}
-                <div className="mt-2 min-w-0">
+                <div className="mt-2 min-w-0 pointer-events-none">
                   <div
                     className="text-xs font-medium text-slate-200 truncate group-hover:text-teal-300 transition-colors"
                     title={file.name}
@@ -198,6 +327,53 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
           })}
         </div>
       )}
+
+      {/* Item Context Menu (Right Click / Long Press) */}
+      {contextMenu && (
+        <FileContextMenu
+          file={contextMenu.file}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Empty Area Context Menu */}
+      {canvasContextMenu && (
+        <CanvasContextMenu
+          position={canvasContextMenu.position}
+          onClose={() => setCanvasContextMenu(null)}
+          onUploadFileClick={() => fileInputRef.current?.click()}
+          onUploadFolderClick={() => folderInputRef.current?.click()}
+        />
+      )}
+
+      {/* Hidden file pickers for context menu upload actions */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            onUploadDropped(e.target.files);
+            e.target.value = '';
+          }
+        }}
+        multiple
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={folderInputRef}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            onUploadDropped(e.target.files);
+            e.target.value = '';
+          }
+        }}
+        // @ts-ignore
+        webkitdirectory=""
+        directory=""
+        className="hidden"
+      />
     </div>
   );
 };

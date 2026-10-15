@@ -1,14 +1,84 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
+import type { FileEntry } from '../../sdk/types.ts';
 import { FileItemIcon } from './FileItemIcon.tsx';
+import { FileContextMenu } from './FileContextMenu.tsx';
 import { formatBytes, formatRelativeDate } from '../../utils/formatters.ts';
-import { Clock, Eye, Download, Star } from 'lucide-react';
+import { Clock, Download, Star, MoreVertical } from 'lucide-react';
 
 export const RecentView: React.FC = () => {
   const { recentEntries, setPreviewFile, downloadFile, toggleStar } = useTealDrive();
 
+  const [contextMenu, setContextMenu] = useState<{
+    file: FileEntry;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const longPressTriggeredRef = useRef(false);
+
+  const handleItemContextMenu = (e: React.MouseEvent, file: FileEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      file,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, file: FileEntry) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    longPressTriggeredRef.current = false;
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      try {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate?.(40);
+        }
+      } catch {}
+      setContextMenu({
+        file,
+        position: { x: touchStartRef.current.x, y: touchStartRef.current.y },
+      });
+    }, 450);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!longPressTimerRef.current) return;
+    if (e.touches.length !== 1) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      return;
+    }
+    const touch = e.touches[0];
+    const dist = Math.hypot(
+      touch.clientX - touchStartRef.current.x,
+      touch.clientY - touchStartRef.current.y
+    );
+    if (dist > 10) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (longPressTriggeredRef.current) {
+      if (e.cancelable) e.preventDefault();
+      longPressTriggeredRef.current = false;
+    }
+  };
+
   return (
-    <div className="p-6">
+    <div className="p-6 select-none">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
@@ -33,9 +103,15 @@ export const RecentView: React.FC = () => {
             <div
               key={file.id}
               onClick={() => setPreviewFile(file)}
-              className="p-3.5 bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 rounded-xl transition-all cursor-pointer flex items-center justify-between group"
+              onContextMenu={(e) => handleItemContextMenu(e, file)}
+              onTouchStart={(e) => handleTouchStart(e, file)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              className="p-3.5 bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 rounded-xl transition-all cursor-pointer flex items-center justify-between group touch-manipulation"
+              style={{ WebkitTouchCallout: 'none' }}
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0 pointer-events-none">
                 <FileItemIcon
                   name={file.name}
                   isDirectory={file.isDirectory}
@@ -75,10 +151,32 @@ export const RecentView: React.FC = () => {
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setContextMenu({
+                      file,
+                      position: { x: rect.right, y: rect.bottom + 4 },
+                    });
+                  }}
+                  className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
+                  title="More actions"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {contextMenu && (
+        <FileContextMenu
+          file={contextMenu.file}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );

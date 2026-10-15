@@ -38,13 +38,26 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, { passive: true });
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', onClose);
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', onClose);
+    };
   }, [onClose]);
 
   const category = getFileCategory(file.name, file.isDirectory, file.mimeType);
@@ -57,8 +70,19 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
     onClose();
   };
 
+  const menuWidth = 224;
+  const menuHeight = 390;
+  const padding = 10;
+
+  const boundedX = position
+    ? Math.max(padding, Math.min(position.x, (typeof window !== 'undefined' ? window.innerWidth : 1000) - menuWidth - padding))
+    : undefined;
+  const boundedY = position
+    ? Math.max(padding, Math.min(position.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - menuHeight - padding))
+    : undefined;
+
   const style = position
-    ? { top: `${position.y}px`, left: `${position.x}px` }
+    ? { top: `${boundedY}px`, left: `${boundedX}px` }
     : undefined;
 
   return (

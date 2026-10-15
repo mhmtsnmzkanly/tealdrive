@@ -38,7 +38,7 @@ use axum::response::{Html, IntoResponse, Response};
 use crate::ui::assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLE_CSS};
 use crate::ws::server::{WsHelperBackend, WsServerState};
 
-const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; connect-src 'self'; worker-src 'none';";
+const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; worker-src 'none';";
 
 fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -101,11 +101,29 @@ pub fn resolve_safe_static_path(base_dir: &Path, rel_path: &str) -> Option<PathB
     }
 }
 
+pub fn resolve_ui_directory(config_dir: &Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(ref dir) = config_dir {
+        Some(dir.clone())
+    } else {
+        let frontend_dist = PathBuf::from("/root/tealdrive/src/ui/frontend/dist");
+        if frontend_dist.join("manifest.json").is_file() {
+            Some(frontend_dist)
+        } else {
+            let default_pkg = PathBuf::from("/var/lib/tealdrive-ui");
+            if default_pkg.join("manifest.json").is_file() {
+                Some(default_pkg)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 pub async fn serve_index<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref directory) = state.config.load().server.static_dir {
+    if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
         if let Some(package) = package::current(directory) {
             let name = package.manifest.entry.as_str();
             if let Some(content) = package.files.get(name) {
@@ -155,7 +173,7 @@ pub async fn serve_style<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref directory) = state.config.load().server.static_dir {
+    if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
         if let Some(package) = package::current(directory) {
             let name = "style.css";
             if let Some(content) = package.files.get(name) {
@@ -179,7 +197,7 @@ pub async fn serve_app<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref directory) = state.config.load().server.static_dir {
+    if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
         if let Some(package) = package::current(directory) {
             let name = "app.js";
             if let Some(content) = package.files.get(name) {
@@ -240,7 +258,7 @@ pub async fn serve_favicon<H>(State(state): State<WsServerState<H>>) -> Response
 where
     H: WsHelperBackend + Clone + 'static,
 {
-    if let Some(ref directory) = state.config.load().server.static_dir {
+    if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
         if let Some(package) = package::current(directory) {
             let name = "favicon.svg";
             if let Some(content) = package.files.get(name) {
@@ -269,7 +287,7 @@ where
 {
     let clean = path.trim_start_matches('/');
 
-    if let Some(ref directory) = state.config.load().server.static_dir {
+    if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
         if let Some(package) = package::current(directory) {
             if let Some(content) = package.files.get(clean) {
                 let mut response = content.clone().into_response();
@@ -333,7 +351,7 @@ fn default_state<H: WsHelperBackend + Clone + 'static>(
     mut state: WsServerState<H>,
 ) -> WsServerState<H> {
     let mut config = (*state.config.load_full()).clone();
-    config.server.static_dir = None;
+    config.server.static_dir = Some(PathBuf::from("/dev/null/no-ui"));
     state.config = crate::config::DynamicConfig::new(config, None);
     state
 }
@@ -399,6 +417,19 @@ where
         apply_security_headers(response.headers_mut(), "application/json; charset=utf-8");
         response
     } else {
+        let clean = path.trim_start_matches('/');
+        if let Some(ref directory) = resolve_ui_directory(&state.config.load().server.static_dir) {
+            if let Some(package) = package::current(directory) {
+                if let Some(content) = package.files.get(clean) {
+                    let mut response = content.clone().into_response();
+                    apply_security_headers(response.headers_mut(), mime_for_path(Path::new(clean)));
+                    response
+                        .headers_mut()
+                        .insert("cache-control", HeaderValue::from_static("no-cache"));
+                    return response;
+                }
+            }
+        }
         serve_index::<H>(State(state)).await
     }
 }

@@ -6,3 +6,12 @@
 # Python-generated development artifacts
 __pycache__/
 *.py[cod]
+
+# Frontend development artifacts
+/src/ui/frontend/node_modules/
+/src/ui/frontend/dist/
+/src/ui/frontend/*lock*
+/src/ui/frontend/.env.local
+/src/ui/frontend/.env.*.local
+*.log
+.DS_Store

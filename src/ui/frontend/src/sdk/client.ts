@@ -107,13 +107,24 @@ function toReactEntry(entry: any, dirPath: string): FileEntry {
     (typeof window !== 'undefined' &&
       window.localStorage?.getItem(`tdrv_starred_${cleanDir ? cleanDir + '/' : ''}${entryName}`) === 'true');
 
+  let modifiedIso = new Date().toISOString();
+  if (entry.modified) {
+    const sec = Number(entry.modified);
+    if (!isNaN(sec) && sec > 100000000) {
+      modifiedIso = new Date(sec * 1000).toISOString();
+    } else {
+      const d = new Date(entry.modified);
+      if (!isNaN(d.getTime())) modifiedIso = d.toISOString();
+    }
+  }
+
   return {
     id: entry.id || fullPath,
     name: entryName,
     path: fullPath,
     isDirectory: isDir,
     size: Number(entry.size) || 0,
-    modified: entry.modified || new Date().toISOString(),
+    modified: modifiedIso,
     mode: modeStr,
     owner: entry.owner || 'user',
     group: entry.group || 'user',
@@ -180,7 +191,7 @@ export function createClient(options: CreateClientOptions = {}) {
   async function ensureConnected(): Promise<any | null> {
     const realClient = await getRealSdkClient();
     if (!realClient) return null;
-    if (!isConnectedToRealBackend) {
+    if (!isConnectedToRealBackend || !realClient._ready) {
       try {
         await realClient.handshake();
         isConnectedToRealBackend = true;
@@ -233,23 +244,18 @@ export function createClient(options: CreateClientOptions = {}) {
         const realClient = await getRealSdkClient();
         if (realClient) {
           try {
-            const res = await fetch('/api/session', { credentials: 'include' });
-            if (res.ok) {
-              const data = await res.json();
-              if (data && data.authenticated && data.username) {
-                try {
-                  await realClient.handshake();
-                  isConnectedToRealBackend = true;
-                  notifyState({ connected: true });
-                } catch {}
-                return {
-                  username: data.username,
-                  uid: data.uid || 1000,
-                  role: data.is_admin ? 'admin' : 'user',
-                  isAdmin: Boolean(data.is_admin),
-                  email: `${data.username}@novastrum.dev`,
-                };
-              }
+            await realClient.handshake();
+            const session = await realClient.auth.getSession();
+            if (session && session.username) {
+              isConnectedToRealBackend = true;
+              notifyState({ connected: true });
+              return {
+                username: session.username,
+                uid: session.uid || 200000,
+                role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
+                isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
+                email: `${session.username}@novastrum.dev`,
+              };
             }
           } catch (err) {
             console.warn('getSession error:', err);
@@ -260,48 +266,56 @@ export function createClient(options: CreateClientOptions = {}) {
 
       async login(credentials: { username: string; password?: string }): Promise<Session> {
         const realClient = await getRealSdkClient();
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(credentials),
-        });
+        if (!realClient) throw new Error('TealDrive client unavailable');
 
-        if (!res.ok) {
-          let errMsg = 'Invalid username or password.';
+        try {
+          // If already in an authenticated session on the socket, disconnect cleanly first
           try {
-            const errData = await res.json();
-            if (errData.error || errData.message) errMsg = errData.error || errData.message;
+            if (realClient._session) {
+              realClient.disconnect();
+            }
           } catch {}
+
+          // Ensure WebSocket handshake is ready
+          await realClient.handshake();
+
+          // Official WS-first login: sends AuthLogin frame over WS, receives bind_token, binds cookie
+          const session = await realClient.auth.login({
+            username: credentials.username,
+            password: credentials.password || '',
+          });
+
+          isConnectedToRealBackend = true;
+          notifyState({ connected: true });
+
+          return {
+            username: session.username,
+            uid: session.uid || 200000,
+            role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
+            isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
+            email: `${session.username}@novastrum.dev`,
+          };
+        } catch (err: any) {
+          console.error('Login error:', err);
+          const errMsg =
+            err?.message ||
+            (err?.code === 'INVALID_CREDENTIALS'
+              ? 'Invalid username or password.'
+              : err?.code === 'PASSWORD_CHANGE_REQUIRED'
+              ? 'Password change required.'
+              : 'Login failed. Please try again.');
           throw new Error(errMsg);
         }
-
-        const sessionInfo = await res.json();
-        if (realClient) {
-          try {
-            await realClient.handshake();
-            isConnectedToRealBackend = true;
-            notifyState({ connected: true });
-          } catch (e) {
-            console.warn('RealClient handshake after login:', e);
-          }
-        }
-
-        return {
-          username: sessionInfo.username || credentials.username,
-          uid: sessionInfo.uid || 1000,
-          role: sessionInfo.is_admin ? 'admin' : 'user',
-          isAdmin: Boolean(sessionInfo.is_admin),
-          email: `${sessionInfo.username || credentials.username}@novastrum.dev`,
-        };
       },
 
       async logout(): Promise<void> {
         const realClient = await getRealSdkClient();
         try {
+          await realClient?.auth?.logout();
+        } catch {
           await fetch('/api/logout', { method: 'POST', credentials: 'include' });
           realClient?.disconnect?.();
-        } catch {}
+        }
         isConnectedToRealBackend = false;
         notifyState({ connected: false });
       },
@@ -314,10 +328,12 @@ export function createClient(options: CreateClientOptions = {}) {
           try {
             const cleanPath = (params.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
             const res = await realClient.files.list({ path: cleanPath, includeHidden: true });
-            const entries = (res.entries || []).map((e: any) => toReactEntry(e, params.path));
+            const rawEntries = res?.entries || (Array.isArray(res) ? res : []);
+            const entries = rawEntries.map((e: any) => toReactEntry(e, params.path));
             return { entries, currentPath: params.path };
           } catch (e) {
             console.error('Real files.list failed:', e);
+            throw e;
           }
         }
         return { entries: [], currentPath: params.path };

@@ -70,6 +70,9 @@ pub fn search_files_with_roots(
     let max_depth = opts.and_then(|o| o.max_depth).unwrap_or(20);
 
     'outer: while let Some((dir_path, dir_rel, depth)) = queue.pop() {
+        if crate::helper::cancellation::check().is_err() {
+            return HelperResponse::permission_denied(request, "Operation cancelled.");
+        }
         if depth > max_depth {
             continue;
         }

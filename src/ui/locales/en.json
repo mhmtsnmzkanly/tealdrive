@@ -317,5 +317,19 @@
   "Connection interrupted. Resuming upload...": "Connection interrupted. Resuming upload...",
   "The selected file does not match the interrupted upload.": "The selected file does not match the interrupted upload.",
   "Change your temporary password before using files or administration.": "Change your temporary password before using files or administration.",
-  "Upload completion could not be confirmed. Refresh the file list before retrying.": "Upload completion could not be confirmed. Refresh the file list before retrying."
+  "Upload completion could not be confirmed. Refresh the file list before retrying.": "Upload completion could not be confirmed. Refresh the file list before retrying.",
+  "My Drive": "My Drive",
+  "Navigation": "Navigation",
+  "Storage Roots": "Storage Roots",
+  "Storage": "Storage",
+  "Grid View": "Grid View",
+  "List View": "List View",
+  "Folders": "Folders",
+  "Files": "Files",
+  "Open": "Open",
+  "Open / Preview": "Open / Preview",
+  "New": "New",
+  "Administration": "Administration",
+  "Upload files or create a new folder to get started.": "Upload files or create a new folder to get started.",
+  "Move to Trash": "Move to Trash"
 }

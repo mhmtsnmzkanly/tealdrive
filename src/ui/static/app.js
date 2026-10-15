@@ -45,6 +45,44 @@
     wsStatusDot: document.getElementById('wsStatusDot'),
     wsStatusText: document.getElementById('wsStatusText'),
     toastContainer: document.getElementById('toastContainer'),
+    // Modern Layout & Views
+    viewGridBtn: document.getElementById('viewGridBtn'),
+    viewListBtn: document.getElementById('viewListBtn'),
+    fileGridView: document.getElementById('fileGridView'),
+    folderGrid: document.getElementById('folderGrid'),
+    fileGrid: document.getElementById('fileGrid'),
+    gridFoldersSection: document.getElementById('gridFoldersSection'),
+    gridFilesSection: document.getElementById('gridFilesSection'),
+    gridEmptyState: document.getElementById('gridEmptyState'),
+    fileTableCard: document.getElementById('fileTableCard'),
+    // Context Menu
+    fileContextMenu: document.getElementById('fileContextMenu'),
+    ctxOpen: document.getElementById('ctxOpen'),
+    ctxDownload: document.getElementById('ctxDownload'),
+    ctxEdit: document.getElementById('ctxEdit'),
+    ctxRename: document.getElementById('ctxRename'),
+    ctxChmod: document.getElementById('ctxChmod'),
+    ctxTrash: document.getElementById('ctxTrash'),
+    // Sidebar Elements
+    appSidebar: document.getElementById('appSidebar'),
+    mobileMenuBtn: document.getElementById('mobileMenuBtn'),
+    sidebarNewActionBtn: document.getElementById('sidebarNewActionBtn'),
+    sidebarNewMenu: document.getElementById('sidebarNewMenu'),
+    sidebarUploadBtn: document.getElementById('sidebarUploadBtn'),
+    sidebarNewFolderBtn: document.getElementById('sidebarNewFolderBtn'),
+    sidebarNewFileBtn: document.getElementById('sidebarNewFileBtn'),
+    navMyDrive: document.getElementById('navMyDrive'),
+    sidebarTrashNav: document.getElementById('sidebarTrashNav'),
+    sidebarHistoryNav: document.getElementById('sidebarHistoryNav'),
+    sidebarRootsList: document.getElementById('sidebarRootsList'),
+    sidebarAdminSection: document.getElementById('sidebarAdminSection'),
+    sidebarAccountsNav: document.getElementById('sidebarAccountsNav'),
+    sidebarSettingsNav: document.getElementById('sidebarSettingsNav'),
+    sidebarPolicyNav: document.getElementById('sidebarPolicyNav'),
+    quotaPercentText: document.getElementById('quotaPercentText'),
+    quotaBarFill: document.getElementById('quotaBarFill'),
+    quotaDetailText: document.getElementById('quotaDetailText'),
+    userAvatar: document.getElementById('userAvatar'),
     // Modals
     shutdownModal: document.getElementById('shutdownModal'),
     shutdownTitle: document.getElementById('shutdownTitle'),
@@ -228,12 +266,186 @@
     }
   }
 
+  // --- View Mode & Modern SVG File Icons ---
+  let viewMode = 'grid';
+  try {
+    viewMode = localStorage.getItem('tealdrive:viewMode') || 'grid';
+  } catch {}
+
+  function setViewMode(mode) {
+    viewMode = mode;
+    try { localStorage.setItem('tealdrive:viewMode', mode); } catch {}
+    if (el.viewGridBtn) el.viewGridBtn.classList.toggle('active', mode === 'grid');
+    if (el.viewListBtn) el.viewListBtn.classList.toggle('active', mode === 'list');
+    if (el.fileGridView) el.fileGridView.classList.toggle('hidden', mode !== 'grid');
+    if (el.fileTableCard) el.fileTableCard.classList.toggle('hidden', mode !== 'list');
+  }
+
+  function getFileSvg(name, isDir = false, size = 20) {
+    if (isDir) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="rgba(20, 184, 166, 0.2)"></path></svg>`;
+    }
+    const ext = (name || '').split('.').pop().toLowerCase();
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="rgba(168, 85, 247, 0.2)"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+    }
+    if (['txt', 'md', 'doc', 'docx', 'odt', 'rtf'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="rgba(59, 130, 246, 0.2)"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>`;
+    }
+    if (['pdf'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="rgba(239, 68, 68, 0.2)"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M9 13h2a1 1 0 0 1 1 1v0a1 1 0 0 1-1 1H9"></path><path d="M9 13v5"></path></svg>`;
+    }
+    if (['rs', 'js', 'jsx', 'ts', 'tsx', 'py', 'json', 'toml', 'html', 'css', 'sh'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline><line x1="14" y1="4" x2="10" y2="20"></line></svg>`;
+    }
+    if (['zip', 'tar', 'gz', 'tgz', 'rar', '7z'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" fill="rgba(245, 158, 11, 0.2)"></rect><line x1="12" y1="3" x2="12" y2="15"></line><polyline points="9 10 12 7 15 10"></polyline><line x1="9" y1="18" x2="15" y2="18"></line></svg>`;
+    }
+    if (['mp4', 'webm', 'ogg', 'mov', 'mkv'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2" fill="rgba(6, 182, 212, 0.2)"></rect></svg>`;
+    }
+    if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3" fill="rgba(236, 72, 153, 0.2)"></circle><circle cx="18" cy="16" r="3" fill="rgba(236, 72, 153, 0.2)"></circle></svg>`;
+    }
+    return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="rgba(148, 163, 184, 0.15)"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+  }
+
+  // --- Right-Click Context Menu Controller ---
+  let activeContextTarget = null;
+  function openContextMenu(e, item, relPath) {
+    e.preventDefault();
+    e.stopPropagation();
+    activeContextTarget = { item, relPath };
+
+    const menu = el.fileContextMenu;
+    if (!menu) return;
+
+    if (el.ctxEdit) {
+      el.ctxEdit.classList.toggle('hidden', item.is_dir || isMediaFile(item.name));
+    }
+    if (el.ctxDownload) {
+      el.ctxDownload.classList.toggle('hidden', item.is_dir);
+    }
+
+    menu.classList.remove('hidden');
+
+    const menuWidth = 200;
+    const menuHeight = 220;
+    let posX = e.clientX;
+    let posY = e.clientY;
+    if (posX + menuWidth > window.innerWidth) posX = window.innerWidth - menuWidth - 10;
+    if (posY + menuHeight > window.innerHeight) posY = window.innerHeight - menuHeight - 10;
+
+    menu.style.left = `${posX}px`;
+    menu.style.top = `${posY}px`;
+  }
+
+  function closeContextMenu() {
+    if (el.fileContextMenu) el.fileContextMenu.classList.add('hidden');
+    activeContextTarget = null;
+  }
+
+  function updateQuotaWidget(quota) {
+    if (!el.quotaPercentText || !el.quotaBarFill || !el.quotaDetailText) return;
+    let used = 0;
+    let limit = 0;
+    let pct = 0;
+
+    if (quota && quota.limitBytes != null) {
+      used = quota.usedBytes || 0;
+      limit = quota.limitBytes;
+      pct = Math.min(100, Math.round(quota.usagePercent ?? ((used / limit) * 100)));
+    } else {
+      const root = state.roots.find(r => r.root_id === state.currentRoot);
+      if (root && root.quota_bytes) {
+        used = root.used_bytes || 0;
+        limit = root.quota_bytes;
+        pct = Math.min(100, Math.round((used / limit) * 100));
+      } else {
+        el.quotaPercentText.textContent = '--%';
+        el.quotaBarFill.style.width = '0%';
+        el.quotaDetailText.textContent = t('Unlimited');
+        el.quotaBarFill.className = 'quota-bar-fill';
+        return;
+      }
+    }
+
+    el.quotaPercentText.textContent = `${pct}%`;
+    el.quotaBarFill.style.width = `${pct}%`;
+    el.quotaDetailText.textContent = `${formatBytes(used)} / ${formatBytes(limit)}`;
+    el.quotaBarFill.className = 'quota-bar-fill' + (pct > 95 ? ' quota-critical' : pct > 80 ? ' quota-warning' : '');
+  }
+
+  function createGridCard(item, relPath) {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.setAttribute('tabindex', '0');
+    card.dataset.path = relPath;
+    card.dataset.name = item.name;
+    card.dataset.isDir = item.is_dir ? 'true' : 'false';
+
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'file-card-icon';
+    iconDiv.innerHTML = getFileSvg(item.name, item.is_dir, 38);
+
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'file-card-name';
+    nameDiv.title = item.name;
+    nameDiv.textContent = item.name;
+
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'file-card-meta';
+    metaDiv.textContent = item.is_dir ? t('Folders') : formatBytes(item.size);
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'file-card-actions';
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'card-action-btn';
+    menuBtn.innerHTML = '&#8942;';
+    menuBtn.title = t('Actions');
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      openContextMenu(e, item, relPath);
+    };
+    actionsDiv.appendChild(menuBtn);
+
+    card.appendChild(actionsDiv);
+    card.appendChild(iconDiv);
+    card.appendChild(nameDiv);
+    card.appendChild(metaDiv);
+
+    card.onclick = () => {
+      document.querySelectorAll('.file-card.selected, .file-table tr.selected').forEach(n => n.classList.remove('selected'));
+      card.classList.add('selected');
+    };
+
+    card.ondblclick = (e) => {
+      e.preventDefault();
+      if (item.is_dir) {
+        loadDirectory(relPath);
+      } else if (isMediaFile(item.name)) {
+        openLightbox(relPath);
+      } else {
+        viewOrEditFile(relPath);
+      }
+    };
+
+    card.oncontextmenu = (e) => openContextMenu(e, item, relPath);
+
+    return card;
+  }
+
   // --- Directory Listing & Navigation ---
   function loadDirectory(path, cursor = null) {
     if (state.serverShuttingDown) return;
     state.currentPath = path || '';
+    if (el.navMyDrive) el.navMyDrive.classList.toggle('active', !state.currentPath);
     renderBreadcrumbs();
+    closeContextMenu();
     el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Loading files...</td></tr>';
+    if (el.folderGrid) el.folderGrid.innerHTML = '';
+    if (el.fileGrid) el.fileGrid.innerHTML = '';
+    if (el.gridEmptyState) el.gridEmptyState.classList.add('hidden');
     runFileAction('ListDirectory', {
       root_id: state.currentRoot,
       relative_path: state.currentPath,cursor,limit:state.protocolLimits.defaultDirectoryPageSize,include_hidden:state.roots.find(root=>root.root_id===state.currentRoot)?.hidden_files_allowed??false,sort:"NameAsc",filter:{query:null,file_kind:null,filter:"All"},
@@ -255,7 +467,7 @@
     for (let i = 0; i < parts.length; i++) {
       const sep = document.createElement('span');
       sep.className = 'breadcrumb-sep';
-      sep.textContent = t('/');
+      sep.textContent = '/';
       el.breadcrumbs.appendChild(sep);
 
       accum += (accum ? '/' : '') + parts[i];
@@ -270,12 +482,20 @@
 
   function renderDirectoryList(data) {
     el.fileTableBody.innerHTML = '';
+    if (el.folderGrid) el.folderGrid.innerHTML = '';
+    if (el.fileGrid) el.fileGrid.innerHTML = '';
+
     const entries = (data.entries || []).map(item=>({...item,is_dir:item.file_type==='Directory'}));
 
     if (entries.length === 0) {
-      el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Empty directory</td></tr>';
+      el.fileTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">' + t('Empty directory') + '</td></tr>';
+      if (el.gridEmptyState) el.gridEmptyState.classList.remove('hidden');
+      if (el.gridFoldersSection) el.gridFoldersSection.classList.add('hidden');
+      if (el.gridFilesSection) el.gridFilesSection.classList.add('hidden');
       return;
     }
+
+    if (el.gridEmptyState) el.gridEmptyState.classList.add('hidden');
 
     if(data.has_more && data.next_cursor) {
       const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;
@@ -289,8 +509,37 @@
       return a.name.localeCompare(b.name);
     });
 
+    const folders = entries.filter(e => e.is_dir);
+    const files = entries.filter(e => !e.is_dir);
+
+    if (el.gridFoldersSection) {
+      el.gridFoldersSection.classList.toggle('hidden', folders.length === 0);
+      for (const item of folders) {
+        const subPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
+        el.folderGrid.appendChild(createGridCard(item, subPath));
+      }
+    }
+
+    if (el.gridFilesSection) {
+      el.gridFilesSection.classList.toggle('hidden', files.length === 0);
+      for (const item of files) {
+        const subPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
+        el.fileGrid.appendChild(createGridCard(item, subPath));
+      }
+    }
+
+    // Render Table View Rows
     for (const item of entries) {
       const tr = document.createElement('tr');
+      const itemRelPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
+      tr.dataset.path = itemRelPath;
+
+      tr.onclick = () => {
+        document.querySelectorAll('.file-card.selected, .file-table tr.selected').forEach(n => n.classList.remove('selected'));
+        tr.classList.add('selected');
+      };
+
+      tr.oncontextmenu = (e) => openContextMenu(e, item, itemRelPath);
 
       // Name & Icon
       const tdName = document.createElement('td');
@@ -299,17 +548,24 @@
       nameWrapper.className = 'item-name';
       nameWrapper.href = '#';
 
-      const icon = item.is_dir ? '📁' : getFileIcon(item.name);
-      nameWrapper.innerHTML = `<span>${icon}</span> <span>${escapeHtml(item.name)}</span>`;
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'item-icon';
+      iconSpan.innerHTML = getFileSvg(item.name, item.is_dir, 18);
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = item.name;
+
+      nameWrapper.appendChild(iconSpan);
+      nameWrapper.appendChild(labelSpan);
+
       nameWrapper.onclick = (e) => {
         e.preventDefault();
-        const subPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
         if (item.is_dir) {
-          loadDirectory(subPath);
+          loadDirectory(itemRelPath);
         } else if (isMediaFile(item.name)) {
-          openLightbox(subPath);
+          openLightbox(itemRelPath);
         } else {
-          viewOrEditFile(subPath);
+          viewOrEditFile(itemRelPath);
         }
       };
       tdName.appendChild(nameWrapper);
@@ -322,7 +578,10 @@
       // Mode
       const tdMode = document.createElement('td');
       tdMode.setAttribute('data-label', 'Mode');
-      tdMode.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
+      const modeBadge = document.createElement('span');
+      modeBadge.className = 'mode-badge';
+      modeBadge.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
+      tdMode.appendChild(modeBadge);
 
       // Modified
       const tdMod = document.createElement('td');
@@ -336,7 +595,6 @@
       const actionGroup = document.createElement('div');
       actionGroup.className = 'row-actions';
       tdAct.appendChild(actionGroup);
-      const itemRelPath = state.currentPath ? `${state.currentPath}/${item.name}` : item.name;
 
       if (!item.is_dir) {
         const dlBtn = createActionButton('Download', async () => {
@@ -374,17 +632,36 @@
 
   function renderSearchResults(data) {
     el.fileTableBody.innerHTML = '';
+    if (el.folderGrid) el.folderGrid.innerHTML = '';
+    if (el.fileGrid) el.fileGrid.innerHTML = '';
+
     const matches = data.matches || [];
 
     if (matches.length === 0) {
       el.fileTableBody.innerHTML = `<tr class="empty-row"><td colspan="5">No files matching "${escapeHtml(data.query || '')}"</td></tr>`;
+      if (el.gridEmptyState) el.gridEmptyState.classList.remove('hidden');
+      if (el.gridFoldersSection) el.gridFoldersSection.classList.add('hidden');
+      if (el.gridFilesSection) el.gridFilesSection.classList.add('hidden');
       return;
     }
 
+    if (el.gridEmptyState) el.gridEmptyState.classList.add('hidden');
+
     for (const match of matches) {
-      const tr = document.createElement('tr');
       const item = {...match.entry,is_dir:match.entry.file_type==='Directory'};
       const relPath = match.relative_path;
+
+      // Add to Grid
+      if (item.is_dir && el.folderGrid) {
+        el.folderGrid.appendChild(createGridCard(item, relPath));
+      } else if (el.fileGrid) {
+        el.fileGrid.appendChild(createGridCard(item, relPath));
+      }
+
+      // Add to Table
+      const tr = document.createElement('tr');
+      tr.dataset.path = relPath;
+      tr.oncontextmenu = (e) => openContextMenu(e, item, relPath);
 
       // Name & Icon
       const tdName = document.createElement('td');
@@ -393,8 +670,16 @@
       nameWrapper.className = 'item-name';
       nameWrapper.href = '#';
 
-      const icon = item.is_dir ? '📁' : getFileIcon(item.name);
-      nameWrapper.innerHTML = `<span>${icon}</span> <span>${escapeHtml(relPath)}</span>`;
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'item-icon';
+      iconSpan.innerHTML = getFileSvg(item.name, item.is_dir, 18);
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = relPath;
+
+      nameWrapper.appendChild(iconSpan);
+      nameWrapper.appendChild(labelSpan);
+
       nameWrapper.onclick = (e) => {
         e.preventDefault();
         if (item.is_dir) {
@@ -415,7 +700,10 @@
       // Mode
       const tdMode = document.createElement('td');
       tdMode.setAttribute('data-label', 'Mode');
-      tdMode.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
+      const modeBadge = document.createElement('span');
+      modeBadge.className = 'mode-badge';
+      modeBadge.textContent = item.mode != null ? '0' + (item.mode & 0o7777).toString(8).padStart(3, '0') : '-';
+      tdMode.appendChild(modeBadge);
 
       // Modified
       const tdMod = document.createElement('td');
@@ -785,6 +1073,35 @@
   }
 
   let passwordChangeRequired=false;
+  function updateSidebarRoots() {
+    if (!el.sidebarRootsList) return;
+    el.sidebarRootsList.innerHTML = '';
+    for (const r of state.roots) {
+      const item = document.createElement('a');
+      item.href = '#';
+      item.className = 'sidebar-root-item' + (r.root_id === state.currentRoot ? ' active' : '');
+      item.dataset.rootId = r.root_id;
+      item.innerHTML = `
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span class="root-name">${escapeHtml(r.root_id)}</span>
+        ${r.read_only ? '<span class="root-ro-badge">RO</span>' : ''}
+      `;
+      item.onclick = (e) => {
+        e.preventDefault();
+        if (state.currentRoot !== r.root_id) {
+          state.currentRoot = r.root_id;
+          el.rootSelect.value = r.root_id;
+          updateSidebarRoots();
+          updateQuotaWidget();
+          loadDirectory('');
+        }
+      };
+      el.sidebarRootsList.appendChild(item);
+    }
+  }
+
   function onSessionActive() {
     passwordChangeRequired=Boolean(state.session.password_change_required);
     if(passwordChangeRequired){
@@ -806,6 +1123,12 @@
     el.userInfo.classList.remove('hidden');
     el.settingsBtn.disabled=!state.session.is_admin;
     el.userBadge.textContent = `${state.session.username} (uid: ${state.session.uid})`;
+    if (el.userAvatar) {
+      el.userAvatar.textContent = (state.session.username || 'U').charAt(0).toUpperCase();
+    }
+    if (el.sidebarAdminSection) {
+      el.sidebarAdminSection.classList[state.session.is_admin ? 'remove' : 'add']('hidden');
+    }
 
     // Populate roots dropdown
     el.rootSelect.innerHTML = '';
@@ -823,6 +1146,9 @@
       el.rootSelect.appendChild(opt);
     }
     state.currentRoot = state.roots.length > 0 ? state.roots[0].root_id : null;
+
+    updateSidebarRoots();
+    updateQuotaWidget();
 
     connectWebSocket();
   }
@@ -850,6 +1176,7 @@
           const banner = document.getElementById('quotaWarning');
           banner.classList[warning.active?'remove':'add']('hidden');
           banner.textContent = warning.active ? t('Storage usage is {percent}%. Free space to keep uploads and edits available.',{percent:Math.round(warning.quota?.usagePercent ?? 0)})+(warning.status==='unknown'?' '+t('Current usage could not be refreshed.'):'') : '';
+          if (warning.quota) updateQuotaWidget(warning.quota);
         });
       }
     }
@@ -860,6 +1187,10 @@
     document.getElementById('manageAccountsBtn').classList[info?.authentication?.accountManagement && state.session?.role==='admin'?'remove':'add']('hidden');
     document.getElementById('accountSecurityBtn').classList[info?.authentication?.passwordChange?'remove':'add']('hidden');
     document.getElementById('registerWebOption').classList[info?.authentication?.enrollment?'remove':'add']('hidden');
+    if (el.sidebarHistoryNav) el.sidebarHistoryNav.classList[info?.authentication?.auditHistory?'remove':'add']('hidden');
+    if (el.sidebarAccountsNav) el.sidebarAccountsNav.classList[info?.authentication?.accountManagement && state.session?.role==='admin'?'remove':'add']('hidden');
+    if (el.sidebarPolicyNav) el.sidebarPolicyNav.classList[info?.authentication?.policyManagement?'remove':'add']('hidden');
+    if (el.sidebarSettingsNav) el.sidebarSettingsNav.classList[state.session?.is_admin?'remove':'add']('hidden');
     if (!enrolling) label(document.getElementById('passwordLabel'),webPasswords?'Web password':'Password');
     return authClient;
   }
@@ -1199,8 +1530,122 @@
 
     el.rootSelect.onchange = () => {
       state.currentRoot = el.rootSelect.value;
+      updateSidebarRoots();
+      updateQuotaWidget();
       loadDirectory('');
     };
+
+    // View mode switchers
+    if (el.viewGridBtn) el.viewGridBtn.onclick = () => setViewMode('grid');
+    if (el.viewListBtn) el.viewListBtn.onclick = () => setViewMode('list');
+
+    // Sidebar quick action dropdown
+    if (el.sidebarNewActionBtn && el.sidebarNewMenu) {
+      el.sidebarNewActionBtn.onclick = (e) => {
+        e.stopPropagation();
+        el.sidebarNewMenu.classList.toggle('hidden');
+        el.sidebarNewActionBtn.setAttribute('aria-expanded', String(!el.sidebarNewMenu.classList.contains('hidden')));
+      };
+    }
+    if (el.sidebarUploadBtn) el.sidebarUploadBtn.onclick = () => {
+      el.sidebarNewMenu?.classList.add('hidden');
+      el.fileInput.click();
+    };
+    if (el.sidebarNewFolderBtn) el.sidebarNewFolderBtn.onclick = () => {
+      el.sidebarNewMenu?.classList.add('hidden');
+      el.newFolderBtn.click();
+    };
+    if (el.sidebarNewFileBtn) el.sidebarNewFileBtn.onclick = () => {
+      el.sidebarNewMenu?.classList.add('hidden');
+      el.newFileBtn.click();
+    };
+
+    // Sidebar navigation
+    if (el.navMyDrive) el.navMyDrive.onclick = (e) => {
+      e.preventDefault();
+      loadDirectory('');
+    };
+    if (el.sidebarHistoryNav) el.sidebarHistoryNav.onclick = (e) => {
+      e.preventDefault();
+      document.getElementById('historyBtn')?.click();
+    };
+    if (el.sidebarTrashNav) el.sidebarTrashNav.onclick = (e) => {
+      e.preventDefault();
+      openTrashModal();
+    };
+    if (el.sidebarAccountsNav) el.sidebarAccountsNav.onclick = (e) => {
+      e.preventDefault();
+      document.getElementById('manageAccountsBtn')?.click();
+    };
+    if (el.sidebarSettingsNav) el.sidebarSettingsNav.onclick = (e) => {
+      e.preventDefault();
+      openSettingsModal();
+    };
+    if (el.sidebarPolicyNav) el.sidebarPolicyNav.onclick = (e) => {
+      e.preventDefault();
+      document.getElementById('personalPolicyBtn')?.click();
+    };
+    if (el.mobileMenuBtn && el.appSidebar) {
+      el.mobileMenuBtn.onclick = (e) => {
+        e.stopPropagation();
+        el.appSidebar.classList.toggle('open');
+      };
+    }
+
+    // Context Menu items
+    if (el.ctxOpen) el.ctxOpen.onclick = () => {
+      if (!contextTarget) return;
+      const { item, relPath } = contextTarget;
+      closeContextMenu();
+      if (item.is_dir) loadDirectory(relPath);
+      else if (isMediaFile(item.name)) openLightbox(relPath);
+      else viewOrEditFile(relPath);
+    };
+    if (el.ctxDownload) el.ctxDownload.onclick = async () => {
+      if (!contextTarget) return;
+      const { item, relPath } = contextTarget;
+      closeContextMenu();
+      if (!item.is_dir) {
+        const client = await getAuthClient();
+        window.location.href = client.files.getDownloadUrl({ rootId: state.currentRoot, path: relPath });
+      }
+    };
+    if (el.ctxEdit) el.ctxEdit.onclick = () => {
+      if (!contextTarget) return;
+      const { relPath } = contextTarget;
+      closeContextMenu();
+      viewOrEditFile(relPath);
+    };
+    if (el.ctxRename) el.ctxRename.onclick = () => {
+      if (!contextTarget) return;
+      const { item, relPath } = contextTarget;
+      closeContextMenu();
+      openRenameModal(item.name, relPath);
+    };
+    if (el.ctxChmod) el.ctxChmod.onclick = () => {
+      if (!contextTarget) return;
+      const { item, relPath } = contextTarget;
+      closeContextMenu();
+      openChmodModal(relPath, item.mode, item.is_dir);
+    };
+    if (el.ctxTrash) el.ctxTrash.onclick = () => {
+      if (!contextTarget) return;
+      const { relPath } = contextTarget;
+      closeContextMenu();
+      moveToTrash(relPath);
+    };
+
+    // Close floating context menus or off-canvas drawers when clicking outside
+    document.addEventListener('click', (e) => {
+      closeContextMenu();
+      if (el.sidebarNewMenu && !el.sidebarNewMenu.contains(e.target) && e.target !== el.sidebarNewActionBtn && !el.sidebarNewActionBtn?.contains(e.target)) {
+        el.sidebarNewMenu.classList.add('hidden');
+        el.sidebarNewActionBtn?.setAttribute('aria-expanded', 'false');
+      }
+      if (el.appSidebar && el.appSidebar.classList.contains('open') && !el.appSidebar.contains(e.target) && e.target !== el.mobileMenuBtn && !el.mobileMenuBtn?.contains(e.target)) {
+        el.appSidebar.classList.remove('open');
+      }
+    });
 
     el.refreshBtn.onclick = () => loadDirectory(state.currentPath);
 
@@ -1295,8 +1740,25 @@
       closeLightbox();
     };
 
-    // Global keyboard shortcuts (Escape to close modals)
+    function getSelectedFileItem() {
+      const selected = document.querySelector('.file-card.selected, .file-table tbody tr.selected');
+      if (!selected) return null;
+      return {
+        path: selected.dataset.path,
+        name: selected.dataset.name || selected.dataset.path.split('/').pop(),
+        isDir: selected.dataset.isDir === 'true'
+      };
+    }
+
+    // Global keyboard shortcuts (Ctrl+K, F2, Delete, Escape)
     document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        el.searchInput?.focus();
+        el.searchInput?.select();
+        return;
+      }
+
       if (!el.shutdownModal.classList.contains('hidden')) {
         if (e.key === 'Escape') { dismissShutdownNotice(); return; }
         if (e.key === 'Tab') {
@@ -1307,7 +1769,19 @@
         }
         return;
       }
+
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      const isInputFocused = ['input', 'textarea', 'select'].includes(activeTag);
+
       if (e.key === 'Escape') {
+        closeContextMenu();
+        if (el.sidebarNewMenu) {
+          el.sidebarNewMenu.classList.add('hidden');
+          el.sidebarNewActionBtn?.setAttribute('aria-expanded', 'false');
+        }
+        if (el.appSidebar) {
+          el.appSidebar.classList.remove('open');
+        }
         accountManagement?.close();
         closeAccountSecurity();
         if (!el.lightboxModal.classList.contains('hidden')) {
@@ -1321,6 +1795,23 @@
         }
         if (!el.settingsModal.classList.contains('hidden')) {
           el.settingsModal.classList.add('hidden');
+        }
+        return;
+      }
+
+      if (!isInputFocused) {
+        if (e.key === 'F2') {
+          const item = getSelectedFileItem();
+          if (item) {
+            e.preventDefault();
+            openRenameModal(item.name, item.path);
+          }
+        } else if (e.key === 'Delete') {
+          const item = getSelectedFileItem();
+          if (item) {
+            e.preventDefault();
+            moveToTrash(item.path);
+          }
         }
       }
     });
@@ -1357,6 +1848,9 @@
       el.searchClearBtn.classList.add('hidden');
       loadDirectory(state.currentPath);
     };
+
+    // Apply initial view mode
+    setViewMode(viewMode);
   }
 
   // Initialize

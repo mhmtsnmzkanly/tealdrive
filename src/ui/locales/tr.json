@@ -317,5 +317,19 @@
   "Connection interrupted. Resuming upload...": "Bağlantı kesildi. Yüklemeye devam ediliyor...",
   "The selected file does not match the interrupted upload.": "Seçilen dosya yarım kalan yüklemeyle eşleşmiyor.",
   "Change your temporary password before using files or administration.": "Dosyaları veya yönetimi kullanmadan önce geçici parolanızı değiştirin.",
-  "Upload completion could not be confirmed. Refresh the file list before retrying.": "Yüklemenin tamamlandığı doğrulanamadı. Yeniden denemeden önce dosya listesini yenileyin."
+  "Upload completion could not be confirmed. Refresh the file list before retrying.": "Yüklemenin tamamlandığı doğrulanamadı. Yeniden denemeden önce dosya listesini yenileyin.",
+  "My Drive": "Sürücüm",
+  "Navigation": "Gezinme",
+  "Storage Roots": "Depolama Kökleri",
+  "Storage": "Depolama",
+  "Grid View": "Izgara Görünümü",
+  "List View": "Liste Görünümü",
+  "Folders": "Klasörler",
+  "Files": "Dosyalar",
+  "Open": "Aç",
+  "Open / Preview": "Aç / Önizle",
+  "New": "Yeni",
+  "Administration": "Yönetim",
+  "Upload files or create a new folder to get started.": "Başlamak için dosya yükleyin veya yeni bir klasör oluşturun.",
+  "Move to Trash": "Çöpe At"
 }

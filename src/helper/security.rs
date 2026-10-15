@@ -8,7 +8,7 @@ use sha2::Sha256;
 use std::ffi::{CStr, CString};
 use std::io;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const TRUSTED_CONFIG: &str = crate::layout::HELPER_CONFIG;
 
@@ -175,17 +175,23 @@ pub fn account(username: &str) -> Result<AuthSuccess, AuthError> {
             &mut result,
         )
     };
-    if code != 0 || result.is_null() {
+    if code != 0 || result.is_null() || pwd.pw_name.is_null() {
         return Err(AuthError::InvalidCredentials);
     }
-    let string =
-        |p: *const libc::c_char| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+    let string_opt = |p: *const libc::c_char| {
+        if p.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+        }
+    };
+    let username = string_opt(pwd.pw_name).ok_or(AuthError::InvalidCredentials)?;
     Ok(AuthSuccess {
-        username: string(pwd.pw_name),
+        username,
         uid: pwd.pw_uid,
         primary_gid: pwd.pw_gid,
-        home_dir: Some(string(pwd.pw_dir).into()),
-        shell: Some(string(pwd.pw_shell)),
+        home_dir: string_opt(pwd.pw_dir).map(PathBuf::from),
+        shell: string_opt(pwd.pw_shell),
         groups: Vec::new(),
     })
 }

@@ -1,6 +1,0 @@
-{
-  "name": "TealDrive",
-  "description": "Enterprise-grade personal and edge cloud storage with granular UNIX permissions, real-time quota tracking, and instant operation undo.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

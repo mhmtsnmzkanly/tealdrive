@@ -1,10 +1,8 @@
 //! Standard installation paths. Privileged helper locations never come from an environment variable.
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 pub const HOME: &str = "/home/tealdrive";
 pub const HELPER_CONFIG: &str = "/home/tealdrive/policy/helper.toml";
 pub const HELPER_KEY: &str = "/home/tealdrive/policy/helper.key";
-pub const LEGACY_HELPER_CONFIG: &str = "/etc/tealdrive/helper.toml";
-pub const LEGACY_HELPER_KEY: &str = "/etc/tealdrive/helper.key";
 pub const SERVER_CONFIG: &str = "/home/tealdrive/policy/server.toml";
 pub const SETTINGS: &str = "/home/tealdrive/config/settings.toml";
 pub const AUDIT_LOG: &str = "/home/tealdrive/logs/server/audit.jsonl";
@@ -51,38 +49,7 @@ impl Layout {
         self.home.join("virtual-homes")
     }
 }
-// Only absence selects legacy. A present corrupt/symlink/unreadable primary must fail closed.
-fn preferred(primary: &Path, legacy: &Path) -> PathBuf {
-    match std::fs::symlink_metadata(primary) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => legacy.to_path_buf(),
-        _ => primary.to_path_buf(),
-    }
-}
+/// The helper's root-owned policy and key. There is no fallback location.
 pub fn trusted_helper_paths() -> (PathBuf, PathBuf) {
-    let config = preferred(Path::new(HELPER_CONFIG), Path::new(LEGACY_HELPER_CONFIG));
-    let key = if config == Path::new(HELPER_CONFIG) {
-        HELPER_KEY
-    } else {
-        LEGACY_HELPER_KEY
-    };
-    (config, key.into())
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn corrupt_or_symlink_primary_is_never_a_legacy_fallback() {
-        let dir = std::env::temp_dir().join(format!("tealdrive-layout-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir(&dir).unwrap();
-        let primary = dir.join("helper.toml");
-        let legacy = dir.join("old.toml");
-        std::fs::write(&legacy, "valid legacy").unwrap();
-        assert_eq!(preferred(&primary, &legacy), legacy);
-        std::fs::write(&primary, "corrupt").unwrap();
-        assert_eq!(preferred(&primary, &legacy), primary);
-        std::fs::remove_file(&primary).unwrap();
-        std::os::unix::fs::symlink(dir.join("missing"), &primary).unwrap();
-        assert_eq!(preferred(&primary, &legacy), primary);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
+    (HELPER_CONFIG.into(), HELPER_KEY.into())
 }

@@ -84,9 +84,8 @@ sensitive matches; the names of the lists do not imply an interactive warning UI
 `webroot_policy.block_executable_uploads=true` and `blocked_extensions` default to
 PHP/CGI/script extensions. Web-root extraction is refused.
 
-Elevated helpers read `/home/tealdrive/policy/helper.toml` and its paired helper.key;
-only absence selects legacy `/etc/tealdrive/helper.toml` and legacy key. A present
-invalid/unreadable/symlink primary never falls back. Server configuration is
+Elevated helpers read only `/home/tealdrive/policy/helper.toml` and its paired
+`helper.key`; there is no fallback location. Server configuration is
 only a requested policy beneath that ceiling. Both files must name the same root
 ids and paths. To enable a feature, allow it in both files. To change roots or relax
 a ceiling, an OS administrator must edit the root-owned helper file. A server PATCH
@@ -202,7 +201,7 @@ reject_disabled_shells = true
 minimum_regular_uid = 1000
 ```
 
-Set this list in the server TOML and the root-owned `/etc/tealdrive/helper.toml`.
+Set this list in the server TOML and the root-owned `/home/tealdrive/policy/helper.toml`.
 Both lists must allow the user. Server administrators can narrow or change the
 server list by checking eligible local users under Settings → Login access, or PATCH `/api/admin/config` with
 `{"allowed_users":["alice"]}`. This does not widen the root-owned helper list.

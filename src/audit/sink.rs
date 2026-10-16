@@ -147,9 +147,6 @@ impl JsonlAuditSink {
             ..Default::default()
         })
     }
-    pub fn open_default() -> io::Result<Self> {
-        Self::open_config(&AuditConfig::default())
-    }
     pub fn open_config(config: &AuditConfig) -> io::Result<Self> {
         let path = config.path.clone().unwrap_or_else(|| {
             std::env::var("TEALDRIVE_AUDIT_PATH")
@@ -248,7 +245,8 @@ mod tests {
     use crate::audit::event::{AuditAction, AuditStatus};
     use crate::protocol::frame::RequestId;
     fn fixture() -> PathBuf {
-        let p = std::env::temp_dir().join(format!("tdrv-audit-{}", uuid::Uuid::new_v4()));
+        let p =
+            crate::test_support::scratch_dir().join(format!("tdrv-audit-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&p).unwrap();
         p
     }

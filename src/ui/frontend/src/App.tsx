@@ -98,7 +98,7 @@ const MainExplorer: React.FC = () => {
   const isQuotaWarning = quota && quota.percentage >= 80;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto bg-[#090d16]">
+    <div className="flex-1 flex flex-col min-w-0 h-[100dvh] overflow-y-auto bg-[#090d16]">
       <TopBar />
 
       {/* Proactive Quota Warning Banner */}
@@ -218,7 +218,7 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#090d16] text-slate-100 font-sans">
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-[#090d16] text-slate-100 font-sans">
       <Sidebar />
       <MainExplorer />
     </div>

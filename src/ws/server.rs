@@ -878,20 +878,21 @@ pub fn extract_session_id(
     headers: &HeaderMap,
     cookie_name: &str,
 ) -> Result<SessionId, TealDriveError> {
-    let cookie_header = headers
-        .get(axum::http::header::COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .ok_or(TealDriveError::PermissionDenied)?;
-
-    for part in cookie_header.split(';') {
-        let (name, value) = match part.trim().split_once('=') {
-            Some(pair) => pair,
-            None => continue,
+    // HTTP/2 lets a client or proxy split cookies into several `cookie` fields
+    // (RFC 9113 8.2.3); Caddy's HTTP/2 upstream transport does so. Read them all.
+    let parts = headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|header| header.split(';'));
+    for part in parts {
+        let Some((name, value)) = part.trim().split_once('=') else {
+            continue;
         };
         if name == cookie_name {
-            let parsed =
-                Uuid::parse_str(value.trim()).map_err(|_| TealDriveError::PermissionDenied)?;
-            return Ok(SessionId(parsed));
+            if let Ok(parsed) = Uuid::parse_str(value.trim()) {
+                return Ok(SessionId(parsed));
+            }
         }
     }
 
@@ -1928,6 +1929,31 @@ mod tests {
             session_id,
             SessionId(Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").expect("uuid"))
         );
+    }
+
+    #[test]
+    fn session_cookie_is_found_in_any_split_cookie_field() {
+        let mut headers = HeaderMap::new();
+        for value in [
+            "__cf_bm=abc; theme=dark",
+            "tealdrive_session=not-a-uuid",
+            "tealdrive_session=550e8400-e29b-41d4-a716-446655440000",
+        ] {
+            headers.append(axum::http::header::COOKIE, value.parse().expect("cookie"));
+        }
+
+        let session_id = extract_session_id(&headers, "tealdrive_session").expect("session");
+
+        assert_eq!(
+            session_id,
+            SessionId(Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").expect("uuid"))
+        );
+        headers.remove(axum::http::header::COOKIE);
+        headers.append(
+            axum::http::header::COOKIE,
+            "__cf_bm=abc".parse().expect("cookie"),
+        );
+        assert!(extract_session_id(&headers, "tealdrive_session").is_err());
     }
 
     #[test]

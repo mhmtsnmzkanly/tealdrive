@@ -1472,6 +1472,7 @@ mod tests {
                 Some((&key, &raw)),
             )
             .unwrap();
+        assert!(!tenant.password_change_required);
         assert_eq!(store.effective_quota(&tenant.id).unwrap(), Some(600));
         assert_eq!(
             pending_reserved(&store.connection, "__root__", "").unwrap(),
@@ -1534,6 +1535,7 @@ mod tests {
             )
             .unwrap();
         assert!(child.password_enrolled);
+        assert!(child.password_change_required);
         assert_eq!(store.effective_quota(&parent.id).unwrap(), Some(800));
         assert_eq!(
             store

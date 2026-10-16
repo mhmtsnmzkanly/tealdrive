@@ -612,6 +612,13 @@ impl AccountStore {
                 "UPDATE accounts SET web_password_hash=?1 WHERE id=?2",
                 params![hash.as_str(), id],
             )?;
+            // An admin chose this password and knows it; the user must replace it.
+            if caller.is_some() {
+                tx.execute(
+                    "INSERT INTO security_state(key,value) VALUES(?1,'1')",
+                    [format!("password_change_required:{id}")],
+                )?;
+            }
         }
         if let Some((key, state)) = request_state {
             let mut state: serde_json::Value =

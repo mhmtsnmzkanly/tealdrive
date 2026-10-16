@@ -4,7 +4,7 @@ const elements = new Map();
 function element() {
   const classes = new Set(['hidden']);
   return {value:'',textContent:'',disabled:false,style:{},setAttribute(){},setCustomValidity(){},
-    classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),contains:x=>classes.has(x)},
+    classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),contains:x=>classes.has(x),toggle:(x,force=!classes.has(x))=>(force?classes.add(x):classes.delete(x),force)},
     addEventListener(){},appendChild(){},focus(){},remove(){}};
 }
 globalThis.document = {getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},

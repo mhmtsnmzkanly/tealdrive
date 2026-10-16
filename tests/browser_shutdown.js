@@ -10,7 +10,7 @@ globalThis.document = {
       const classes = new Set(['hidden']);
       elements.set(id, {
         value: '', textContent: '', disabled: false,
-        classList: {add: x => classes.add(x), remove: x => classes.delete(x), contains: x => classes.has(x)},
+        classList: {add: x => classes.add(x), remove: x => classes.delete(x), contains: x => classes.has(x), toggle: (x, force = !classes.has(x)) => (force ? classes.add(x) : classes.delete(x), force)},
         focus() { document.activeElement = this; },
         addEventListener() {},
       });

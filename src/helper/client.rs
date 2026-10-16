@@ -329,7 +329,8 @@ mod pipe_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     fn script(code: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tdrv-pipe-test-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("tdrv-pipe-test-{}", uuid::Uuid::new_v4()));
         std::fs::write(&path, format!("#!/usr/bin/python3\n{code}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         path

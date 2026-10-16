@@ -39,7 +39,8 @@ fn descendants_inherit_user_filesystem_confinement() {
         return;
     }
     assert_eq!(unsafe { libc::geteuid() }, 0);
-    let parent = std::env::temp_dir().join(format!("tealdrive-thread-{}", uuid::Uuid::new_v4()));
+    let parent = tealdrive::test_support::scratch_dir()
+        .join(format!("tealdrive-thread-{}", uuid::Uuid::new_v4()));
     let scope = parent.join("scope");
     std::fs::create_dir_all(&scope).unwrap();
     for directory in [&parent, &scope] {

@@ -181,7 +181,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
+        let path = crate::test_support::scratch_dir().join(format!(
             "tealdrive-helper-download-{}",
             uuid::Uuid::new_v4()
         ));

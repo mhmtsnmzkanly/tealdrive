@@ -229,7 +229,8 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
-        let dir = std::env::temp_dir().join(format!("td-budget-{}", uuid::Uuid::new_v4()));
+        let dir =
+            crate::test_support::scratch_dir().join(format!("td-budget-{}", uuid::Uuid::new_v4()));
         fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
         struct Cleanup(PathBuf);
         impl Drop for Cleanup {
@@ -269,7 +270,8 @@ mod tests {
     }
     #[test]
     fn orphan_files_count_and_symlink_ledger_fails_closed() {
-        let dir = std::env::temp_dir().join(format!("td-budget-{}", uuid::Uuid::new_v4()));
+        let dir =
+            crate::test_support::scratch_dir().join(format!("td-budget-{}", uuid::Uuid::new_v4()));
         fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
         let old = dir.join(format!(".tdrv-upload-{}.tmp", uuid::Uuid::new_v4()));
         fs::write(&old, [1u8; 11]).unwrap();

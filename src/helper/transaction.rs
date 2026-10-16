@@ -197,8 +197,8 @@ mod tests {
     use super::*;
     #[test]
     fn concurrent_uploads_share_one_quota_reservation() {
-        let base =
-            std::env::temp_dir().join(format!("tdrv-quota-concurrency-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-quota-concurrency-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         let config = AppConfig {
             roots: vec![crate::config::AllowedRoot {
@@ -248,8 +248,8 @@ mod tests {
     }
     #[test]
     fn extraction_failure_keeps_destination_invisible() {
-        let base =
-            std::env::temp_dir().join(format!("tdrv-extract-rollback-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-extract-rollback-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         std::fs::write(base.join("broken.zip"), b"invalid").unwrap();
         let mut config = AppConfig {
@@ -277,8 +277,8 @@ mod archive_regressions {
     use std::io::Write;
     #[test]
     fn archives_filter_hidden_sensitive_and_symlink_descendants() {
-        let base =
-            std::env::temp_dir().join(format!("tdrv-archive-filter-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-archive-filter-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(base.join("source")).unwrap();
         std::fs::write(base.join("source/visible.txt"), b"visible").unwrap();
         std::fs::write(base.join("source/.secret"), b"secret").unwrap();
@@ -320,8 +320,8 @@ mod archive_regressions {
     }
     #[test]
     fn extraction_cannot_publish_hidden_archive_entries() {
-        let base =
-            std::env::temp_dir().join(format!("tdrv-extract-hidden-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-extract-hidden-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         let mut zip = zip::ZipWriter::new(std::fs::File::create(base.join("input.zip")).unwrap());
         zip.start_file("visible.txt", zip::write::SimpleFileOptions::default())
@@ -424,7 +424,8 @@ mod noreplace_tests {
     use super::*;
     #[test]
     fn destination_created_after_validation_is_never_overwritten() {
-        let home = std::env::temp_dir().join(format!("td-noreplace-{}", uuid::Uuid::new_v4()));
+        let home = crate::test_support::scratch_dir()
+            .join(format!("td-noreplace-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&home).unwrap();
         std::fs::write(home.join("source"), b"source").unwrap();
         let root = crate::config::AllowedRoot {

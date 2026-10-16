@@ -254,7 +254,8 @@ mod tests {
     use crate::helper::types::{HelperResponse, HelperResponsePayload};
     use crate::policy::access::{Rule, UserRules};
     fn fixture() -> (std::path::PathBuf, AppConfig) {
-        let base = std::env::temp_dir().join(format!("tealdrive-access-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-access-{}", uuid::Uuid::new_v4()));
         for dir in [".ssh", "private", "docs", "source/private"] {
             std::fs::create_dir_all(base.join(dir)).unwrap();
         }

@@ -174,7 +174,8 @@ impl RuntimeSettings {
 mod tests {
     use super::*;
     fn fixture() -> (PathBuf, RuntimeSettings) {
-        let dir = std::env::temp_dir().join(format!("tealdrive-settings-{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-settings-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
         let mut base = AppConfig::default();
         base.features.save_text_file = true;

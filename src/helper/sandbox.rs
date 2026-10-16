@@ -160,7 +160,8 @@ mod tests {
     use super::*;
     #[test]
     fn descriptor_open_rejects_symlinks_in_every_component() {
-        let base = std::env::temp_dir().join(format!("tdrv-openat2-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-openat2-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(base.join("real")).unwrap();
         std::fs::write(base.join("real/file"), b"hello").unwrap();
         std::os::unix::fs::symlink(base.join("real"), base.join("link")).unwrap();

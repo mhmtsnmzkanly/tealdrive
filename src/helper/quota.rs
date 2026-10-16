@@ -150,7 +150,8 @@ mod tests {
     use super::*;
     #[test]
     fn cross_process_reservation_counts_existing_files() {
-        let base = std::env::temp_dir().join(format!("tdrv-reservation-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-reservation-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         std::fs::write(base.join("existing"), [0u8; 80]).unwrap();
         let root = AllowedRoot {

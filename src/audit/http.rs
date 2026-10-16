@@ -171,7 +171,7 @@ impl Drop for HttpAudit {
 mod tests {
     use super::*;
     fn run(length: usize, complete: bool) -> Vec<AuditEvent> {
-        let path = std::env::temp_dir().join(format!(
+        let path = crate::test_support::scratch_dir().join(format!(
             "tdrv-http-audit-{}.jsonl",
             crate::protocol::frame::RequestId::new().0
         ));
@@ -220,7 +220,7 @@ mod tests {
             StatusCode::RESET_CONTENT,
             StatusCode::NOT_MODIFIED,
         ] {
-            let path = std::env::temp_dir().join(format!(
+            let path = crate::test_support::scratch_dir().join(format!(
                 "tdrv-bodyless-audit-{}.jsonl",
                 uuid::Uuid::new_v4()
             ));

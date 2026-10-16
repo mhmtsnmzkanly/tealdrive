@@ -11,7 +11,8 @@ use tealdrive::helper::types::{
 use tealdrive::protocol::frame::RequestId;
 
 fn temp_dir() -> PathBuf {
-    let path = std::env::temp_dir().join(format!("tealdrive-e2e-{}", uuid::Uuid::new_v4()));
+    let path = tealdrive::test_support::scratch_dir()
+        .join(format!("tealdrive-e2e-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&path).expect("create temp dir");
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o777)).unwrap();

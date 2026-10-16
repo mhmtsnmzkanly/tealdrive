@@ -152,8 +152,8 @@ mod tests {
     }
 
     fn temp_root() -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("tealdrive-service-create-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-service-create-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }

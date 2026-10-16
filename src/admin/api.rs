@@ -534,7 +534,8 @@ mod tests {
         };
         let session_store = InMemorySessionStore::new(config.session.clone());
         let audit_sink = JsonlAuditSink::open(
-            std::env::temp_dir().join(format!("tealdrive-audit-{}.jsonl", uuid::Uuid::new_v4())),
+            crate::test_support::scratch_dir()
+                .join(format!("tealdrive-audit-{}.jsonl", uuid::Uuid::new_v4())),
         )
         .expect("sink");
         let state = WsServerState::with_authenticator_and_path(
@@ -594,8 +595,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_patch_and_reload_config() {
-        let temp_dir =
-            std::env::temp_dir().join(format!("tdrv-admin-test-{}", uuid::Uuid::new_v4()));
+        let temp_dir = crate::test_support::scratch_dir()
+            .join(format!("tdrv-admin-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let config_file = temp_dir.join("config.toml");
 

@@ -81,8 +81,8 @@ fn owner_recovers_unreadable_permissions_after_uid_drop() {
         return;
     }
     assert_eq!(unsafe { libc::geteuid() }, 0);
-    let fixture =
-        std::env::temp_dir().join(format!("tealdrive-chmod-owner-{}", uuid::Uuid::new_v4()));
+    let fixture = tealdrive::test_support::scratch_dir()
+        .join(format!("tealdrive-chmod-owner-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&fixture).unwrap();
     std::fs::set_permissions(&fixture, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::write(fixture.join("owned"), "preserved-content").unwrap();

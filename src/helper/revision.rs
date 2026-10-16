@@ -62,7 +62,8 @@ mod tests {
     #[test]
     fn stale_revision_never_overwrites_original_and_mode_is_preserved() {
         use std::os::unix::fs::PermissionsExt;
-        let base = std::env::temp_dir().join(format!("tdrv-revision-{}", uuid::Uuid::new_v4()));
+        let base = crate::test_support::scratch_dir()
+            .join(format!("tdrv-revision-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         std::fs::write(base.join("note.txt"), b"before").unwrap();
         std::fs::set_permissions(

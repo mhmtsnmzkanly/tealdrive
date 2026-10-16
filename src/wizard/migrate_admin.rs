@@ -460,7 +460,8 @@ mod tests {
     use super::*;
     #[test]
     fn descriptor_copy_preserves_bytes_and_refuses_links_without_overwrite() {
-        let base = std::env::temp_dir().join(format!("td-migrate-{}", uuid::Uuid::new_v4()));
+        let base =
+            crate::test_support::scratch_dir().join(format!("td-migrate-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&base).unwrap();
         let src = base.join("src");
         let dst = base.join("dst");

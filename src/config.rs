@@ -1128,7 +1128,8 @@ mod tests {
 
     #[test]
     fn from_file_toml_and_json_test() {
-        let dir = std::env::temp_dir().join(format!("tealdrive-cfg-{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-cfg-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // 1. TOML file
@@ -1166,7 +1167,8 @@ mod tests {
 
     #[test]
     fn dynamic_config_patch_and_hot_reload_test() {
-        let dir = std::env::temp_dir().join(format!("tealdrive-dyn-{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-dyn-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let cfg_file = dir.join("config.toml");
         let initial_cfg = AppConfig::default();
@@ -1239,7 +1241,8 @@ mod regression_tests {
     }
     #[test]
     fn atomic_json_save_roundtrips_and_failure_preserves_live_config() {
-        let dir = std::env::temp_dir().join(format!("tdrv-config-save-{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::scratch_dir()
+            .join(format!("tdrv-config-save-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
         let path = dir.join("config.json");
         let state = DynamicConfig::new(AppConfig::default(), Some(path.clone()));

@@ -21,7 +21,8 @@ async fn ws_first_login_gates_files_and_binds_cookie_once() {
     exercise(true).await;
 }
 async fn exercise(web_mode: bool) {
-    let dir = std::env::temp_dir().join(format!("tdrv-ws-auth-{}", uuid::Uuid::new_v4()));
+    let dir = tealdrive::test_support::scratch_dir()
+        .join(format!("tdrv-ws-auth-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&dir).unwrap();
     let mut config = AppConfig::default();
     config.server.behind_tls_proxy = false;

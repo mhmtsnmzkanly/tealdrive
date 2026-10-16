@@ -20,7 +20,8 @@ fn kernel_denies_filesystem_escape() {
         assert!(fs::read("/etc/passwd").is_err());
         return;
     }
-    let base = std::env::temp_dir().join(format!("tdrv-confinement-{}", uuid::Uuid::new_v4()));
+    let base = tealdrive::test_support::scratch_dir()
+        .join(format!("tdrv-confinement-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(base.join("root")).unwrap();
     fs::create_dir(base.join("outside")).unwrap();
     fs::write(base.join("root/inside"), b"inside").unwrap();

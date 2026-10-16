@@ -17,6 +17,8 @@ pub mod rate_limit;
 pub mod runtime_settings;
 pub mod session;
 pub mod shutdown;
+#[doc(hidden)]
+pub mod test_support;
 pub mod trash;
 pub mod ui;
 pub mod upload;

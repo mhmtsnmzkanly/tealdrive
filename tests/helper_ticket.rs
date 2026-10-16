@@ -163,7 +163,8 @@ fn bound_ticket_rejects_another_process_of_the_same_uid() {
         .parse()
         .unwrap();
     let config = tealdrive::helper::security::trusted_config().unwrap();
-    let fixture = std::env::temp_dir().join(format!("tealdrive-ticket-{}", uuid::Uuid::new_v4()));
+    let fixture = tealdrive::test_support::scratch_dir()
+        .join(format!("tealdrive-ticket-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&fixture).unwrap();
     let executable = fixture.join("test");
     std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();

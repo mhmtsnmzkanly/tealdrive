@@ -1876,7 +1876,8 @@ mod tests {
     }
 
     fn temp_root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tealdrive-ws-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-ws-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp root");
         path
     }
@@ -1990,7 +1991,7 @@ mod tests {
             InMemorySessionStore::new(crate::config::SessionConfig::default()),
             InProcessHelper { roots: vec![] },
             JsonlAuditSink::open(
-                std::env::temp_dir()
+                crate::test_support::scratch_dir()
                     .join(format!("tealdrive-audit-{}.jsonl", uuid::Uuid::new_v4())),
             )
             .expect("audit"),

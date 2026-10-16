@@ -180,7 +180,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_test_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("tdrv-search-test-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("tdrv-search-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path.canonicalize().unwrap()
     }

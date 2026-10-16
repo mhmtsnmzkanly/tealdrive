@@ -36,7 +36,8 @@ mod tests {
     use super::*;
     #[test]
     fn usage_deduplicates_links_and_counts_internal_files() {
-        let dir = std::env::temp_dir().join(format!("tdrv-usage-{}", uuid::Uuid::new_v4()));
+        let dir =
+            crate::test_support::scratch_dir().join(format!("tdrv-usage-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
         std::fs::write(dir.join("file"), b"12345").unwrap();
         std::fs::hard_link(dir.join("file"), dir.join("hardlink")).unwrap();

@@ -408,8 +408,8 @@ mod tests {
     }
 
     fn temp_root() -> (PathBuf, AllowedRoot) {
-        let path =
-            std::env::temp_dir().join(format!("tealdrive-archive-svc-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("tealdrive-archive-svc-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("temp dir");
         let root = AllowedRoot {
             root_id: RootId::new("home"),

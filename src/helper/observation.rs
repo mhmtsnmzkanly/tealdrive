@@ -259,7 +259,8 @@ mod tests {
     use super::*;
     #[test]
     fn deep_content_and_same_size_edits_change_expected_state() {
-        let home = std::env::temp_dir().join(format!("td-state-{}", uuid::Uuid::new_v4()));
+        let home =
+            crate::test_support::scratch_dir().join(format!("td-state-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&home).unwrap();
         std::fs::create_dir(home.join("nested")).unwrap();
         std::fs::write(home.join("nested/file"), b"one").unwrap();
@@ -278,7 +279,8 @@ mod tests {
     }
     #[test]
     fn hidden_descendant_is_never_read_for_tree_fingerprint() {
-        let home = std::env::temp_dir().join(format!("td-hidden-state-{}", uuid::Uuid::new_v4()));
+        let home = crate::test_support::scratch_dir()
+            .join(format!("td-hidden-state-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&home).unwrap();
         std::fs::create_dir(home.join(".ssh")).unwrap();
         std::fs::write(home.join(".ssh/key"), b"hidden credential").unwrap();

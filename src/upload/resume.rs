@@ -175,7 +175,8 @@ mod tests {
         WsConnectionContext,
         ActiveUpload,
     ) {
-        let path = std::env::temp_dir().join(format!("resume-test-{}", uuid::Uuid::new_v4()));
+        let path = crate::test_support::scratch_dir()
+            .join(format!("resume-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&path).unwrap();
         let mut cfg = AppConfig::default();
         cfg.roots[0].root_id = RootId::new("home");

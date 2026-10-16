@@ -24,8 +24,6 @@ pub async fn serve_noise_wasm() -> Response {
     response
 }
 
-#[cfg(test)]
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, State};
@@ -38,7 +36,7 @@ use axum::response::{Html, IntoResponse, Response};
 use crate::ui::assets::{APP_JS, FAVICON_SVG, INDEX_HTML, STYLE_CSS};
 use crate::ws::server::{WsHelperBackend, WsServerState};
 
-const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; worker-src 'none';";
+const CSP_POLICY: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; connect-src 'self'; worker-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
 
 fn apply_security_headers(headers: &mut HeaderMap, content_type: &'static str) {
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -86,37 +84,9 @@ pub fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
-pub fn resolve_safe_static_path(base_dir: &Path, rel_path: &str) -> Option<PathBuf> {
-    let clean = rel_path.trim_start_matches('/');
-    if clean.contains("..") || clean.contains('\\') || clean.contains('\0') {
-        return None;
-    }
-    let target = base_dir.join(clean);
-    let canonical_base = base_dir.canonicalize().ok()?;
-    let canonical_target = target.canonicalize().ok()?;
-    if canonical_target.starts_with(&canonical_base) && canonical_target.is_file() {
-        Some(canonical_target)
-    } else {
-        None
-    }
-}
-
+/// Only an explicitly configured, Root-approved package directory replaces the embedded UI.
 pub fn resolve_ui_directory(config_dir: &Option<PathBuf>) -> Option<PathBuf> {
-    if let Some(ref dir) = config_dir {
-        Some(dir.clone())
-    } else {
-        let frontend_dist = PathBuf::from("/root/tealdrive/src/ui/frontend/dist");
-        if frontend_dist.join("manifest.json").is_file() {
-            Some(frontend_dist)
-        } else {
-            let default_pkg = PathBuf::from("/var/lib/tealdrive-ui");
-            if default_pkg.join("manifest.json").is_file() {
-                Some(default_pkg)
-            } else {
-                None
-            }
-        }
-    }
+    config_dir.clone()
 }
 
 pub async fn serve_index<H>(State(state): State<WsServerState<H>>) -> Response
@@ -467,22 +437,6 @@ mod tests {
             mime_for_path(Path::new("unknown.xyz")),
             "application/octet-stream"
         );
-    }
-
-    #[test]
-    fn safe_path_resolution_blocks_traversal() {
-        let temp = std::env::temp_dir().join(format!("tdrv-ui-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&temp).unwrap();
-        let file_path = temp.join("test.txt");
-        fs::write(&file_path, "hello ui").unwrap();
-
-        assert!(resolve_safe_static_path(&temp, "test.txt").is_some());
-        assert!(resolve_safe_static_path(&temp, "../etc/passwd").is_none());
-        assert!(resolve_safe_static_path(&temp, "..\\windows").is_none());
-        assert!(resolve_safe_static_path(&temp, "test\0.txt").is_none());
-        assert!(resolve_safe_static_path(&temp, "non_existent.txt").is_none());
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]

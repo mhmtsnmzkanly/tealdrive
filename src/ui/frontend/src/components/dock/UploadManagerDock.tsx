@@ -10,6 +10,7 @@ import {
   AlertCircle,
   XCircle,
 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 export const UploadManagerDock: React.FC = () => {
   const { uploads, cancelUpload, clearCompletedUploads } = useTealDrive();
@@ -33,8 +34,11 @@ export const UploadManagerDock: React.FC = () => {
           <UploadCloud className="w-4 h-4 text-teal-400" />
           <div className="text-xs font-semibold text-slate-200">
             {activeUploads.length > 0
-              ? `Uploading ${activeUploads.length} ${activeUploads.length === 1 ? 'file' : 'files'} (${Math.round(overallProgress)}%)`
-              : `${completedUploads.length} ${completedUploads.length === 1 ? 'upload' : 'uploads'} complete`}
+              ? t('Uploading {count} files ({percent}%)', {
+                  count: activeUploads.length,
+                  percent: Math.round(overallProgress),
+                })
+              : t('{count} uploads complete', { count: completedUploads.length })}
           </div>
         </div>
 
@@ -47,7 +51,7 @@ export const UploadManagerDock: React.FC = () => {
               }}
               className="text-[10px] text-teal-400 hover:text-teal-300 font-medium px-1.5 py-0.5 rounded hover:bg-slate-800 transition-colors"
             >
-              Clear
+              {t('Clear')}
             </button>
           )}
 
@@ -72,7 +76,7 @@ export const UploadManagerDock: React.FC = () => {
                     <button
                       onClick={() => cancelUpload(item.fileId)}
                       className="text-slate-400 hover:text-rose-400 p-0.5"
-                      title="Cancel upload"
+                      title={t('Cancel upload')}
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -115,8 +119,8 @@ export const UploadManagerDock: React.FC = () => {
                   {item.status === 'uploading'
                     ? item.speedBytesPerSec > 0
                       ? `${formatBytes(item.speedBytesPerSec)}/s`
-                      : 'starting'
-                    : item.status}
+                      : t('starting')
+                    : t(item.status)}
                 </span>
               </div>
             </div>

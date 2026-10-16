@@ -7,6 +7,7 @@ import { CanvasContextMenu } from './CanvasContextMenu.tsx';
 import { formatBytes, formatRelativeDate } from '../../utils/formatters.ts';
 import { modeToSymbolic } from '../../sdk/permissions.ts';
 import { Star, MoreVertical, ArrowUpDown, Key, Check, Minus } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface FileTableProps {
   files: FileEntry[];
@@ -185,7 +186,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                       ? 'bg-teal-500/20 border-teal-400 text-teal-300'
                       : 'border-slate-700 bg-slate-800 hover:border-slate-500'
                   }`}
-                  title={allSelected ? 'Deselect all' : 'Select all'}
+                  title={allSelected ? t('Deselect all') : t('Select all')}
                 >
                   {allSelected && <Check className="w-3 h-3 stroke-[3]" />}
                   {isIndeterminate && <Minus className="w-2.5 h-2.5 stroke-[3]" />}
@@ -199,7 +200,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                 className="py-3 px-3 cursor-pointer hover:text-slate-200 transition-colors"
               >
                 <div className="flex items-center gap-1.5">
-                  <span>Name</span>
+                  <span>{t('Name')}</span>
                   {sortField === 'name' && <ArrowUpDown className="w-3 h-3 text-teal-400" />}
                 </div>
               </th>
@@ -211,7 +212,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                 className="py-3 px-4 w-28 cursor-pointer hover:text-slate-200 transition-colors text-right"
               >
                 <div className="flex items-center justify-end gap-1.5">
-                  <span>Size</span>
+                  <span>{t('Size')}</span>
                   {sortField === 'size' && <ArrowUpDown className="w-3 h-3 text-teal-400" />}
                 </div>
               </th>
@@ -223,12 +224,12 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                 className="py-3 px-4 w-36 cursor-pointer hover:text-slate-200 transition-colors"
               >
                 <div className="flex items-center gap-1.5">
-                  <span>Modified</span>
+                  <span>{t('Modified')}</span>
                   {sortField === 'modified' && <ArrowUpDown className="w-3 h-3 text-teal-400" />}
                 </div>
               </th>
-              <th className="py-3 px-4 w-36 font-mono">Permissions</th>
-              <th className="py-3 px-4 w-28">Owner/Group</th>
+              <th className="py-3 px-4 w-36 font-mono">{t('Permissions')}</th>
+              <th className="py-3 px-4 w-28">{t('Owner/Group')}</th>
               <th className="py-3 px-3 w-12 text-center"></th>
             </tr>
           </thead>
@@ -236,7 +237,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
             {files.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-12 text-center text-slate-500">
-                  This directory is empty. Right-click or long-press to open options.
+                  {t('This directory is empty. Right-click or long-press to open options.')}
                 </td>
               </tr>
             ) : (
@@ -316,7 +317,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                           e.stopPropagation();
                           setChmodFile(file);
                         }}
-                        title="Edit UNIX Permissions"
+                        title={t('Edit UNIX Permissions')}
                         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 text-[11px] text-teal-300 transition-colors"
                       >
                         <Key className="w-3 h-3 text-amber-400" />
@@ -345,7 +346,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                           }
                         }}
                         className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-                        title="More actions"
+                        title={t('More actions')}
                       >
                         <MoreVertical className="w-3.5 h-3.5" />
                       </button>

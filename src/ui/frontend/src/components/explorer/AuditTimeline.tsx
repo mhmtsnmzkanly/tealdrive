@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { tealdrive } from '../../lib/tealdrive.ts';
+import type { UndoPreferences } from '../../sdk/mapping.ts';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { formatRelativeDate } from '../../utils/formatters.ts';
 import type { AuditEntry } from '../../sdk/types.ts';
@@ -13,26 +15,81 @@ import {
   ArrowRightLeft,
   CheckCircle2,
 } from 'lucide-react';
+import { t, locale } from '../../i18n/index.ts';
 
 const UNDO_REASONS: Record<string, string> = {
   operationIncomplete: 'Incomplete',
-  unsupportedOperation: 'Not undoable',
-  alreadyClaimed: 'Already undone',
-  restoredBackup: 'Before restore',
-  expired: 'Undo expired',
-  missingExpectedState: 'Not undoable',
-  unsupportedOriginalMode: 'Not undoable',
-  incompleteObservation: 'Not undoable',
+  unsupportedOperation: t('Not undoable'),
+  alreadyClaimed: t('Already undone'),
+  restoredBackup: t('Before restore'),
+  expired: t('Undo expired'),
+  missingExpectedState: t('Not undoable'),
+  unsupportedOriginalMode: t('Not undoable'),
+  incompleteObservation: t('Not undoable'),
 };
 
 function undoLabel(entry: AuditEntry): string {
-  if (entry.undoStatus) return entry.undoStatus === 'success' ? 'Undone' : `Undo ${entry.undoStatus}`;
-  if (entry.undoUnavailableReason) return UNDO_REASONS[entry.undoUnavailableReason] ?? 'Not undoable';
-  return 'Not undoable';
+  if (entry.undoStatus) return entry.undoStatus === 'success' ? 'Undone' : t('Undo {undoStatus}', { undoStatus: entry.undoStatus });
+  if (entry.undoUnavailableReason) return UNDO_REASONS[entry.undoUnavailableReason] ?? t('Not undoable');
+  return t('Not undoable');
 }
 
 export const AuditTimeline: React.FC = () => {
-  const { auditEntries, undoOperation } = useTealDrive();
+  const { auditEntries, undoOperation, auditHasMore, loadMoreAudit, addToast } = useTealDrive();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [prefs, setPrefs] = useState<UndoPreferences | null>(null);
+  const [hoursInput, setHoursInput] = useState('');
+  const [savingPrefs, setSavingPrefs] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    tealdrive.files.undo
+      .getPreferences()
+      .then((p) => {
+        if (cancelled) return;
+        setPrefs(p);
+        setHoursInput(p.hours === null ? '' : String(p.hours));
+      })
+      // Undo preferences are optional; the history still works without them.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const savePrefs = async () => {
+    if (!prefs) return;
+    const text = hoursInput.trim();
+    const hours = text === '' ? null : Number(text);
+    if (hours !== null && (!Number.isSafeInteger(hours) || hours < 1 || hours > prefs.maximumHours)) {
+      addToast({ title: t('Invalid undo window'), desc: t('Enter 1-{maximumHours} hours, or leave empty for the default.', { maximumHours: prefs.maximumHours }), type: 'error' });
+      return;
+    }
+    setSavingPrefs(true);
+    try {
+      const next = await tealdrive.files.undo.setPreferences({ hours, expectedRevision: prefs.revision });
+      setPrefs(next);
+      setHoursInput(next.hours === null ? '' : String(next.hours));
+      addToast({ title: t('Undo window saved'), desc: t('Operations stay undoable for {effectiveHours} hours.', { effectiveHours: next.effectiveHours }), type: 'success' });
+    } catch (err: any) {
+      addToast({
+        title: t('Undo window not saved'),
+        desc: err?.code === 'CONFLICT' ? t('It changed elsewhere; reopen this view and try again.') : err?.message,
+        type: 'error',
+      });
+    } finally {
+      setSavingPrefs(false);
+    }
+  };
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      await loadMoreAudit();
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const getActionIcon = (action: string) => {
     switch (action) {
@@ -63,20 +120,42 @@ export const AuditTimeline: React.FC = () => {
       <div className="mb-6">
         <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
           <History className="w-4 h-4 text-amber-400" />
-          <span>Audit History &amp; Instant Undo Engine</span>
+          <span>{t('History & Undo')}</span>
         </h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Your recent file operations. Renames, moves, permission changes and trash moves can be undone while the
-          server still observes the recorded state.
+          {t('Your recent file operations. Renames, moves, permission changes and trash moves can be undone while the server still observes the recorded state.')}
         </p>
       </div>
+
+      {prefs && (
+        <div className="mb-5 p-3 rounded-xl border border-slate-800 bg-slate-900/50 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+          <span>{t('Undo window (hours):')}</span>
+          <input
+            type="number"
+            min={1}
+            max={prefs.maximumHours}
+            value={hoursInput}
+            onChange={(e) => setHoursInput(e.target.value)}
+            placeholder={t('default ({effectiveHours})', { effectiveHours: prefs.effectiveHours })}
+            className="w-32 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-teal-500"
+          />
+          <span className="text-slate-500">{t('max {hours}', { hours: prefs.maximumHours })}</span>
+          <button
+            onClick={savePrefs}
+            disabled={savingPrefs}
+            className="ml-auto px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-slate-950 font-semibold"
+          >
+            {savingPrefs ? t('Saving…') : 'Save'}
+          </button>
+        </div>
+      )}
 
       {auditEntries.length === 0 ? (
         <div className="p-16 text-center border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
           <History className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <div className="text-sm font-medium text-slate-300">No operations recorded yet</div>
+          <div className="text-sm font-medium text-slate-300">{t('No operations recorded yet')}</div>
           <div className="text-xs text-slate-500 mt-1">
-            Mutations like file uploads, renames, and permission updates will appear here.
+            {t('Mutations like file uploads, renames, and permission updates will appear here.')}
           </div>
         </div>
       ) : (
@@ -106,7 +185,7 @@ export const AuditTimeline: React.FC = () => {
                   <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-2">
                     <span>{formatRelativeDate(entry.timestamp)}</span>
                     <span>·</span>
-                    <span className="font-mono">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    <span className="font-mono">{new Date(entry.timestamp).toLocaleTimeString(locale())}</span>
                     <span>·</span>
                     <span className="font-mono text-slate-600">{entry.id}</span>
                   </div>
@@ -120,7 +199,7 @@ export const AuditTimeline: React.FC = () => {
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-950/90 hover:bg-teal-900 text-teal-300 border border-teal-700/60 text-xs font-medium transition-all shadow-sm active:scale-95"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
-                    <span>Undo</span>
+                    <span>{t('Undo')}</span>
                   </button>
                 ) : (
                   <span className="flex items-center gap-1 text-[11px] text-slate-500 px-2 py-1 rounded bg-slate-950 border border-slate-800">
@@ -131,6 +210,18 @@ export const AuditTimeline: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {auditHasMore && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs"
+          >
+            {loadingMore ? t('Loading…') : t('Load older operations')}
+          </button>
         </div>
       )}
     </div>

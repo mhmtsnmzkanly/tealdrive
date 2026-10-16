@@ -11,7 +11,9 @@ import {
   Star,
   FileEdit,
   Eye,
+  FileArchive,
 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 export const SelectionToolbar: React.FC = () => {
   const {
@@ -27,6 +29,7 @@ export const SelectionToolbar: React.FC = () => {
     toggleStar,
     copyItem,
     currentPath,
+    compressItems,
   } = useTealDrive();
 
   if (selectedIds.size === 0) return null;
@@ -59,13 +62,13 @@ export const SelectionToolbar: React.FC = () => {
 
         <button
           onClick={clearSelection}
-          title="Deselect all (Esc)"
+          title={t('Deselect all (Esc)')}
           className="text-slate-400 hover:text-slate-200 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors"
         >
           <X className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Deselect</span>
+          <span className="hidden sm:inline">{t('Deselect')}</span>
           <kbd className="hidden md:inline-block ml-0.5 text-[10px] text-slate-500 font-mono bg-slate-800 px-1 rounded border border-slate-700/60">
-            Esc
+            {t('Esc')}
           </kbd>
         </button>
       </div>
@@ -77,25 +80,25 @@ export const SelectionToolbar: React.FC = () => {
             <button
               onClick={() => setPreviewFile(singleItem)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-              title="QuickLook (Space)"
+              title={t('QuickLook (Space)')}
             >
               <Eye className="w-3.5 h-3.5 text-teal-400" />
-              <span className="hidden sm:inline">Preview</span>
+              <span className="hidden sm:inline">{t('Preview')}</span>
             </button>
 
             <button
               onClick={() => setRenameModalFile(singleItem)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-              title="Rename (F2)"
+              title={t('Rename (F2)')}
             >
               <FileEdit className="w-3.5 h-3.5 text-teal-400" />
-              <span className="hidden sm:inline">Rename</span>
+              <span className="hidden sm:inline">{t('Rename')}</span>
             </button>
 
             <button
               onClick={() => setChmodFile(singleItem)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-              title="Edit Permissions"
+              title={t('Edit Permissions')}
             >
               <Key className="w-3.5 h-3.5 text-amber-400" />
               <span className="font-mono text-[11px]">{singleItem.mode}</span>
@@ -105,10 +108,11 @@ export const SelectionToolbar: React.FC = () => {
 
         <button
           onClick={() => {
-            selectedEntries.forEach((e) => toggleStar(e.path));
+            // One target state for all, so a mixed selection does not flip both ways.
+            selectedEntries.forEach((e) => toggleStar(e.path, !allStarred));
           }}
           className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-          title={allStarred ? 'Remove from starred' : 'Add to starred'}
+          title={allStarred ? t('Remove from starred') : t('Add to starred')}
         >
           <Star
             className={`w-3.5 h-3.5 ${
@@ -125,45 +129,56 @@ export const SelectionToolbar: React.FC = () => {
             }
           }}
           className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-          title="Move to folder"
+          title={t('Move to folder')}
         >
           <FolderInput className="w-3.5 h-3.5 text-sky-400" />
-          <span className="hidden sm:inline">Move</span>
+          <span className="hidden sm:inline">{t('Move')}</span>
         </button>
 
         {isSingle && singleItem && !singleItem.isDirectory && (
           <button
             onClick={() => copyItem(singleItem.path, currentPath)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-            title="Duplicate file"
+            title={t('Duplicate file')}
           >
             <Copy className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden md:inline">Duplicate</span>
+            <span className="hidden md:inline">{t('Duplicate')}</span>
           </button>
         )}
 
         <button
           onClick={() => {
-            if (isSingle && singleItem) {
-              downloadFile(singleItem.path);
-            } else {
-              selectedEntries.forEach((e) => downloadFile(e.path));
-            }
+            const base = isSingle && singleItem ? singleItem.name : `${t('Archive')} ${new Date().toISOString().slice(0, 10)}`;
+            compressItems(selectedEntries.map((e) => e.path), `${base}.zip`, 'zip');
           }}
           className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
-          title="Download"
+          title={t('Compress to ZIP')}
         >
-          <Download className="w-3.5 h-3.5 text-teal-400" />
-          <span className="hidden sm:inline">Download</span>
+          <FileArchive className="w-3.5 h-3.5 text-slate-300" />
+          <span className="hidden md:inline">{t('ZIP')}</span>
         </button>
+
+        {selectedEntries.some((e) => !e.isDirectory) && (
+          <button
+            onClick={() => {
+              // Folders cannot be downloaded directly; compress them instead.
+              selectedEntries.filter((e) => !e.isDirectory).forEach((e) => downloadFile(e.path));
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/50 rounded-lg text-slate-200 transition-colors"
+            title={t('Download files')}
+          >
+            <Download className="w-3.5 h-3.5 text-teal-400" />
+            <span className="hidden sm:inline">{t('Download')}</span>
+          </button>
+        )}
 
         <button
           onClick={() => promptTrash()}
           className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/60 rounded-lg text-rose-300 transition-colors shadow-sm shadow-rose-950/50 ml-0.5"
-          title="Move to Trash (Del)"
+          title={t('Move to Trash (Del)')}
         >
           <Trash2 className="w-3.5 h-3.5" />
-          <span>Delete</span>
+          <span>{t('Delete')}</span>
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { FileEdit, X } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 export const RenameModal: React.FC = () => {
   const { renameModalFile, setRenameModalFile, renameItem } = useTealDrive();
@@ -37,7 +38,7 @@ export const RenameModal: React.FC = () => {
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
           <div className="flex items-center gap-2">
             <FileEdit className="w-4 h-4 text-teal-400" />
-            <h3 className="text-sm font-semibold">Rename Item</h3>
+            <h3 className="text-sm font-semibold">{t('Rename Item')}</h3>
           </div>
           <button
             onClick={() => setRenameModalFile(null)}
@@ -49,7 +50,7 @@ export const RenameModal: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">New Name</label>
+            <label className="block text-xs text-slate-400 mb-1">{t('New Name')}</label>
             <input
               type="text"
               required
@@ -66,7 +67,7 @@ export const RenameModal: React.FC = () => {
               onClick={() => setRenameModalFile(null)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <button
               type="submit"

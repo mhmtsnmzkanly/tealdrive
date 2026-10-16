@@ -18,6 +18,7 @@ import {
   File,
   Loader2,
 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 const TEXT_PREVIEW_LIMIT = 1024 * 1024;
 
@@ -71,7 +72,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
 
       if (isMedia) {
         if (file.size === 0) {
-          setMediaError('Dosya boyutu 0 bayt (boş dosya). Önizleme oluşturulamıyor.');
+          setMediaError(t('The file is empty (0 bytes); there is nothing to preview.'));
           return;
         }
 
@@ -84,7 +85,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
         } catch (err: any) {
           console.warn('Could not construct preview URL:', err);
           if (active) {
-            setMediaError(err?.message || 'Önizleme yüklenemedi');
+            setMediaError(err?.message || t('Preview could not be loaded'));
             setLoadingMedia(false);
           }
         }
@@ -148,13 +149,13 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
           const truncated = received >= TEXT_PREVIEW_LIMIT && file.size > TEXT_PREVIEW_LIMIT;
           const txt =
             new TextDecoder().decode(bytes) +
-            (truncated ? `\n\n… (preview truncated at ${TEXT_PREVIEW_LIMIT / 1024} KiB)` : '');
+            (truncated ? `\n\n… ${t('(preview truncated at {size} KiB)', { size: TEXT_PREVIEW_LIMIT / 1024 })}` : '');
           if (active) {
             setTextContent(txt);
           }
         } catch (fallbackErr: any) {
           if (active) {
-            setTextError(err?.message || 'Unable to read file content.');
+            setTextError(err?.message || t('Unable to read file content.'));
           }
         }
       } finally {
@@ -207,7 +208,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   }`}
                 >
                   <Globe className="w-3 h-3" />
-                  <span>Browser Preview</span>
+                  <span>{t('Browser Preview')}</span>
                 </button>
                 <button
                   onClick={() => setHtmlViewMode('source')}
@@ -218,7 +219,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   }`}
                 >
                   <Code2 className="w-3 h-3" />
-                  <span>Source Code</span>
+                  <span>{t('Source Code')}</span>
                 </button>
               </div>
             )}
@@ -234,14 +235,14 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-950 hover:bg-teal-900 border border-teal-700/60 text-teal-300 text-xs font-medium transition-colors shadow-sm"
               >
                 <FileCode className="w-3.5 h-3.5" />
-                <span>Open in Editor</span>
+                <span>{t('Open in Editor')}</span>
               </button>
             )}
 
             <button
               onClick={() => downloadFile(file.path)}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-              title="Download file"
+              title={t('Download file')}
             >
               <Download className="w-4 h-4" />
             </button>
@@ -265,7 +266,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   {loadingMedia && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-950/60 backdrop-blur-sm rounded-xl z-10">
                       <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
-                      <span className="text-xs font-mono">Önizleme yükleniyor...</span>
+                      <span className="text-xs font-mono">{t('Loading preview...')}</span>
                     </div>
                   )}
                   <img
@@ -274,7 +275,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                     onLoad={() => setLoadingMedia(false)}
                     onError={() => {
                       setLoadingMedia(false);
-                      setMediaError('Görsel biçimi desteklenmiyor veya dosya yüklenemedi.');
+                      setMediaError(t('Unsupported image format, or the file could not be loaded.'));
                     }}
                     style={{
                       transform: `scale(${zoom}) rotate(${rotation}deg)`,
@@ -290,12 +291,12 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   <h4 className="text-base font-semibold text-slate-200">{file.name}</h4>
                   <p className="text-xs text-slate-400 mt-1">
                     {loadingMedia
-                      ? 'Önizleme yükleniyor...'
-                      : mediaError || 'Görsel önizlenemiyor'}
+                      ? t('Loading preview...')
+                      : mediaError || t('Image cannot be previewed')}
                   </p>
                   {file.size === 0 && (
                     <div className="mt-3 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
-                      Bu dosya sunucuya 0 bayt olarak kaydedilmiş. Lütfen dosyayı tekrar yükleyin.
+                      {t('This file is stored as 0 bytes on the server. Please upload it again.')}
                     </div>
                   )}
                   {!loadingMedia && (
@@ -303,7 +304,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                       onClick={() => downloadFile(file.path)}
                       className="mt-4 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg text-slate-200 transition-colors"
                     >
-                      Dosyayı İndir
+                      {t('Download File')}
                     </button>
                   )}
                 </div>
@@ -315,7 +316,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   <button
                     onClick={handleZoomIn}
                     className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800"
-                    title="Yakınlaştır"
+                    title={t('Zoom in')}
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
@@ -325,7 +326,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   <button
                     onClick={handleZoomOut}
                     className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800"
-                    title="Uzaklaştır"
+                    title={t('Zoom out')}
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
@@ -333,7 +334,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   <button
                     onClick={handleRotate}
                     className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800"
-                    title="90° Döndür"
+                    title={t('Rotate 90°')}
                   >
                     <RotateCw className="w-4 h-4" />
                   </button>
@@ -354,11 +355,11 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                     onLoadedData={() => setLoadingMedia(false)}
                     onError={() => {
                       setLoadingMedia(false);
-                      setMediaError('Video formatı desteklenmiyor veya dosya bozuk.');
+                      setMediaError(t('Unsupported video format, or the file is damaged.'));
                     }}
                     className="max-h-[70vh] w-full rounded-xl bg-slate-950 shadow-2xl border border-slate-800"
                   >
-                    Tarayıcınız video önizlemesini desteklemiyor.
+                    {t('Your browser cannot preview this video.')}
                   </video>
                   <div className="mt-3 text-xs text-slate-400 font-mono">
                     {file.name} · {formatBytes(file.size)}
@@ -369,7 +370,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   <FileText className="w-12 h-12 text-teal-400 mb-3" />
                   <h4 className="text-base font-semibold text-slate-200">{file.name}</h4>
                   <p className="text-xs text-slate-400 mt-1">
-                    {loadingMedia ? 'Video yükleniyor...' : mediaError || 'Video önizlenemiyor'}
+                    {loadingMedia ? t('Loading video...') : mediaError || t('Video cannot be previewed')}
                   </p>
                 </div>
               )}
@@ -393,13 +394,13 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                   onCanPlay={() => setLoadingMedia(false)}
                   onError={() => {
                     setLoadingMedia(false);
-                    setMediaError('Ses formatı oynatılamadı.');
+                    setMediaError(t('This audio format cannot be played.'));
                   }}
                   className="w-full rounded-lg"
                 />
               ) : (
                 <p className="text-xs text-slate-400">
-                  {loadingMedia ? 'Ses dosyası yükleniyor...' : mediaError || 'Ses önizlenemiyor'}
+                  {loadingMedia ? t('Loading audio...') : mediaError || t('Audio cannot be previewed')}
                 </p>
               )}
             </div>
@@ -414,20 +415,19 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                 </div>
                 <h4 className="text-base font-semibold text-slate-100">{file.name}</h4>
                 <p className="text-xs text-slate-400 mt-1 max-w-md">
-                  PDF Document (Signed &amp; Timestamped by TealDrive Core)
+                  {t('PDF Document')}
                 </p>
 
                 <div className="my-6 p-4 w-full bg-slate-950 rounded-xl border border-slate-800 text-left text-xs font-mono text-slate-400 space-y-1">
-                  <div>Classification: User Space Document</div>
-                  <div>Size: {formatBytes(file.size)}</div>
-                  <div>Permissions: {file.mode}</div>
+                  <div>{t('Size: {size}', { size: formatBytes(file.size) })}</div>
+                  <div>{t('Permissions: {mode}', { mode: String(file.mode) })}</div>
                 </div>
 
                 <button
                   onClick={() => downloadFile(file.path)}
                   className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-slate-950 font-semibold text-xs rounded-xl shadow transition-colors"
                 >
-                  Download Complete PDF ({formatBytes(file.size)})
+                  {t('Download Complete PDF ({size})', { size: formatBytes(file.size) })}
                 </button>
               </div>
             </div>
@@ -439,7 +439,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
               {loadingText ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-400">
                   <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
-                  <span className="text-xs font-mono">Loading document content...</span>
+                  <span className="text-xs font-mono">{t('Loading document content...')}</span>
                 </div>
               ) : textError ? (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-400 p-6 text-center">
@@ -449,7 +449,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                     onClick={() => downloadFile(file.path)}
                     className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg text-slate-200 transition-colors"
                   >
-                    Download File Instead
+                    {t('Download File Instead')}
                   </button>
                 </div>
               ) : isHtml && htmlViewMode === 'preview' ? (
@@ -458,7 +458,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                     srcDoc={textContent}
                     sandbox="allow-scripts"
                     className="w-full h-full border-0"
-                    title={`Preview of ${file.name}`}
+                    title={t('Preview of {name}', { name: file.name })}
                   />
                 </div>
               ) : (
@@ -471,7 +471,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                     ))}
                   </div>
                   <pre className="flex-1 p-4 overflow-auto whitespace-pre leading-5 selection:bg-teal-500/30 selection:text-teal-200 font-mono text-slate-200">
-                    {textContent || (file.size === 0 ? '// Empty document' : '')}
+                    {textContent || (file.size === 0 ? t('// Empty document') : '')}
                   </pre>
                 </div>
               )}
@@ -492,7 +492,7 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
                 onClick={() => downloadFile(file.path)}
                 className="mt-6 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-slate-950 font-semibold text-xs rounded-xl shadow transition-colors"
               >
-                Download File
+                {t('Download File')}
               </button>
             </div>
           )}

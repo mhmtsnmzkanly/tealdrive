@@ -7,18 +7,20 @@ export function formatBytes(bytes: number, decimals = 1): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+import { t, locale } from '../i18n/index.ts';
+
 export function formatRelativeDate(isoDateString: string): string {
   try {
     const date = new Date(isoDateString);
     const now = new Date();
     const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    if (diffSec < 60) return 'Just now';
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
+    if (diffSec < 60) return t('Just now');
+    if (diffSec < 3600) return t('{n}m ago', { n: Math.floor(diffSec / 60) });
+    if (diffSec < 86400) return t('{n}h ago', { n: Math.floor(diffSec / 3600) });
+    if (diffSec < 604800) return t('{n}d ago', { n: Math.floor(diffSec / 86400) });
 
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(locale(), {
       month: 'short',
       day: 'numeric',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,

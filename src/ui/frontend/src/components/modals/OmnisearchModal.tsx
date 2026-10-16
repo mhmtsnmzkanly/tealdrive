@@ -5,6 +5,7 @@ import type { FileEntry } from '../../sdk/types.ts';
 import { FileItemIcon } from '../explorer/FileItemIcon.tsx';
 import { formatBytes, formatRelativeDate } from '../../utils/formatters.ts';
 import { Search, X, CornerDownLeft, ArrowRight } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 export const OmnisearchModal: React.FC = () => {
   const {
@@ -51,7 +52,7 @@ export const OmnisearchModal: React.FC = () => {
       } catch (err: any) {
         if (controller.signal.aborted) return;
         setResults([]);
-        setSearchError(err?.message || err?.code || 'Search failed');
+        setSearchError(err?.message || err?.code || t('Search failed'));
       } finally {
         if (!controller.signal.aborted) setSearching(false);
       }
@@ -109,7 +110,7 @@ export const OmnisearchModal: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search file and folder names..."
+            placeholder={t('Search file and folder names...')}
             className="w-full bg-transparent text-sm text-slate-100 focus:outline-none placeholder:text-slate-500"
           />
           {query && (
@@ -121,25 +122,25 @@ export const OmnisearchModal: React.FC = () => {
             </button>
           )}
           <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-800 border border-slate-700 rounded">
-            ESC
+            {t('ESC')}
           </kbd>
         </div>
 
         {/* Results Area */}
         <div className="max-h-80 overflow-y-auto p-2">
           {searchError && (
-            <div className="py-12 text-center text-xs text-rose-300">Search failed: {searchError}</div>
+            <div className="py-12 text-center text-xs text-rose-300">{t('Search failed: {error}', { error: searchError })}</div>
           )}
 
           {query && results.length === 0 && !searching && !searchError && (
             <div className="py-12 text-center text-xs text-slate-500">
-              No matching files found for &quot;<span className="text-slate-300">{query}</span>&quot;
+              {t('No matching files found for "{query}"', { query })}
             </div>
           )}
 
           {!query && (
             <div className="py-8 px-4 text-center text-xs text-slate-500">
-              Type part of a file or folder name. Results come from your whole drive.
+              {t('Type part of a file or folder name. Results come from your whole drive.')}
             </div>
           )}
 
@@ -167,7 +168,7 @@ export const OmnisearchModal: React.FC = () => {
                       <span>{file.name}</span>
                       {file.isDirectory && (
                         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
-                          Folder
+                          {t('Folder')}
                         </span>
                       )}
                     </div>
@@ -193,11 +194,11 @@ export const OmnisearchModal: React.FC = () => {
         {/* Footer */}
         <div className="h-8 px-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500 font-mono">
           <div className="flex items-center gap-3">
-            <span>↑↓ Navigate</span>
-            <span>↵ Select</span>
-            <span>ESC Close</span>
+            <span>{t('↑↓ Navigate')}</span>
+            <span>{t('↵ Select')}</span>
+            <span>{t('ESC Close')}</span>
           </div>
-          <div>TealDrive Omnisearch v2.4</div>
+          <div>{t('TealDrive Search')}</div>
         </div>
       </div>
     </div>

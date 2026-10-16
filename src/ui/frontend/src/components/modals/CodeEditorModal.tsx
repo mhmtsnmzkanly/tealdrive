@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Loader2,
 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface CodeEditorModalProps {
   file: FileEntry;
@@ -66,7 +67,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
         setSavedContent(res.content ?? '');
         setRevision(res.revision ?? null);
       } catch (err: any) {
-        addToast({ title: 'Error reading file', desc: err.message, type: 'error' });
+        addToast({ title: t('Error reading file'), desc: err.message, type: 'error' });
       } finally {
         setLoading(false);
       }
@@ -77,13 +78,13 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
   const handleSave = async () => {
     const trimmedName = fileName.trim();
     if (!trimmedName) {
-      addToast({ title: 'Invalid filename', desc: 'Filename cannot be empty', type: 'error' });
+      addToast({ title: t('Invalid filename'), desc: t('Filename cannot be empty'), type: 'error' });
       return;
     }
     if (/[\/\\\x00-\x1f\x7f]/.test(trimmedName)) {
       addToast({
-        title: 'Invalid filename',
-        desc: 'Filename cannot contain slashes or control characters',
+        title: t('Invalid filename'),
+        desc: t('Filename cannot contain slashes or control characters'),
         type: 'error',
       });
       return;
@@ -99,7 +100,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
         const parentDir = file.path.substring(0, file.path.lastIndexOf('/')) || '/';
         const newPath = parentDir === '/' ? `/${trimmedName}` : `${parentDir}/${trimmedName}`;
         await tealdrive.files.writeText({ path: newPath, content, expectedRevision: 'missing' });
-        addToast({ title: 'File created', desc: trimmedName, type: 'success' });
+        addToast({ title: t('File created'), desc: trimmedName, type: 'success' });
         await refreshCurrentDirectory();
         onClose();
         return;
@@ -131,26 +132,26 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
       if (updated.revision === null) {
         // Someone wrote after our save; the next save must not overwrite them blindly.
         setConflictError({
-          message: 'The file changed on the server right after your save. Reload it before saving again.',
+          message: t('The file changed on the server right after your save. Reload it before saving again.'),
         });
       }
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2000);
       await refreshCurrentDirectory();
       addToast({
-        title: 'File saved',
-        desc: `Saved successfully (${trimmedName})`,
+        title: t('File saved'),
+        desc: t('Saved successfully ({trimmedName})', { trimmedName }),
         type: 'success',
       });
     } catch (err: any) {
       if (err.code === 'REVISION_CONFLICT') {
         setConflictError({
-          message: 'Another client changed this file since you opened it. Your changes have not been saved.',
+          message: t('Another client changed this file since you opened it. Your changes have not been saved.'),
         });
       } else if (err.code === 'ALREADY_EXISTS' || err.code === 'CONFLICT') {
-        addToast({ title: 'Save failed', desc: `"${trimmedName}" already exists in this folder.`, type: 'error' });
+        addToast({ title: t('Save failed'), desc: t('"{trimmedName}" already exists in this folder.', { trimmedName }), type: 'error' });
       } else {
-        addToast({ title: 'Save failed', desc: err.message, type: 'error' });
+        addToast({ title: t('Save failed'), desc: err.message, type: 'error' });
       }
     } finally {
       setSaving(false);
@@ -162,7 +163,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
 
   const dirty = content !== savedContent || (file.revision === 0 && fileName.trim() !== file.name);
   const requestClose = () => {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return;
+    if (dirty && !window.confirm(t('Discard unsaved changes?'))) return;
     onClose();
   };
   const requestCloseRef = useRef(requestClose);
@@ -219,17 +220,17 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
                       textareaRef.current?.focus();
                     }
                   }}
-                  placeholder="filename.txt"
-                  aria-label="Filename"
+                  placeholder={t('filename.txt')}
+                  aria-label={t('Filename')}
                   className="bg-slate-800/80 hover:bg-slate-800 focus:bg-slate-950 border border-slate-700 focus:border-teal-400 rounded px-2 py-0.5 text-xs font-semibold text-slate-100 font-mono focus:outline-none transition-all w-48 sm:w-64 selection:bg-teal-500/40"
-                  title="Click to rename"
+                  title={t('Click to rename')}
                 />
                 <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-teal-300 border border-slate-700 shrink-0">
                   {file.revision === 0
-                    ? 'New'
+                    ? t('New')
                     : typeof revision === 'string'
-                    ? `Rev #${revision.slice(0, 8)}`
-                    : 'Rev unknown'}
+                    ? t('Rev #{revision}', { revision: revision.slice(0, 8) })
+                    : t('Rev unknown')}
                 </span>
               </div>
               <div className="text-[10px] font-mono text-slate-500 truncate mt-0.5">
@@ -252,12 +253,12 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
               {savedSuccess ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
-                  <span>Saved</span>
+                  <span>{t('Saved')}</span>
                 </>
               ) : (
                 <>
                   <Save className="w-3.5 h-3.5" />
-                  <span>{saving ? 'Saving...' : 'Save (⌘S)'}</span>
+                  <span>{saving ? 'Saving...' : t('Save (⌘S)')}</span>
                 </>
               )}
             </button>
@@ -277,27 +278,27 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>
-                <strong>Revision Conflict:</strong> {conflictError.message}
+                <strong>{t('Revision Conflict:')}</strong> {conflictError.message}
               </span>
             </div>
             <button
               onClick={async () => {
-                if (content !== savedContent && !window.confirm('Reloading replaces your unsaved edits. Continue?')) return;
+                if (content !== savedContent && !window.confirm(t('Reloading replaces your unsaved edits. Continue?'))) return;
                 try {
                   const res = await tealdrive.files.readText({ path: currentPath });
                   setContent(res.content ?? '');
                   setSavedContent(res.content ?? '');
                   setRevision(res.revision ?? null);
                   setConflictError(null);
-                  addToast({ title: 'Reloaded server version', type: 'info' });
+                  addToast({ title: t('Reloaded server version'), type: 'info' });
                 } catch (err: any) {
-                  addToast({ title: 'Reload failed', desc: err.message, type: 'error' });
+                  addToast({ title: t('Reload failed'), desc: err.message, type: 'error' });
                 }
               }}
               className="flex items-center gap-1 px-2.5 py-1 bg-rose-900 hover:bg-rose-800 text-rose-100 rounded text-[11px] font-medium transition-colors"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Reload Latest</span>
+              <span>{t('Reload Latest')}</span>
             </button>
           </div>
         )}
@@ -306,7 +307,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 gap-2 font-mono text-xs bg-[#090d16]">
             <Loader2 className="w-5 h-5 animate-spin text-teal-400" />
-            <span>Loading file contents...</span>
+            <span>{t('Loading file contents...')}</span>
           </div>
         ) : (
           <div className="flex-1 flex overflow-hidden font-mono text-xs bg-[#090d16]">
@@ -331,7 +332,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
               onChange={(e) => setContent(e.target.value)}
               className="flex-1 p-4 bg-transparent text-slate-200 resize-none focus:outline-none leading-5 font-mono overflow-auto whitespace-pre selection:bg-teal-500/30 selection:text-teal-200"
               spellCheck={false}
-              placeholder="Start typing your text or code here..."
+              placeholder={t('Start typing your text or code here...')}
             />
           </div>
         )}
@@ -341,12 +342,12 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1 text-teal-400">
               <ShieldCheck className="w-3 h-3" />
-              <span>Optimistic Lock Active</span>
+              <span>{typeof revision === 'string' ? t('Overwrite protection on') : t('Revision unknown')}</span>
             </span>
             <span>·</span>
-            <span>Lines: {lines.length}</span>
+            <span>{t('Lines: {count}', { count: lines.length })}</span>
             <span>·</span>
-            <span>Characters: {content.length}</span>
+            <span>{t('Characters: {count}', { count: content.length })}</span>
           </div>
           <div>UTF-8 · LF · {currentMimeType}</div>
         </div>

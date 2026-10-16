@@ -11,8 +11,11 @@ import {
   Key,
   Trash2,
   Star,
+  FileArchive,
+  PackageOpen,
 } from 'lucide-react';
 import { getFileCategory, isTextFile } from '../../utils/formatters.ts';
+import { t } from '../../i18n/index.ts';
 
 interface FileContextMenuProps {
   file: FileEntry;
@@ -33,7 +36,11 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
     copyItem,
     toggleStar,
     currentPath,
+    compressItems,
+    extractArchive,
   } = useTealDrive();
+
+  const isArchive = !file.isDirectory && /\.(zip|tar\.gz|tgz)$/i.test(file.name);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -104,7 +111,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <Eye className="w-3.5 h-3.5 text-teal-400" />
-          <span>Open Folder</span>
+          <span>{t('Open Folder')}</span>
         </button>
       ) : (
         <button
@@ -112,7 +119,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <Eye className="w-3.5 h-3.5 text-teal-400" />
-          <span>QuickLook (Space)</span>
+          <span>{t('QuickLook (Space)')}</span>
         </button>
       )}
 
@@ -122,7 +129,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <FileCode className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Edit Code / Text</span>
+          <span>{t('Edit Code / Text')}</span>
         </button>
       )}
 
@@ -131,7 +138,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <Star className={`w-3.5 h-3.5 ${file.starred ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
-        <span>{file.starred ? 'Unstar' : 'Add to Starred'}</span>
+        <span>{file.starred ? 'Unstar' : t('Add to Starred')}</span>
       </button>
 
       {!file.isDirectory && (
@@ -140,7 +147,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <Download className="w-3.5 h-3.5 text-sky-400" />
-          <span>Download</span>
+          <span>{t('Download')}</span>
         </button>
       )}
 
@@ -151,7 +158,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <FileEdit className="w-3.5 h-3.5 text-slate-300" />
-        <span>Rename (F2)</span>
+        <span>{t('Rename (F2)')}</span>
       </button>
 
       <button
@@ -159,7 +166,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <FolderInput className="w-3.5 h-3.5 text-slate-300" />
-        <span>Move to...</span>
+        <span>{t('Move to...')}</span>
       </button>
 
       {!file.isDirectory && (
@@ -168,7 +175,25 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <Copy className="w-3.5 h-3.5 text-slate-300" />
-          <span>Duplicate</span>
+          <span>{t('Duplicate')}</span>
+        </button>
+      )}
+
+      <button
+        onClick={() => handleAction(() => compressItems([file.path], `${file.name}.zip`, 'zip'))}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
+      >
+        <FileArchive className="w-3.5 h-3.5 text-slate-300" />
+        <span>{t('Compress to ZIP')}</span>
+      </button>
+
+      {isArchive && (
+        <button
+          onClick={() => handleAction(() => extractArchive(file.path))}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
+        >
+          <PackageOpen className="w-3.5 h-3.5 text-slate-300" />
+          <span>{t('Extract Here')}</span>
         </button>
       )}
 
@@ -177,7 +202,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <Key className="w-3.5 h-3.5 text-amber-400" />
-        <span>Permissions (chmod {file.mode})</span>
+        <span>{t('Permissions (chmod {mode})', { mode: String(file.mode) })}</span>
       </button>
 
       <div className="h-px bg-slate-800 my-1" />
@@ -187,7 +212,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({ file, onClose,
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-rose-950/80 text-rose-300 text-left transition-colors"
       >
         <Trash2 className="w-3.5 h-3.5" />
-        <span>Move to Trash</span>
+        <span>{t('Move to Trash')}</span>
       </button>
     </div>
   );

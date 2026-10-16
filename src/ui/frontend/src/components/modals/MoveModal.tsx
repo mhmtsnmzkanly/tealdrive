@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { tealdrive } from '../../lib/tealdrive.ts';
 import { FolderInput, Folder, X, Loader2 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface FolderOption {
   path: string;
@@ -23,7 +24,7 @@ export const MoveModal: React.FC = () => {
 
     const crawlFolders = async () => {
       setLoadingFolders(true);
-      const results: FolderOption[] = [{ path: '/', name: 'Root (/)', depth: 0 }];
+      const results: FolderOption[] = [{ path: '/', name: t('Root (/)'), depth: 0 }];
       const visited = new Set<string>(['/']);
 
       async function scanDir(dirPath: string, currentDepth: number) {
@@ -87,7 +88,7 @@ export const MoveModal: React.FC = () => {
         <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
           <div className="flex items-center gap-2">
             <FolderInput className="w-4 h-4 text-sky-400" />
-            <h3 className="text-sm font-semibold">Move To Destination</h3>
+            <h3 className="text-sm font-semibold">{t('Move To Destination')}</h3>
           </div>
           <button
             onClick={() => setMoveModalFile(null)}
@@ -98,13 +99,13 @@ export const MoveModal: React.FC = () => {
         </div>
 
         <div className="text-xs text-slate-300 mb-3">
-          Moving: <span className="font-mono text-teal-300 font-semibold">{moveModalFile.name}</span>
+          {t('Moving:')} <span className="font-mono text-teal-300 font-semibold">{moveModalFile.name}</span>
         </div>
 
         {loadingFolders ? (
           <div className="h-44 flex flex-col items-center justify-center border border-slate-800 rounded-xl bg-slate-950/60 mb-5 text-slate-400 text-xs">
             <Loader2 className="w-5 h-5 text-teal-400 animate-spin mb-2" />
-            <span>Scanning real filesystem directories...</span>
+            <span>{t('Scanning real filesystem directories...')}</span>
           </div>
         ) : (
           <div className="space-y-1 max-h-60 overflow-y-auto border border-slate-800 rounded-xl p-2 bg-slate-950/60 mb-5">
@@ -147,7 +148,7 @@ export const MoveModal: React.FC = () => {
             onClick={() => setMoveModalFile(null)}
             className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors"
           >
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             type="button"
@@ -155,7 +156,7 @@ export const MoveModal: React.FC = () => {
             disabled={moving || loadingFolders}
             className="px-4 py-1.5 bg-teal-600 hover:bg-teal-500 text-slate-950 font-semibold text-xs rounded-lg shadow transition-all active:scale-95"
           >
-            {moving ? 'Moving...' : 'Move Here'}
+            {moving ? 'Moving...' : t('Move Here')}
           </button>
         </div>
       </div>

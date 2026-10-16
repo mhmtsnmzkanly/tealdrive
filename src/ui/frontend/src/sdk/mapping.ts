@@ -1,4 +1,5 @@
 import type { AuditEntry, Session, VirtualUser } from './types.ts';
+import { t } from '../i18n/index.ts';
 
 // Pure translations from SDK (camelCased server) values to the SPA's view types.
 
@@ -40,7 +41,7 @@ const AUDIT_LABELS: Record<string, string> = {
 export function toAuditEntry(record: any, candidate?: any): AuditEntry {
   const source = `/${String(record.sourcePath ?? '').replace(/^\/+/, '')}`;
   const target = record.targetPath ? `/${String(record.targetPath).replace(/^\/+/, '')}` : undefined;
-  const label = AUDIT_LABELS[record.action] ?? record.action;
+  const label = t(AUDIT_LABELS[record.action] ?? record.action);
   let description = `${label} ${source}`;
   if (target && record.action !== 'trash') description += ` → ${target}`;
   if (record.action === 'chmod' && typeof record.oldMode === 'number') {
@@ -86,5 +87,64 @@ export function toSession(session: any): Session {
     role: isAdmin ? 'admin' : 'user',
     isAdmin,
     passwordChangeRequired: Boolean(session.passwordChangeRequired),
+  };
+}
+
+export type PolicyAccess = 'discover' | 'read' | 'write' | 'chmod' | 'delete' | 'move';
+export const POLICY_ACCESS: PolicyAccess[] = ['discover', 'read', 'write', 'chmod', 'delete', 'move'];
+
+export interface PolicyRule {
+  path: string;
+  recursive: boolean;
+  deny: PolicyAccess[];
+  rootId?: string;
+}
+
+export interface PolicyTarget {
+  kind: 'linux' | 'virtual';
+  accountId: string;
+  username: string;
+}
+
+export interface PolicyView {
+  username: string;
+  generation: number;
+  /** Rules this editor owns (admin layer for a target, personal for oneself). */
+  editable: PolicyRule[];
+  /** Rules from other layers, shown read-only. */
+  fixed: Array<{ layer: string; rule: PolicyRule }>;
+  denySystemComponents: string[];
+}
+
+export interface UndoPreferences {
+  hours: number | null;
+  effectiveHours: number;
+  maximumHours: number;
+  revision: number;
+}
+
+function toRule(r: any): PolicyRule {
+  return {
+    path: `/${String(r?.path ?? '').replace(/^\/+/, '')}`,
+    recursive: Boolean(r?.recursive),
+    deny: (Array.isArray(r?.deny) ? r.deny : []).filter((d: string) => POLICY_ACCESS.includes(d as PolicyAccess)),
+    ...(r?.rootId ? { rootId: r.rootId } : {}),
+  };
+}
+
+/** `layer` is the layer the caller may edit: "admin" for another account, "personal" for oneself. */
+export function toPolicyView(view: any, layer: 'admin' | 'personal'): PolicyView {
+  const rules = view?.rules ?? {};
+  const fixed: PolicyView['fixed'] = [];
+  for (const source of ['root', 'admin', 'personal']) {
+    if (source === layer) continue;
+    for (const r of rules[`${source}Rules`] ?? []) fixed.push({ layer: source, rule: toRule(r) });
+  }
+  return {
+    username: view?.account?.username ?? '',
+    generation: Number(view?.account?.generation) || 0,
+    editable: (rules[`${layer}Rules`] ?? []).map(toRule),
+    fixed,
+    denySystemComponents: Array.isArray(view?.denySystemComponents) ? view.denySystemComponents : [],
   };
 }

@@ -28,6 +28,7 @@ import { LoginModal } from './components/modals/LoginModal.tsx';
 import { formatBytes } from './utils/formatters.ts';
 import { PasswordChangeModal } from './components/modals/PasswordChangeModal.tsx';
 import { AlertTriangle, X } from 'lucide-react';
+import { t } from './i18n/index.ts';
 
 const MainExplorer: React.FC = () => {
   const {
@@ -50,7 +51,7 @@ const MainExplorer: React.FC = () => {
   const [quotaBannerDismissed, setQuotaBannerDismissed] = React.useState(false);
 
   const filterTabs = [
-    { id: 'all', label: 'All Files' },
+    { id: 'all', label: t('All Files') },
     { id: 'folders', label: 'Folders' },
     { id: 'documents', label: 'Documents' },
     { id: 'images', label: 'Images' },
@@ -77,10 +78,15 @@ const MainExplorer: React.FC = () => {
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
             <span>
-              <strong>Storage Threshold Alert:</strong> You are currently using {formatBytes(quota.usedBytes)} of {formatBytes(quota.limitBytes)} ({quota.percentage}%).{' '}
+              <strong>{t('Storage Threshold Alert:')}</strong>{' '}
+              {t('You are currently using {used} of {limit} ({percent}%).', {
+                used: formatBytes(quota.usedBytes),
+                limit: formatBytes(quota.limitBytes),
+                percent: quota.percentage,
+              })}{' '}
               {quota.percentage >= 95
-                ? 'Immediate action recommended: Clean up unnecessary files or request a quota increase.'
-                : 'Consider archiving large media files.'}
+                ? t('Immediate action recommended: Clean up unnecessary files or request a quota increase.')
+                : t('Consider archiving large media files.')}
             </span>
           </div>
           <button
@@ -166,7 +172,7 @@ const AppContent: React.FC = () => {
       <div className="min-h-screen w-screen bg-[#090d16] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs text-slate-400">Loading TealDrive...</span>
+          <span className="text-xs text-slate-400">{t('Loading TealDrive...')}</span>
         </div>
       </div>
     );

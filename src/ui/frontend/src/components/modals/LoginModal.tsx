@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { Lock, User, AlertCircle, Loader2 } from 'lucide-react';
+import { t, language, setLanguage } from '../../i18n/index.ts';
 
 export const LoginModal: React.FC = () => {
   const { login } = useTealDrive();
@@ -12,7 +13,7 @@ export const LoginModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password) {
-      setError('Please enter both username and password.');
+      setError(t('Please enter both username and password.'));
       return;
     }
 
@@ -22,7 +23,7 @@ export const LoginModal: React.FC = () => {
     try {
       await login(username.trim(), password);
     } catch (err: any) {
-      setError(err.message || 'Invalid username or password. Please try again.');
+      setError(err.message || t('Invalid username or password. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -51,8 +52,8 @@ export const LoginModal: React.FC = () => {
               <line x1="9" y1="14" x2="15" y2="14" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white mb-1">TealDrive</h1>
-          <p className="text-sm text-slate-400">High-Security Cloud &amp; Edge Storage</p>
+          <h1 className="text-2xl font-bold tracking-tight text-white mb-1">{t('TealDrive')}</h1>
+          <p className="text-sm text-slate-400">{t('Secure file storage')}</p>
         </div>
 
         {error && (
@@ -65,7 +66,7 @@ export const LoginModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-5 relative z-10">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Username
+              {t('Username')}
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -73,7 +74,7 @@ export const LoginModal: React.FC = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="username"
+                placeholder={t('username')}
                 autoComplete="username"
                 required
                 autoFocus
@@ -84,7 +85,7 @@ export const LoginModal: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Password
+              {t('Password')}
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -108,16 +109,26 @@ export const LoginModal: React.FC = () => {
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Signing in...</span>
+                <span>{t('Signing in...')}</span>
               </>
             ) : (
-              <span>Sign In to TealDrive</span>
+              <span>{t('Sign In to TealDrive')}</span>
             )}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-xs text-slate-500">
-          Privileged Two-Tier Linux &amp; Virtual Account Architecture
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => setLanguage(language() === 'tr' ? 'en' : 'tr')}
+            className="text-xs text-slate-400 hover:text-slate-200"
+          >
+            {language() === 'tr' ? 'English' : 'Türkçe'}
+          </button>
+        </div>
+
+        <div className="mt-2 text-center text-xs text-slate-500">
+          {t('Linux and virtual accounts')}
         </div>
       </div>
     </div>

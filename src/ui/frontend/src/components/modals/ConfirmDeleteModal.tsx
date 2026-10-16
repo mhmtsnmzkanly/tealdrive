@@ -3,6 +3,7 @@ import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { Trash2, AlertTriangle, X, Loader2 } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters.ts';
 import { FileItemIcon } from '../explorer/FileItemIcon.tsx';
+import { t } from '../../i18n/index.ts';
 
 export const ConfirmDeleteModal: React.FC = () => {
   const { deleteConfirm, setDeleteConfirm } = useTealDrive();
@@ -36,7 +37,7 @@ export const ConfirmDeleteModal: React.FC = () => {
     }
   };
 
-  const defaultButtonLabel = isPermanent ? 'Delete Permanently' : 'Move to Trash';
+  const defaultButtonLabel = isPermanent ? t('Delete Permanently') : t('Move to Trash');
   const actionLabel = confirmLabel || defaultButtonLabel;
 
   // Show up to 4 items in detail preview, then collapse remaining
@@ -74,7 +75,7 @@ export const ConfirmDeleteModal: React.FC = () => {
                 {title}
               </h3>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {isPermanent ? 'Permanent deletion warning' : 'Staged trash confirmation'}
+                {isPermanent ? t('Permanent deletion warning') : t('Staged trash confirmation')}
               </p>
             </div>
           </div>
@@ -82,7 +83,7 @@ export const ConfirmDeleteModal: React.FC = () => {
             onClick={handleClose}
             disabled={submitting}
             className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
-            title="Cancel"
+            title={t('Cancel')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -98,8 +99,8 @@ export const ConfirmDeleteModal: React.FC = () => {
           {items.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-[11px] font-medium text-slate-400 flex items-center justify-between">
-                <span>Affected {items.length === 1 ? 'Item' : 'Items'}</span>
-                <span className="font-mono text-slate-500">{items.length} total</span>
+                <span>{items.length === 1 ? t('Affected Item') : t('Affected Items')}</span>
+                <span className="font-mono text-slate-500">{t('{count} total', { count: items.length })}</span>
               </div>
               <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 max-h-48 overflow-y-auto divide-y divide-slate-800/60">
                 {previewItems.map((item, idx) => (
@@ -127,7 +128,7 @@ export const ConfirmDeleteModal: React.FC = () => {
                 ))}
                 {remainingCount > 0 && (
                   <div className="pt-2 text-[11px] text-slate-500 font-medium text-center">
-                    + {remainingCount} more {remainingCount === 1 ? 'item' : 'items'}
+                    {t('+ {count} more items', { count: remainingCount })}
                   </div>
                 )}
               </div>
@@ -139,8 +140,8 @@ export const ConfirmDeleteModal: React.FC = () => {
             <div className="p-3 bg-rose-950/40 border border-rose-900/60 rounded-xl flex items-start gap-2.5 text-rose-300">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div className="text-[11px] leading-relaxed">
-                <span className="font-semibold text-rose-200">Irreversible Action: </span>
-                This will be permanently erased from disk and cannot be restored from the Trash bin.
+                <span className="font-semibold text-rose-200">{t('Irreversible Action:')} </span>
+                {t('This will be permanently erased from disk and cannot be restored from the Trash bin.')}
               </div>
             </div>
           )}
@@ -154,7 +155,7 @@ export const ConfirmDeleteModal: React.FC = () => {
             disabled={submitting}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-medium text-xs rounded-xl transition-all disabled:opacity-50"
           >
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             type="button"
@@ -170,7 +171,7 @@ export const ConfirmDeleteModal: React.FC = () => {
             {submitting ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Processing...</span>
+                <span>{t('Processing...')}</span>
               </>
             ) : (
               <>

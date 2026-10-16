@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/sdk/permissions.test.ts src/sdk/mapping.test.ts"
+    "test": "tsx --test src/sdk/permissions.test.ts src/sdk/mapping.test.ts src/sdk/client.test.ts src/i18n/i18n.test.ts"
   },
   "dependencies": {
     "dompurify": "^3.4.17",

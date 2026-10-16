@@ -5,6 +5,7 @@ import { FileItemIcon } from './FileItemIcon.tsx';
 import { FileContextMenu } from './FileContextMenu.tsx';
 import { formatBytes, formatRelativeDate } from '../../utils/formatters.ts';
 import { Clock, Download, Star, MoreVertical } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 export const RecentView: React.FC = () => {
   const { recentEntries, setPreviewFile, downloadFile, toggleStar } = useTealDrive();
@@ -83,10 +84,10 @@ export const RecentView: React.FC = () => {
         <div>
           <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
             <Clock className="w-4 h-4 text-sky-400" />
-            <span>Recently Modified Files</span>
+            <span>{t('Recently Modified Files')}</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Files you recently uploaded, edited, renamed, moved or copied
+            {t('Files you recently uploaded, edited, renamed, moved or copied')}
           </p>
         </div>
       </div>
@@ -94,8 +95,8 @@ export const RecentView: React.FC = () => {
       {recentEntries.length === 0 ? (
         <div className="p-12 text-center border border-dashed border-slate-800 rounded-xl bg-slate-900/30">
           <Clock className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-          <div className="text-sm font-medium text-slate-300">No recent activity</div>
-          <div className="text-xs text-slate-500 mt-1">Edited or uploaded files will show up here.</div>
+          <div className="text-sm font-medium text-slate-300">{t('No recent activity')}</div>
+          <div className="text-xs text-slate-500 mt-1">{t('Edited or uploaded files will show up here.')}</div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -137,7 +138,7 @@ export const RecentView: React.FC = () => {
                     toggleStar(file.path);
                   }}
                   className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-400"
-                  title="Star file"
+                  title={t('Star file')}
                 >
                   <Star className={`w-3.5 h-3.5 ${file.starred ? 'text-amber-400 fill-amber-400' : ''}`} />
                 </button>
@@ -147,7 +148,7 @@ export const RecentView: React.FC = () => {
                     downloadFile(file.path);
                   }}
                   className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-teal-300"
-                  title="Download file"
+                  title={t('Download file')}
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
@@ -161,7 +162,7 @@ export const RecentView: React.FC = () => {
                     });
                   }}
                   className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
-                  title="More actions"
+                  title={t('More actions')}
                 >
                   <MoreVertical className="w-3.5 h-3.5" />
                 </button>

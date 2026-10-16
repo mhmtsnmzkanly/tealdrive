@@ -10,6 +10,7 @@ import type {
   UploadProgress,
   AuditEntry,
 } from '../sdk/types.ts';
+import { t } from '../i18n/index.ts';
 
 export type ViewType = 'drive' | 'recent' | 'trash' | 'audit' | 'admin';
 export type FilterType = 'all' | 'folders' | 'documents' | 'images' | 'media' | 'code' | 'archives';
@@ -55,6 +56,9 @@ interface TealDriveContextType {
   recentEntries: FileEntry[];
   trashEntries: FileEntry[];
   auditEntries: AuditEntry[];
+  /** True when older history exists beyond auditEntries. */
+  auditHasMore: boolean;
+  loadMoreAudit: () => Promise<void>;
   goToPath: (path: string) => Promise<void>;
   refreshCurrentDirectory: () => Promise<void>;
 
@@ -83,8 +87,11 @@ interface TealDriveContextType {
   restoreFromTrash: (id: string) => Promise<void>;
   emptyTrash: () => Promise<void>;
   deletePermanent: (id: string) => Promise<void>;
-  toggleStar: (path: string) => Promise<void>;
+  /** Flips the star, or sets it when `starred` is given. */
+  toggleStar: (path: string, starred?: boolean) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
+  compressItems: (paths: string[], archiveName: string, format: 'zip' | 'tar.gz') => Promise<void>;
+  extractArchive: (path: string) => Promise<void>;
 
   // Undo system
   undoOperation: (target: UndoTarget) => Promise<void>;
@@ -147,7 +154,7 @@ function isAbort(err: any): boolean {
 }
 
 function errorMessage(err: any): string {
-  return err?.message || err?.code || String(err || 'Unknown error');
+  return err?.message || err?.code || String(err || t('Unknown error'));
 }
 
 function isFeatureDisabled(err: any): boolean {
@@ -186,6 +193,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [recentEntries, setRecentEntries] = useState<FileEntry[]>([]);
   const [trashEntries, setTrashEntries] = useState<FileEntry[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -278,7 +286,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return true;
     } catch (err: any) {
       if (seq !== listSeqRef.current || isAbort(err)) return false;
-      addToast({ title: 'Navigation error', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Navigation error'), desc: errorMessage(err), type: 'error' });
       return false;
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
@@ -297,19 +305,22 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const trash = await tealdrive.files.trash.list();
         if (current()) setTrashEntries(trash);
       } else if (view === 'audit') {
-        const audits = await tealdrive.files.undo.list();
-        if (current()) setAuditEntries(audits);
+        const page = await tealdrive.files.undo.list({ limit: 50 });
+        if (current()) {
+          setAuditEntries(page.entries);
+          setAuditCursor(page.nextCursor);
+        }
       }
     } catch (err: any) {
       if (!current()) return;
       const titles: Record<string, string> = {
-        recent: 'Recent files unavailable',
-        trash: 'Trash unavailable',
-        audit: 'History unavailable',
+        recent: t('Recent files unavailable'),
+        trash: t('Trash unavailable'),
+        audit: t('History unavailable'),
       };
       addToast({
-        title: titles[view] ?? 'Load error',
-        desc: isFeatureDisabled(err) ? 'This feature is disabled by server configuration.' : errorMessage(err),
+        title: titles[view] ?? t('Load error'),
+        desc: isFeatureDisabled(err) ? t('This feature is disabled by server configuration.') : errorMessage(err),
         type: isFeatureDisabled(err) ? 'warning' : 'error',
       });
     }
@@ -360,6 +371,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setRecentEntries([]);
     setTrashEntries([]);
     setAuditEntries([]);
+    setAuditCursor(null);
     setSelectedIds(new Set());
     setUploads([]);
     setPreviewFile(null);
@@ -411,8 +423,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (signingOutRef.current) return;
       resetAccountState();
       addToast({
-        title: 'Session ended',
-        desc: 'Your session expired or was revoked. Please sign in again.',
+        title: t('Session ended'),
+        desc: t('Your session expired or was revoked. Please sign in again.'),
         type: 'warning',
       });
     });
@@ -429,8 +441,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     await enterSession(sess);
     if (sess.passwordChangeRequired) return;
     addToast({
-      title: 'Signed In',
-      desc: `Welcome back, ${sess.username}!`,
+      title: t('Signed In'),
+      desc: t('Welcome back, {username}!', { username: sess.username }),
       type: 'success',
     });
   }, [addToast, enterSession]);
@@ -446,8 +458,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     resetAccountState();
     addToast({
-      title: 'Signed Out',
-      desc: 'You have been signed out successfully.',
+      title: t('Signed Out'),
+      desc: t('You have been signed out successfully.'),
       type: 'info',
     });
   }, [addToast, resetAccountState]);
@@ -462,8 +474,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // The server revokes the session after a password change.
     resetAccountState();
     addToast({
-      title: 'Password changed',
-      desc: 'Sign in with your new password.',
+      title: t('Password changed'),
+      desc: t('Sign in with your new password.'),
       type: 'success',
     });
   }, [addToast, resetAccountState]);
@@ -561,12 +573,12 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.createFolder({ path: joinPath(dir, name) });
       await refreshCurrentDirectory();
       addToast({
-        title: 'Folder created',
-        desc: `"${name}" added to ${dir}`,
+        title: t('Folder created'),
+        desc: t('"{name}" added to {dir}', { name, dir }),
         type: 'success',
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to create folder', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to create folder'), desc: errorMessage(err), type: 'error' });
     }
   }, [refreshCurrentDirectory, addToast]);
 
@@ -576,13 +588,13 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.rename({ path, newName });
       const [undo] = await Promise.all([findUndo('rename', path, since), refreshCurrentDirectory()]);
       addToast({
-        title: 'Item renamed',
-        desc: `Renamed to "${newName}"`,
+        title: t('Item renamed'),
+        desc: t('Renamed to "{newName}"', { newName }),
         type: 'success',
         undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to rename', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to rename'), desc: errorMessage(err), type: 'error' });
     }
   }, [refreshCurrentDirectory, addToast, findUndo]);
 
@@ -592,13 +604,13 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.move({ sourcePath, targetPath: joinPath(targetDirPath, sourcePath.split('/').pop() || '') });
       const [undo] = await Promise.all([findUndo('move', sourcePath, since), refreshCurrentDirectory()]);
       addToast({
-        title: 'Item moved',
-        desc: `Moved into ${targetDirPath}`,
+        title: t('Item moved'),
+        desc: t('Moved into {targetDirPath}', { targetDirPath }),
         type: 'success',
         undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to move', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to move'), desc: errorMessage(err), type: 'error' });
     }
   }, [refreshCurrentDirectory, addToast, findUndo]);
 
@@ -613,12 +625,12 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.copy({ sourcePath, targetPath: joinPath(targetDirPath, targetName) });
       await Promise.all([refreshCurrentDirectory(), refreshQuota()]);
       addToast({
-        title: 'Item duplicated',
-        desc: `Created "${targetName}" in ${targetDirPath}`,
+        title: t('Item duplicated'),
+        desc: t('Created "{targetName}" in {targetDirPath}', { targetName, targetDirPath }),
         type: 'success',
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to copy', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to copy'), desc: errorMessage(err), type: 'error' });
     }
   }, [entries, refreshCurrentDirectory, refreshQuota, addToast]);
 
@@ -628,13 +640,13 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.chmod({ path, mode });
       const [undo] = await Promise.all([findUndo('chmod', path, since), refreshCurrentDirectory()]);
       addToast({
-        title: 'Permissions updated',
-        desc: `UNIX mode set to ${mode}`,
+        title: t('Permissions updated'),
+        desc: t('UNIX mode set to {mode}', { mode }),
         type: 'success',
         undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to set permissions', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to set permissions'), desc: errorMessage(err), type: 'error' });
     }
   }, [refreshCurrentDirectory, addToast, findUndo]);
 
@@ -667,22 +679,26 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     if (failures.length === 0) {
       addToast({
-        title: moved > 1 ? `${moved} items moved to Trash` : 'Moved to Trash',
-        desc: 'Files can be restored from the Trash view anytime',
+        title: moved > 1 ? t('{moved} items moved to Trash', { moved }) : t('Moved to Trash'),
+        desc: t('Files can be restored from the Trash view anytime'),
         type: 'info',
         undo,
       });
     } else if (moved === 0 && isFeatureDisabled(failures[0].err)) {
       addToast({
-        title: 'Feature Disabled (FEATURE_DISABLED)',
-        desc: 'Moving items to trash is disabled by server configuration.',
+        title: t('Feature Disabled (FEATURE_DISABLED)'),
+        desc: t('Moving items to trash is disabled by server configuration.'),
         type: 'warning',
       });
     } else {
       const first = failures[0];
       addToast({
-        title: moved > 0 ? `${moved} of ${pathsToTrash.length} items moved to Trash` : 'Error deleting items',
-        desc: `${failures.length} failed. ${first.path.split('/').pop()}: ${errorMessage(first.err)}`,
+        title: moved > 0 ? t('{moved} of {count} items moved to Trash', { moved, count: pathsToTrash.length }) : t('Error deleting items'),
+        desc: t('{count} failed. {name}: {error}', {
+          count: failures.length,
+          name: first.path.split('/').pop() ?? '',
+          error: errorMessage(first.err),
+        }),
         type: 'error',
       });
     }
@@ -694,27 +710,29 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.trash.restore({ id });
       await Promise.all([loadView('trash'), refreshQuota()]);
       addToast({
-        title: 'Restored from Trash',
-        desc: `"${item?.name ?? 'Item'}" returned to ${item?.originalPath ?? 'its original location'}`,
+        title: t('Restored from Trash'),
+        desc: item
+          ? t('"{name}" returned to {path}', { name: item.name, path: item.originalPath ?? item.path })
+          : t('The item returned to its original location.'),
         type: 'success',
       });
     } catch (err: any) {
       if (isFeatureDisabled(err)) {
         addToast({
-          title: 'Feature Disabled (FEATURE_DISABLED)',
-          desc: 'Restoring from trash is disabled by server policy.',
+          title: t('Feature Disabled (FEATURE_DISABLED)'),
+          desc: t('Restoring from trash is disabled by server policy.'),
           type: 'warning',
         });
       } else {
-        addToast({ title: 'Failed to restore', desc: errorMessage(err), type: 'error' });
+        addToast({ title: t('Failed to restore'), desc: errorMessage(err), type: 'error' });
       }
     }
   }, [trashEntries, loadView, refreshQuota, addToast]);
 
   const permanentDeleteDisabledToast = useCallback(() => {
     addToast({
-      title: 'Feature Disabled (FEATURE_DISABLED)',
-      desc: 'Manual permanent deletion is disabled by server security policy. Files in Trash are purged automatically after the retention period.',
+      title: t('Feature Disabled (FEATURE_DISABLED)'),
+      desc: t('Manual permanent deletion is disabled by server security policy. Files in Trash are purged automatically after the retention period.'),
       type: 'warning',
     });
   }, [addToast]);
@@ -723,8 +741,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const count = await tealdrive.files.trash.empty();
       addToast({
-        title: 'Trash emptied',
-        desc: `Permanently removed ${count} items`,
+        title: t('Trash emptied'),
+        desc: t('Permanently removed {count} items', { count }),
         type: 'info',
       });
     } catch (err: any) {
@@ -732,7 +750,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         permanentDeleteDisabledToast();
       } else {
         addToast({
-          title: err.removed ? `Trash partly emptied (${err.removed} removed)` : 'Failed to empty trash',
+          title: err.removed ? t('Trash partly emptied ({removed} removed)', { removed: err.removed }) : t('Failed to empty trash'),
           desc: errorMessage(err),
           type: 'error',
         });
@@ -747,15 +765,15 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await tealdrive.files.trash.deletePermanently({ id });
       await Promise.all([loadView('trash'), refreshQuota()]);
       addToast({
-        title: 'Deleted permanently',
-        desc: 'Item wiped from disk pool',
+        title: t('Deleted permanently'),
+        desc: t('Item wiped from disk pool'),
         type: 'info',
       });
     } catch (err: any) {
       if (isFeatureDisabled(err)) {
         permanentDeleteDisabledToast();
       } else {
-        addToast({ title: 'Failed to delete permanently', desc: errorMessage(err), type: 'error' });
+        addToast({ title: t('Failed to delete permanently'), desc: errorMessage(err), type: 'error' });
       }
     }
   }, [addToast, loadView, refreshQuota, permanentDeleteDisabledToast]);
@@ -790,10 +808,10 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (itemsToTrash.length === 0) return;
 
     const count = itemsToTrash.length;
-    const title = count === 1 ? `Move "${itemsToTrash[0].name}" to Trash?` : `Move ${count} items to Trash?`;
+    const title = count === 1 ? t('Move "{name}" to Trash?', { name: itemsToTrash[0].name }) : t('Move {count} items to Trash?', { count });
     const desc = count === 1
-      ? 'This item will be moved to the Trash. You can restore it later from the Trash view.'
-      : `These ${count} items will be moved to the Trash. You can restore them later from the Trash view.`;
+      ? t('This item will be moved to the Trash. You can restore it later from the Trash view.')
+      : t('These {count} items will be moved to the Trash. You can restore them later from the Trash view.', { count });
 
     setDeleteConfirm({
       isOpen: true,
@@ -807,7 +825,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         mimeType: i.mimeType,
       })),
       isPermanent: false,
-      confirmLabel: count === 1 ? 'Move to Trash' : `Move ${count} Items to Trash`,
+      confirmLabel: count === 1 ? t('Move to Trash') : t('Move {count} Items to Trash', { count }),
       onConfirm: async () => {
         await trashSelectedOrPath(singlePath);
       },
@@ -817,8 +835,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const promptPermanentDelete = useCallback((file: FileEntry) => {
     setDeleteConfirm({
       isOpen: true,
-      title: `Permanently delete "${file.name}"?`,
-      description: 'This item will be immediately and irreversibly removed from storage.',
+      title: t('Permanently delete "{name}"?', { name: file.name }),
+      description: t('This item will be immediately and irreversibly removed from storage.'),
       items: [{
         name: file.name,
         isDirectory: file.isDirectory,
@@ -827,7 +845,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         mimeType: file.mimeType,
       }],
       isPermanent: true,
-      confirmLabel: 'Delete Permanently',
+      confirmLabel: t('Delete Permanently'),
       onConfirm: async () => {
         await deletePermanent(file.id);
       },
@@ -838,8 +856,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (trashEntries.length === 0) return;
     setDeleteConfirm({
       isOpen: true,
-      title: 'Empty entire Trash bin?',
-      description: `All ${trashEntries.length} items in the trash will be permanently wiped from the server storage pool.`,
+      title: t('Empty entire Trash bin?'),
+      description: t('All {count} items in the trash will be permanently wiped from the server storage pool.', { count: trashEntries.length }),
       items: trashEntries.map((t) => ({
         name: t.name,
         isDirectory: t.isDirectory,
@@ -848,7 +866,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         mimeType: t.mimeType,
       })),
       isPermanent: true,
-      confirmLabel: `Empty Trash (${trashEntries.length})`,
+      confirmLabel: t('Empty Trash ({count})', { count: trashEntries.length }),
       onConfirm: async () => {
         await emptyTrash();
       },
@@ -862,15 +880,15 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, []);
 
-  const toggleStar = useCallback(async (path: string) => {
+  const toggleStar = useCallback(async (path: string, starred?: boolean) => {
     try {
-      const updated = await tealdrive.files.star({ path });
+      const updated = await tealdrive.files.star({ path, starred });
       const apply = (list: FileEntry[]) =>
         list.map((e) => (e.path === path ? { ...e, starred: updated.starred } : e));
       setEntries(apply);
       setRecentEntries(apply);
     } catch (err: any) {
-      addToast({ title: 'Failed to star item', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Failed to star item'), desc: errorMessage(err), type: 'error' });
     }
   }, [addToast]);
 
@@ -886,24 +904,87 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (blobUrl && blobUrl.startsWith('blob:')) {
         URL.revokeObjectURL(blobUrl);
       }
-      addToast({ title: 'Download started', desc: filename, type: 'info' });
+      addToast({ title: t('Download started'), desc: filename, type: 'info' });
     } catch (err: any) {
-      addToast({ title: 'Download error', desc: errorMessage(err), type: 'error' });
+      addToast({ title: t('Download error'), desc: errorMessage(err), type: 'error' });
     }
   }, [addToast]);
+
+  const loadMoreAudit = useCallback(async () => {
+    if (!auditCursor) return;
+    const seq = viewSeqRef.current;
+    try {
+      const page = await tealdrive.files.undo.list({ limit: 50, cursor: auditCursor });
+      if (seq !== viewSeqRef.current) return;
+      setAuditEntries((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...page.entries.filter((e) => !seen.has(e.id))];
+      });
+      setAuditCursor(page.nextCursor);
+    } catch (err: any) {
+      addToast({ title: t('History unavailable'), desc: errorMessage(err), type: 'error' });
+    }
+  }, [auditCursor, addToast]);
+
+  const compressItems = useCallback(async (paths: string[], archiveName: string, format: 'zip' | 'tar.gz') => {
+    if (paths.length === 0) return;
+    // The archive lands next to its sources, under a name not already taken there.
+    const dir = parentPath(paths[0]);
+    if (dir === currentPathRef.current) {
+      const taken = new Set(entries.map((e) => e.name));
+      if (taken.has(archiveName)) {
+        const ext = format === 'zip' ? '.zip' : '.tar.gz';
+        const stem = archiveName.slice(0, archiveName.length - ext.length);
+        for (let i = 2; taken.has(archiveName); i++) archiveName = `${stem} (${i})${ext}`;
+      }
+    }
+    const target = joinPath(dir, archiveName);
+    try {
+      await tealdrive.files.archives.create({ sources: paths, target, format });
+      await Promise.all([refreshCurrentDirectory(), refreshQuota()]);
+      addToast({ title: t('Archive created'), desc: `"${archiveName}" in ${dir}`, type: 'success' });
+    } catch (err: any) {
+      addToast({
+        title: t('Failed to create archive'),
+        desc: isFeatureDisabled(err) ? t('Archives are disabled by server configuration.') : errorMessage(err),
+        type: isFeatureDisabled(err) ? 'warning' : 'error',
+      });
+    }
+  }, [entries, refreshCurrentDirectory, refreshQuota, addToast]);
+
+  const extractArchive = useCallback(async (path: string) => {
+    const dir = parentPath(path);
+    const name = path.split('/').pop() || 'archive';
+    // Unpack into a new folder named after the archive, never over existing files.
+    const base = name.replace(/\.(zip|tar\.gz|tgz)$/i, '') || 'archive';
+    const taken = new Set(dir === currentPathRef.current ? entries.map((e) => e.name) : []);
+    let folder = base;
+    for (let i = 2; taken.has(folder); i++) folder = `${base} (${i})`;
+    try {
+      await tealdrive.files.archives.extract({ path, destination: joinPath(dir, folder) });
+      await Promise.all([refreshCurrentDirectory(), refreshQuota()]);
+      addToast({ title: t('Archive extracted'), desc: t('Into "{folder}"', { folder }), type: 'success' });
+    } catch (err: any) {
+      addToast({
+        title: t('Failed to extract archive'),
+        desc: isFeatureDisabled(err) ? t('Archive extraction is disabled by server configuration.') : errorMessage(err),
+        type: isFeatureDisabled(err) ? 'warning' : 'error',
+      });
+    }
+  }, [entries, refreshCurrentDirectory, refreshQuota, addToast]);
 
   // Undo
   const undoOperation = useCallback(async (target: UndoTarget) => {
     try {
       const res = await tealdrive.files.undo.apply(target);
-      addToast({ title: 'Undo successful', desc: res.message, type: 'success' });
+      addToast({ title: t('Undo successful'), desc: res.message, type: 'success' });
     } catch (err: any) {
       addToast({
-        title: 'Cannot undo operation',
+        title: t('Cannot undo operation'),
         desc: isFeatureDisabled(err)
-          ? 'Undo is disabled by server configuration.'
+          ? t('Undo is disabled by server configuration.')
           : err?.code === 'CONFLICT' || err?.status === 409
-          ? 'The file changed after this operation, so it can no longer be reverted safely.'
+          ? t('The file changed after this operation, so it can no longer be reverted safely.')
           : errorMessage(err),
         type: 'warning',
       });
@@ -923,20 +1004,25 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (b.done + b.failed + b.cancelled < b.total) return;
     if (b.total === 1) {
       if (b.done === 1) {
-        addToast({ title: 'Upload complete', desc: `"${job.name}" uploaded to ${job.dir}`, type: 'success' });
+        addToast({ title: t('Upload complete'), desc: t('"{name}" uploaded to {dir}', { name: job.name, dir: job.dir }), type: 'success' });
       }
       return;
     }
     if (b.failed > 0) {
       addToast({
-        title: `${b.done} of ${b.total} files uploaded`,
-        desc: `${b.failed} failed${b.cancelled ? `, ${b.cancelled} cancelled` : ''}. See the upload panel for details.`,
+        title: t('{done} of {total} files uploaded', { done: b.done, total: b.total }),
+        desc: t('{failed} failed, {cancelled} cancelled. See the upload panel for details.', {
+          failed: b.failed,
+          cancelled: b.cancelled,
+        }),
         type: 'error',
       });
     } else if (b.done > 0) {
       addToast({
-        title: 'Uploads complete',
-        desc: `${b.done} files uploaded${b.cancelled ? `, ${b.cancelled} cancelled` : ''}`,
+        title: t('Uploads complete'),
+        desc: b.cancelled
+          ? t('{done} files uploaded, {cancelled} cancelled', { done: b.done, cancelled: b.cancelled })
+          : t('{done} files uploaded', { done: b.done }),
         type: 'success',
       });
     }
@@ -981,7 +1067,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             job.batch.failed++;
             updateUpload(job.fileId, { status: 'error', error: errorMessage(err) });
             if (job.batch.total === 1) {
-              addToast({ title: 'Upload failed', desc: `${job.name}: ${errorMessage(err)}`, type: 'error' });
+              addToast({ title: t('Upload failed'), desc: `${job.name}: ${errorMessage(err)}`, type: 'error' });
             }
           }
         } finally {
@@ -1123,6 +1209,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       recentEntries,
       trashEntries,
       auditEntries,
+      auditHasMore: auditCursor !== null,
+      loadMoreAudit,
       goToPath,
       refreshCurrentDirectory,
       selectedIds,
@@ -1149,6 +1237,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       deletePermanent,
       toggleStar,
       downloadFile,
+      compressItems,
+      extractArchive,
       undoOperation,
       uploads,
       uploadFiles,
@@ -1196,6 +1286,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       recentEntries,
       trashEntries,
       auditEntries,
+      auditCursor,
+      loadMoreAudit,
       goToPath,
       refreshCurrentDirectory,
       selectedIds,
@@ -1219,6 +1311,8 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       deletePermanent,
       toggleStar,
       downloadFile,
+      compressItems,
+      extractArchive,
       undoOperation,
       uploads,
       uploadFiles,

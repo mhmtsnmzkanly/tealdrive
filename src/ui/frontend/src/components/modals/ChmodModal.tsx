@@ -9,6 +9,7 @@ import {
 } from '../../sdk/permissions.ts';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { Key, AlertTriangle, ShieldCheck, X } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface ChmodModalProps {
   file: FileEntry;
@@ -57,7 +58,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
               <Key className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-100">UNIX File Permissions (chmod)</h3>
+              <h3 className="text-sm font-semibold text-slate-100">{t('UNIX File Permissions (chmod)')}</h3>
               <p className="text-[11px] font-mono text-slate-400 truncate max-w-[280px]">
                 {file.name}
               </p>
@@ -74,12 +75,12 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
         {/* Live Octal & Symbolic Display */}
         <div className="my-5 p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-around font-mono">
           <div className="text-center">
-            <span className="text-[10px] uppercase text-slate-500 block mb-0.5">Octal Mode</span>
+            <span className="text-[10px] uppercase text-slate-500 block mb-0.5">{t('Octal Mode')}</span>
             <span className="text-xl font-bold text-teal-400">{currentOctal}</span>
           </div>
           <div className="h-8 w-px bg-slate-800" />
           <div className="text-center">
-            <span className="text-[10px] uppercase text-slate-500 block mb-0.5">Symbolic</span>
+            <span className="text-[10px] uppercase text-slate-500 block mb-0.5">{t('Symbolic')}</span>
             <span className="text-sm font-semibold text-slate-200">{symbolic}</span>
           </div>
         </div>
@@ -93,22 +94,22 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
         ) : (
           <div className="mb-4 p-2 rounded-lg bg-slate-950 border border-slate-800 text-teal-400 text-[11px] flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Standard secure UNIX permissions policy applied</span>
+            <span>{t('No risky permission bits selected')}</span>
           </div>
         )}
 
         {/* 3x3 Matrix Grid */}
         <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3.5 mb-4">
           <div className="grid grid-cols-4 gap-2 text-center text-xs font-mono font-medium pb-2 border-b border-slate-800 text-slate-400">
-            <div className="text-left">Target</div>
-            <div>Read (r)</div>
-            <div>Write (w)</div>
-            <div>Exec (x)</div>
+            <div className="text-left">{t('Target')}</div>
+            <div>{t('Read (r)')}</div>
+            <div>{t('Write (w)')}</div>
+            <div>{t('Exec (x)')}</div>
           </div>
 
           {/* Owner row */}
           <div className="grid grid-cols-4 gap-2 text-center items-center py-2.5 border-b border-slate-800/60 text-xs">
-            <div className="text-left font-medium text-slate-300">Owner</div>
+            <div className="text-left font-medium text-slate-300">{t('Owner')}</div>
             <div>
               <input
                 type="checkbox"
@@ -137,7 +138,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
 
           {/* Group row */}
           <div className="grid grid-cols-4 gap-2 text-center items-center py-2.5 border-b border-slate-800/60 text-xs">
-            <div className="text-left font-medium text-slate-300">Group</div>
+            <div className="text-left font-medium text-slate-300">{t('Group')}</div>
             <div>
               <input
                 type="checkbox"
@@ -166,7 +167,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
 
           {/* Others row */}
           <div className="grid grid-cols-4 gap-2 text-center items-center py-2.5 text-xs">
-            <div className="text-left font-medium text-slate-300">Others</div>
+            <div className="text-left font-medium text-slate-300">{t('Others')}</div>
             <div>
               <input
                 type="checkbox"
@@ -196,7 +197,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
 
         {/* Quick Presets */}
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-[11px] text-slate-500 font-medium">Common Presets:</span>
+          <span className="text-[11px] text-slate-500 font-medium">{t('Common Presets:')}</span>
           <button
             type="button"
             onClick={() => handlePreset('0644')}
@@ -227,7 +228,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
             onClick={onClose}
             className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors"
           >
-            Cancel
+            {t('Cancel')}
           </button>
           <button
             type="button"
@@ -235,7 +236,7 @@ export const ChmodModal: React.FC<ChmodModalProps> = ({ file, onClose }) => {
             disabled={saving}
             className="px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-slate-950 font-semibold text-xs transition-all shadow-md active:scale-95"
           >
-            {saving ? 'Applying...' : 'Apply Permissions'}
+            {saving ? 'Applying...' : t('Apply Permissions')}
           </button>
         </div>
       </div>

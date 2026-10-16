@@ -9,11 +9,32 @@ import type {
   StorageBudget,
   ServerSettings,
 } from './types.ts';
-import { recentPath, toAuditEntry, toSession, toVirtualUser, parentOfRelative } from './mapping.ts';
+import {
+  recentPath,
+  toAuditEntry,
+  toSession,
+  toVirtualUser,
+  parentOfRelative,
+  toPolicyView,
+  type PolicyRule,
+  type PolicyTarget,
+  type PolicyView,
+  type UndoPreferences,
+} from './mapping.ts';
+
+function cleanPath(path: string): string {
+  return path.replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function policyApi(realClient: any, target: PolicyTarget): any {
+  return target.kind === 'linux' ? realClient.admin.systemUsers : realClient.admin.virtualUsers;
+}
 
 export interface CreateClientOptions {
   baseUrl?: string;
   encryption?: 'auto' | 'noise' | 'tls';
+  /** An already created SDK client; tests pass a fake instead of loading /sdk/v1. */
+  sdk?: any;
 }
 
 export function getMimeType(ext: string): string {
@@ -168,8 +189,12 @@ export function createClient(options: CreateClientOptions = {}) {
   };
 
   async function getRealSdkClient(): Promise<any | null> {
-    if (typeof window === 'undefined') return null;
     if (realClientInstance) return realClientInstance;
+    if (options.sdk) {
+      realClientInstance = options.sdk;
+      return realClientInstance;
+    }
+    if (typeof window === 'undefined') return null;
     if (realClientPromise) return realClientPromise;
 
     realClientPromise = (async () => {
@@ -218,7 +243,9 @@ export function createClient(options: CreateClientOptions = {}) {
           const info = await realClient.handshake();
           const latency = Date.now() - start;
           isConnectedToRealBackend = true;
-          notifyState({ connected: true, latency });
+          // Report the channel actually negotiated, not a configured guess.
+          const transport = info?.transport ?? realClient.getInfo?.()?.transport;
+          notifyState({ connected: true, latency, encryption: transport?.encryptedWebSocket ? 'noise' : 'tls' });
           return {
             protocol: info?.transport?.protocol || 'TLS',
             serverVersion: info?.protocolVersion ? `TDRV protocol v${info.protocolVersion}` : 'unknown',
@@ -725,6 +752,29 @@ export function createClient(options: CreateClientOptions = {}) {
         },
       },
 
+      archives: {
+        /** Packs the given paths into a new archive at `target` (full path, e.g. /docs/a.zip). */
+        async create(params: { sources: string[]; target: string; format: 'zip' | 'tar.gz' }): Promise<void> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          await realClient.files.archives.create({
+            sources: params.sources.map(cleanPath),
+            path: cleanPath(params.target),
+            format: params.format,
+          });
+        },
+
+        /** Unpacks an archive into `destination`, a folder that must not exist yet. */
+        async extract(params: { path: string; destination: string }): Promise<void> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          await realClient.files.archives.extract({
+            path: cleanPath(params.path),
+            destination: cleanPath(params.destination),
+          });
+        },
+      },
+
       /** The SDK polls quota while someone listens; forward each known reading. */
       observeQuotaWarning(callback: (quota: StorageQuota) => void): () => void {
         let off: (() => void) | null = null;
@@ -752,24 +802,46 @@ export function createClient(options: CreateClientOptions = {}) {
       },
 
       undo: {
-        /** Own-account operation history, joined with the undo candidates the server offers. */
-        async list(limit = 50): Promise<AuditEntry[]> {
+        /**
+         * One page of own-account history, joined with the undo candidates the server
+         * offers. Pass the returned cursor to fetch the next, older page.
+         */
+        async list(params: { limit?: number; cursor?: string | null } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
+          const limit = params.limit ?? 50;
           const [audit, undo] = await Promise.allSettled([
-            realClient.files.audit.list({ limit }),
-            realClient.files.undo.list({ limit }),
+            realClient.files.audit.list({ limit, ...(params.cursor ? { cursor: params.cursor } : {}) }),
+            // Undo candidates are few and recent; one wide page covers any history page.
+            realClient.files.undo.list({ limit: 200 }),
           ]);
           if (audit.status === 'rejected' && undo.status === 'rejected') throw audit.reason;
           const candidates = new Map<string, any>();
           if (undo.status === 'fulfilled') {
             for (const c of undo.value?.items || []) candidates.set(c.operation.id, c);
           }
-          const records =
-            audit.status === 'fulfilled'
-              ? audit.value?.items || []
-              : [...candidates.values()].map((c) => c.operation);
-          return records.map((r: any) => toAuditEntry(r, candidates.get(r.id)));
+          if (audit.status === 'rejected') {
+            // Without the audit feature, the undo list is the only history there is.
+            const entries = [...candidates.values()].map((c) => toAuditEntry(c.operation, c));
+            return { entries: params.cursor ? [] : entries, nextCursor: null };
+          }
+          return {
+            entries: (audit.value?.items || []).map((r: any) => toAuditEntry(r, candidates.get(r.id))),
+            nextCursor: audit.value?.nextCursor ?? null,
+          };
+        },
+
+        async getPreferences(): Promise<UndoPreferences> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          return realClient.files.undo.getPreferences();
+        },
+
+        /** null inherits the server default; otherwise hours, up to maximumHours. */
+        async setPreferences(params: { hours: number | null; expectedRevision: number }): Promise<UndoPreferences> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          return realClient.files.undo.setPreferences(params);
         },
 
         /** Finds the undo candidate for an operation this tab just performed. */
@@ -800,6 +872,39 @@ export function createClient(options: CreateClientOptions = {}) {
           });
           return { success: true, message: 'The operation was reverted.' };
         },
+      },
+    },
+
+    policy: {
+      /** Reads the policy of `target`, or of the signed-in account when omitted. */
+      async get(target?: PolicyTarget): Promise<PolicyView> {
+        const realClient = await ensureConnected();
+        if (!realClient) throw new Error('Client not connected');
+        const view = target
+          ? await policyApi(realClient, target).getPolicy({ accountId: target.accountId })
+          : await realClient.files.policy.get();
+        return toPolicyView(view, target ? 'admin' : 'personal');
+      },
+
+      /** Replaces the rules this layer owns. The server then signs the account out everywhere. */
+      async set(target: PolicyTarget | undefined, params: { expectedGeneration: number; rules: PolicyRule[] }): Promise<void> {
+        const realClient = await ensureConnected();
+        if (!realClient) throw new Error('Client not connected');
+        const rules = params.rules.map((r) => ({
+          path: cleanPath(r.path),
+          recursive: r.recursive,
+          deny: r.deny,
+          ...(r.rootId ? { rootId: r.rootId } : {}),
+        }));
+        if (target) {
+          await policyApi(realClient, target).setPolicy({
+            accountId: target.accountId,
+            expectedGeneration: params.expectedGeneration,
+            rules,
+          });
+        } else {
+          await realClient.files.policy.set({ expectedGeneration: params.expectedGeneration, rules });
+        }
       },
     },
 
@@ -870,6 +975,31 @@ export function createClient(options: CreateClientOptions = {}) {
             approvedForWeb: Boolean(su.registered ?? su.approvedForWeb ?? su.approved),
             lastLogin: su.lastLogin,
           }));
+        },
+
+        /** Registered Linux accounts, keyed by username, with what access changes need. */
+        async accounts(): Promise<Map<string, { id: string; generation: number; status: string; loginEnabled: boolean }>> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          const list = await realClient.admin.systemUsers.accounts();
+          const map = new Map<string, { id: string; generation: number; status: string; loginEnabled: boolean }>();
+          for (const a of Array.isArray(list) ? list : []) {
+            map.set(a.username, {
+              id: a.id,
+              generation: Number(a.generation) || 0,
+              status: a.status,
+              loginEnabled: a.loginEnabled !== false,
+            });
+          }
+          return map;
+        },
+
+        /** Allows or suspends web access for a registered Linux account. */
+        async setAccess(params: { accountId: string; enabled: boolean }): Promise<void> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          if (params.enabled) await realClient.admin.systemUsers.allow({ accountId: params.accountId });
+          else await realClient.admin.systemUsers.deny({ accountId: params.accountId });
         },
 
         async approve(params: { username: string }): Promise<void> {

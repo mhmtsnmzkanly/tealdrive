@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters.ts';
+import { t } from '../../i18n/index.ts';
 
 export const Sidebar: React.FC = () => {
   const {
@@ -102,7 +103,7 @@ export const Sidebar: React.FC = () => {
             </div>
             <div className="flex flex-col">
               <span className="font-bold text-base tracking-tight text-white flex items-center gap-1.5">
-                TealDrive
+                {t('TealDrive')}
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-teal-950/80 border border-teal-700/50 text-teal-400">
                   v2.4
                 </span>
@@ -113,7 +114,7 @@ export const Sidebar: React.FC = () => {
           <button
             onClick={() => setSidebarMobileOpen(false)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 md:hidden transition-colors"
-            title="Close menu"
+            title={t('Close menu')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -129,7 +130,7 @@ export const Sidebar: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>New</span>
+              <span>{t('New')}</span>
             </div>
             <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${newMenuOpen ? 'rotate-180' : ''}`} />
           </button>
@@ -144,7 +145,7 @@ export const Sidebar: React.FC = () => {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-800 hover:text-white transition-colors"
               >
                 <Upload className="w-4 h-4 text-teal-400" />
-                <span>Upload Files</span>
+                <span>{t('Upload Files')}</span>
               </button>
 
               <button
@@ -154,7 +155,7 @@ export const Sidebar: React.FC = () => {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-800 hover:text-white transition-colors"
               >
                 <FolderUp className="w-4 h-4 text-teal-400" />
-                <span>Upload Folder</span>
+                <span>{t('Upload Folder')}</span>
               </button>
 
               <div className="h-px bg-slate-800 my-1" />
@@ -167,7 +168,7 @@ export const Sidebar: React.FC = () => {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-800 hover:text-white transition-colors"
               >
                 <FolderPlus className="w-4 h-4 text-teal-400" />
-                <span>New Folder</span>
+                <span>{t('New Folder')}</span>
               </button>
 
               <button
@@ -175,7 +176,7 @@ export const Sidebar: React.FC = () => {
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-lg hover:bg-slate-800 hover:text-white transition-colors"
               >
                 <FileCode className="w-4 h-4 text-teal-400" />
-                <span>New Text / Code Document</span>
+                <span>{t('New Text / Code Document')}</span>
               </button>
             </div>
           )}
@@ -211,7 +212,7 @@ export const Sidebar: React.FC = () => {
           }`}
         >
           <HardDrive className="w-4 h-4 text-teal-400" />
-          <span>My Drive</span>
+          <span>{t('My Drive')}</span>
         </button>
 
         <button
@@ -223,7 +224,7 @@ export const Sidebar: React.FC = () => {
           }`}
         >
           <Clock className="w-4 h-4 text-sky-400" />
-          <span>Recent</span>
+          <span>{t('Recent')}</span>
         </button>
 
         <button
@@ -235,7 +236,7 @@ export const Sidebar: React.FC = () => {
           }`}
         >
           <Trash2 className="w-4 h-4 text-rose-400" />
-          <span>Trash</span>
+          <span>{t('Trash')}</span>
         </button>
 
         <button
@@ -247,13 +248,13 @@ export const Sidebar: React.FC = () => {
           }`}
         >
           <History className="w-4 h-4 text-amber-400" />
-          <span>Audit &amp; Undo</span>
+          <span>{t('History & Undo')}</span>
         </button>
 
         {session?.isAdmin && (
           <div className="pt-4 mt-2 border-t border-slate-800/60">
             <div className="px-3 pb-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-              Administration
+              {t('Administration')}
             </div>
             <button
               onClick={() => setActiveView('admin')}
@@ -264,7 +265,7 @@ export const Sidebar: React.FC = () => {
               }`}
             >
               <ShieldCheck className="w-4 h-4 text-purple-400" />
-              <span>Admin Console</span>
+              <span>{t('Admin Console')}</span>
             </button>
           </div>
         )}
@@ -275,7 +276,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
             <Gauge className="w-3.5 h-3.5 text-teal-400" />
-            <span>Storage Quota</span>
+            <span>{t('Storage Quota')}</span>
           </div>
         </div>
 
@@ -294,7 +295,7 @@ export const Sidebar: React.FC = () => {
         </div>
 
         <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-slate-400">
-          <span>{formatBytes(quota?.usedBytes || 0)} used</span>
+          <span>{t('{size} used', { size: formatBytes(quota?.usedBytes || 0) })}</span>
           <span>{quotaPercent}%</span>
         </div>
 
@@ -302,12 +303,12 @@ export const Sidebar: React.FC = () => {
         {isQuotaCritical ? (
           <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded bg-rose-950/70 border border-rose-800/60 text-rose-300 text-[10px]">
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span>Critical: Storage nearly full</span>
+            <span>{t('Critical: Storage nearly full')}</span>
           </div>
         ) : isQuotaWarning ? (
           <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded bg-amber-950/70 border border-amber-800/60 text-amber-300 text-[10px]">
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span>Warning: Exceeding 80% threshold</span>
+            <span>{t('Warning: Exceeding 80% threshold')}</span>
           </div>
         ) : null}
 
@@ -315,7 +316,7 @@ export const Sidebar: React.FC = () => {
         <div className="mt-3 pt-2 border-t border-slate-800/50 flex items-center justify-between text-[10px] text-slate-400">
           <div className="flex items-center gap-1">
             <Lock className="w-3 h-3 text-teal-400" />
-            <span className="font-mono">Noise XX</span>
+            <span className="font-mono">{clientState.encryption === 'noise' ? 'TLS + Noise NK' : 'TLS'}</span>
           </div>
           <span className="font-mono tabular-nums">{clientState.latency}ms</span>
         </div>

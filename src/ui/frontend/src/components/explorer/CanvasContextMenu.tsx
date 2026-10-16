@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   List,
 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface CanvasContextMenuProps {
   position?: { x: number; y: number };
@@ -119,7 +120,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-2.5 py-1 text-[11px] font-medium text-slate-400 truncate border-b border-slate-800 mb-1">
-        Folder Actions ({currentPath})
+        {t('Folder Actions ({path})', { path: currentPath })}
       </div>
 
       <button
@@ -127,7 +128,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors text-teal-300 hover:text-teal-200"
       >
         <FolderPlus className="w-3.5 h-3.5 text-teal-400" />
-        <span>New Folder</span>
+        <span>{t('New Folder')}</span>
       </button>
 
       <button
@@ -135,7 +136,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <FileCode className="w-3.5 h-3.5 text-emerald-400" />
-        <span>New Text Document</span>
+        <span>{t('New Text Document')}</span>
       </button>
 
       <div className="h-px bg-slate-800 my-1" />
@@ -146,7 +147,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <UploadCloud className="w-3.5 h-3.5 text-sky-400" />
-          <span>Upload Files</span>
+          <span>{t('Upload Files')}</span>
         </button>
       )}
 
@@ -156,7 +157,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
         >
           <FolderUp className="w-3.5 h-3.5 text-teal-400" />
-          <span>Upload Folder</span>
+          <span>{t('Upload Folder')}</span>
         </button>
       )}
 
@@ -165,7 +166,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
-        <span>Refresh Folder</span>
+        <span>{t('Refresh Folder')}</span>
       </button>
 
       <div className="h-px bg-slate-800 my-1" />
@@ -175,7 +176,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left transition-colors"
       >
         <CheckSquare className="w-3.5 h-3.5 text-slate-400" />
-        <span>Select All</span>
+        <span>{t('Select All')}</span>
       </button>
 
       <button
@@ -185,12 +186,12 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
         {viewMode === 'grid' ? (
           <>
             <List className="w-3.5 h-3.5 text-slate-400" />
-            <span>Switch to Table View</span>
+            <span>{t('Switch to Table View')}</span>
           </>
         ) : (
           <>
             <LayoutGrid className="w-3.5 h-3.5 text-slate-400" />
-            <span>Switch to Grid View</span>
+            <span>{t('Switch to Grid View')}</span>
           </>
         )}
       </button>

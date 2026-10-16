@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTealDrive, FilterType, SortField } from '../../context/TealDriveContext.tsx';
+import { PolicyEditorModal } from '../modals/PolicyEditorModal.tsx';
+import { PasswordChangeModal } from '../modals/PasswordChangeModal.tsx';
 import {
   Search,
   LayoutGrid,
@@ -12,7 +14,11 @@ import {
   Check,
   Menu,
   LogOut,
+  ShieldCheck,
+  KeyRound,
+  Languages,
 } from 'lucide-react';
+import { t, language, setLanguage } from '../../i18n/index.ts';
 
 export const TopBar: React.FC = () => {
   const {
@@ -35,6 +41,8 @@ export const TopBar: React.FC = () => {
   } = useTealDrive();
 
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
@@ -66,7 +74,7 @@ export const TopBar: React.FC = () => {
         <button
           onClick={() => setSidebarMobileOpen(true)}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 md:hidden shrink-0"
-          aria-label="Open sidebar menu"
+          aria-label={t('Open sidebar menu')}
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -78,7 +86,7 @@ export const TopBar: React.FC = () => {
                 pathParts.length === 0 ? 'text-teal-400 font-semibold' : 'text-slate-400'
               }`}
             >
-              Home
+              {t('Home')}
             </button>
             {pathParts.map((part, index) => {
               const isLast = index === pathParts.length - 1;
@@ -100,7 +108,7 @@ export const TopBar: React.FC = () => {
           </div>
         ) : (
           <span className="text-base font-semibold text-slate-100 capitalize">
-            {activeView === 'audit' ? 'Audit & Undo Timeline' : `${activeView} Files`}
+            {{ drive: t('My Drive'), recent: t('Recent'), trash: t('Trash'), audit: t('History & Undo'), admin: t('Administration') }[activeView]}
           </span>
         )}
       </div>
@@ -114,7 +122,7 @@ export const TopBar: React.FC = () => {
         >
           <div className="flex items-center gap-2">
             <Search className="w-3.5 h-3.5 text-slate-500 group-hover:text-teal-400 transition-colors" />
-            <span className="truncate">Search files, folders, or contents...</span>
+            <span className="truncate">{t('Search file and folder names...')}</span>
           </div>
           <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-800 border border-slate-700 rounded shrink-0">
             <span>⌘</span>
@@ -126,7 +134,7 @@ export const TopBar: React.FC = () => {
         <button
           onClick={() => setOmnisearchOpen(true)}
           className="sm:hidden p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-teal-300"
-          aria-label="Search"
+          aria-label={t('Search')}
         >
           <Search className="w-4 h-4 text-teal-400" />
         </button>
@@ -139,7 +147,7 @@ export const TopBar: React.FC = () => {
           <div className="flex items-center p-0.5 bg-slate-900 border border-slate-800 rounded-lg">
             <button
               onClick={() => setViewMode('grid')}
-              title="Grid View"
+              title={t('Grid View')}
               className={`p-1.5 rounded-md transition-colors ${
                 viewMode === 'grid'
                   ? 'bg-slate-800 text-teal-400 shadow-sm'
@@ -150,7 +158,7 @@ export const TopBar: React.FC = () => {
             </button>
             <button
               onClick={() => setViewMode('table')}
-              title="Table View"
+              title={t('Table View')}
               className={`p-1.5 rounded-md transition-colors ${
                 viewMode === 'table'
                   ? 'bg-slate-800 text-teal-400 shadow-sm'
@@ -176,7 +184,7 @@ export const TopBar: React.FC = () => {
             {sortDropdownOpen && (
               <div className="absolute right-0 top-10 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-1.5 z-40 text-xs text-slate-300 animate-in fade-in zoom-in-95 duration-100">
                 <div className="px-2 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                  Sort By
+                  {t('Sort By')}
                 </div>
                 {(['name', 'size', 'modified'] as SortField[]).map((field) => (
                   <button
@@ -231,7 +239,7 @@ export const TopBar: React.FC = () => {
                   {session?.isAdmin && (
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-950 border border-purple-700 text-purple-300 flex items-center gap-1">
                       <Shield className="w-2.5 h-2.5" />
-                      Admin
+                      {t('Admin')}
                     </span>
                   )}
                 </div>
@@ -242,19 +250,48 @@ export const TopBar: React.FC = () => {
               <div className="py-1">
                 <button
                   onClick={() => {
+                    setPolicyOpen(true);
+                    setUserDropdownOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-slate-800 transition-colors"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
+                  <span>{t('My Access Policy')}</span>
+                </button>
+                <button
+                  onClick={() => setLanguage(language() === 'tr' ? 'en' : 'tr')}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-slate-800 transition-colors"
+                >
+                  <Languages className="w-3.5 h-3.5 text-slate-300" />
+                  <span>{language() === 'tr' ? 'English' : 'Türkçe'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setPasswordOpen(true);
+                    setUserDropdownOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-slate-800 transition-colors"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-slate-300" />
+                  <span>{t('Change Password')}</span>
+                </button>
+                <button
+                  onClick={() => {
                     logout();
                     setUserDropdownOpen(false);
                   }}
                   className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs text-rose-300 hover:bg-rose-500/10 hover:text-rose-200 transition-colors"
                 >
                   <LogOut className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Sign Out</span>
+                  <span>{t('Sign Out')}</span>
                 </button>
               </div>
             </div>
           )}
         </div>
       </div>
+      {policyOpen && <PolicyEditorModal onClose={() => setPolicyOpen(false)} />}
+      {passwordOpen && <PasswordChangeModal onCancel={() => setPasswordOpen(false)} />}
     </header>
   );
 };

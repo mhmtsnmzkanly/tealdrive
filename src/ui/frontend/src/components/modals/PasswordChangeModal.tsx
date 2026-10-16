@@ -1,9 +1,18 @@
 import React, { useState } from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { KeyRound, AlertCircle, Loader2 } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
-/** Shown when the server requires a new password before anything else (first sign-in). */
-export const PasswordChangeModal: React.FC = () => {
+interface PasswordChangeModalProps {
+  /** Given for a voluntary change: offers Cancel instead of Sign out. */
+  onCancel?: () => void;
+}
+
+/**
+ * Replaces the password. Without onCancel it is the mandatory first-sign-in screen.
+ * Either way the server ends the session afterwards, so the user signs in again.
+ */
+export const PasswordChangeModal: React.FC<PasswordChangeModalProps> = ({ onCancel }) => {
   const { session, changePassword, logout } = useTealDrive();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -14,15 +23,15 @@ export const PasswordChangeModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if ([...newPassword].length < 12) {
-      setError('The new password must have at least 12 characters.');
+      setError(t('The new password must have at least 12 characters.'));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError('The new passwords do not match.');
+      setError(t('The new passwords do not match.'));
       return;
     }
     if (newPassword === currentPassword) {
-      setError('Choose a password different from the current one.');
+      setError(t('Choose a password different from the current one.'));
       return;
     }
     setError(null);
@@ -32,8 +41,8 @@ export const PasswordChangeModal: React.FC = () => {
     } catch (err: any) {
       setError(
         err?.code === 'INVALID_CREDENTIALS' || err?.status === 401
-          ? 'The current password is incorrect.'
-          : err?.message || 'Password change failed. Please try again.'
+          ? t('The current password is incorrect.')
+          : err?.message || t('Password change failed. Please try again.')
       );
       setLoading(false);
     }
@@ -49,10 +58,11 @@ export const PasswordChangeModal: React.FC = () => {
           <div className="w-14 h-14 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mb-4">
             <KeyRound className="w-7 h-7 text-teal-400" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white mb-1">Choose a new password</h1>
+          <h1 className="text-xl font-bold tracking-tight text-white mb-1">{t('Choose a new password')}</h1>
           <p className="text-sm text-slate-400">
-            {session?.username ? `${session.username}, your` : 'Your'} account uses a password set by an administrator.
-            Replace it to continue.
+            {onCancel
+              ? t('You will be signed out and can sign in with the new password.')
+              : `${session?.username ? `${session.username}, your` : 'Your'} account uses a password set by an administrator. Replace it to continue.`}
           </p>
         </div>
 
@@ -66,7 +76,7 @@ export const PasswordChangeModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Current password
+              {t('Current password')}
             </label>
             <input
               type="password"
@@ -80,7 +90,7 @@ export const PasswordChangeModal: React.FC = () => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              New password
+              {t('New password')}
             </label>
             <input
               type="password"
@@ -94,7 +104,7 @@ export const PasswordChangeModal: React.FC = () => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Confirm new password
+              {t('Confirm new password')}
             </label>
             <input
               type="password"
@@ -115,19 +125,19 @@ export const PasswordChangeModal: React.FC = () => {
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Saving…</span>
+                <span>{t('Saving…')}</span>
               </>
             ) : (
-              <span>Change password</span>
+              <span>{t('Change password')}</span>
             )}
           </button>
           <button
             type="button"
-            onClick={() => logout()}
+            onClick={() => (onCancel ? onCancel() : logout())}
             disabled={loading}
             className="w-full py-2 text-xs text-slate-400 hover:text-slate-200"
           >
-            Sign out
+            {onCancel ? 'Cancel' : t('Sign out')}
           </button>
         </form>
       </div>

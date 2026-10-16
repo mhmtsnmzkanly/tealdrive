@@ -7,6 +7,7 @@ import { CanvasContextMenu } from './CanvasContextMenu.tsx';
 import { formatBytes, getFileCategory } from '../../utils/formatters.ts';
 import { svgToSafeDataUrl } from '../../utils/safeSvg.ts';
 import { Star, MoreVertical, UploadCloud, Check } from 'lucide-react';
+import { t } from '../../i18n/index.ts';
 
 interface FileGridProps {
   files: FileEntry[];
@@ -187,8 +188,8 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
       {dragOver && (
         <div className="absolute inset-4 z-30 rounded-2xl border-2 border-dashed border-teal-400 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center text-teal-300 animate-in fade-in duration-150">
           <UploadCloud className="w-12 h-12 mb-3 text-teal-400 animate-bounce" />
-          <div className="text-base font-semibold">Drop files to upload</div>
-          <div className="text-xs text-slate-400 font-mono mt-1">Target: {currentPath}</div>
+          <div className="text-base font-semibold">{t('Drop files to upload')}</div>
+          <div className="text-xs text-slate-400 font-mono mt-1">{t('Target: {path}', { path: currentPath })}</div>
         </div>
       )}
 
@@ -197,16 +198,16 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
           <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-4 pointer-events-none">
             <UploadCloud className="w-8 h-8 text-teal-500/60" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-200 pointer-events-none">This directory is empty</h3>
+          <h3 className="text-sm font-semibold text-slate-200 pointer-events-none">{t('This directory is empty')}</h3>
           <p className="text-xs text-slate-400 max-w-sm mt-1 pointer-events-none">
-            Drag and drop files here, right-click, or long-press to open the action menu.
+            {t('Drag and drop files here, right-click, or long-press to open the action menu.')}
           </p>
           <div className="mt-4 flex gap-2">
             <button
               onClick={() => setNewFolderOpen(true)}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
             >
-              Create Folder
+              {t('Create Folder')}
             </button>
           </div>
         </div>
@@ -253,7 +254,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                         ? 'bg-gradient-to-tr from-teal-500 to-teal-400 border-teal-300 text-slate-950 shadow-md shadow-teal-500/40 scale-105'
                         : 'border-slate-600/70 bg-slate-950/50 hover:border-teal-400 opacity-30 sm:opacity-0 group-hover:opacity-100 hover:scale-105'
                     }`}
-                    title={isSelected ? 'Deselect item' : 'Select item'}
+                    title={isSelected ? t('Deselect item') : t('Select item')}
                   >
                     {isSelected && <Check className="w-3.5 h-3.5 stroke-[3] text-slate-950" />}
                   </div>
@@ -287,7 +288,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                         }
                       }}
                       className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 opacity-0 group-hover:opacity-100 transition-all"
-                      title="More actions"
+                      title={t('More actions')}
                     >
                       <MoreVertical className="w-3.5 h-3.5" />
                     </button>

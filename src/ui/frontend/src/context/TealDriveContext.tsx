@@ -842,11 +842,25 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           promptTrash();
         }
       }
+
+      // Escape to deselect
+      if (e.key === 'Escape') {
+        if (selectedIds.size > 0) {
+          e.preventDefault();
+          clearSelection();
+        }
+      }
+
+      // Cmd+A or Ctrl+A for Select All (only when in drive view and not in modal)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        selectAll();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, entries, promptTrash]);
+  }, [selectedIds, entries, promptTrash, clearSelection, selectAll]);
 
   const value = useMemo(
     () => ({

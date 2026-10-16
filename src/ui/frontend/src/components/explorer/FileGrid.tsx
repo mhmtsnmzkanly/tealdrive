@@ -6,7 +6,7 @@ import { FileContextMenu } from './FileContextMenu.tsx';
 import { CanvasContextMenu } from './CanvasContextMenu.tsx';
 import { formatBytes, getFileCategory } from '../../utils/formatters.ts';
 import { svgToSafeDataUrl } from '../../utils/safeSvg.ts';
-import { Star, MoreVertical, UploadCloud } from 'lucide-react';
+import { Star, MoreVertical, UploadCloud, Check } from 'lucide-react';
 
 interface FileGridProps {
   files: FileEntry[];
@@ -228,13 +228,18 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                 onTouchMove={handleItemTouchMove}
                 onTouchEnd={handleItemTouchEnd}
                 onTouchCancel={handleItemTouchEnd}
-                className={`group relative flex flex-col justify-between p-3 rounded-xl border transition-all cursor-pointer select-none touch-manipulation ${
+                className={`group relative flex flex-col justify-between p-3.5 rounded-2xl border transition-all duration-150 cursor-pointer select-none touch-manipulation ${
                   isSelected
-                    ? 'bg-teal-950/40 border-teal-500 shadow-md shadow-teal-500/10'
-                    : 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800/80 hover:border-slate-700'
+                    ? 'bg-gradient-to-b from-teal-950/70 via-slate-900/90 to-slate-900 border-teal-400 ring-2 ring-teal-400/80 shadow-xl shadow-teal-500/20 scale-[1.01]'
+                    : 'bg-slate-900/60 hover:bg-slate-800/80 border-slate-800/80 hover:border-slate-700/80 hover:shadow-lg hover:shadow-slate-950/30'
                 }`}
                 style={{ WebkitTouchCallout: 'none' }}
               >
+                {/* Top accent line on selected */}
+                {isSelected && (
+                  <div className="absolute inset-x-4 top-0 h-0.5 bg-gradient-to-r from-transparent via-teal-400 to-transparent pointer-events-none rounded-t" />
+                )}
+
                 {/* Top Action Row */}
                 <div className="flex items-center justify-between mb-2">
                   <div
@@ -242,13 +247,14 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                       e.stopPropagation();
                       toggleSelect(file.id, true);
                     }}
-                    className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                    className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all duration-150 ${
                       isSelected
-                        ? 'bg-teal-500 border-teal-400 text-slate-950'
-                        : 'border-slate-700 group-hover:border-slate-500 opacity-0 group-hover:opacity-100'
+                        ? 'bg-gradient-to-tr from-teal-500 to-teal-400 border-teal-300 text-slate-950 shadow-md shadow-teal-500/40 scale-105'
+                        : 'border-slate-600/70 bg-slate-950/50 hover:border-teal-400 opacity-30 sm:opacity-0 group-hover:opacity-100 hover:scale-105'
                     }`}
+                    title={isSelected ? 'Deselect item' : 'Select item'}
                   >
-                    {isSelected && <span className="text-[10px] font-bold">✓</span>}
+                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[3] text-slate-950" />}
                   </div>
 
                   <div className="flex items-center gap-1">
@@ -310,16 +316,18 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                 {/* File Details Footer */}
                 <div className="mt-2 min-w-0 pointer-events-none">
                   <div
-                    className="text-xs font-medium text-slate-200 truncate group-hover:text-teal-300 transition-colors"
+                    className={`text-xs font-medium truncate transition-colors ${
+                      isSelected ? 'text-teal-200 font-semibold' : 'text-slate-200 group-hover:text-teal-300'
+                    }`}
                     title={file.name}
                   >
                     {file.name}
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-                    <span className="font-mono tabular-nums">
+                    <span className={`font-mono tabular-nums ${isSelected ? 'text-teal-300/80 font-medium' : ''}`}>
                       {file.isDirectory ? 'Folder' : formatBytes(file.size)}
                     </span>
-                    <span className="font-mono">{file.mode}</span>
+                    <span className={`font-mono ${isSelected ? 'text-teal-400/60' : ''}`}>{file.mode}</span>
                   </div>
                 </div>
               </div>

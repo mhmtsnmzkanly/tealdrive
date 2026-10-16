@@ -6,7 +6,7 @@ import { FileContextMenu } from './FileContextMenu.tsx';
 import { CanvasContextMenu } from './CanvasContextMenu.tsx';
 import { formatBytes, formatRelativeDate } from '../../utils/formatters.ts';
 import { modeToSymbolic } from '../../sdk/permissions.ts';
-import { Star, MoreVertical, ArrowUpDown, Key } from 'lucide-react';
+import { Star, MoreVertical, ArrowUpDown, Key, Check, Minus } from 'lucide-react';
 
 interface FileTableProps {
   files: FileEntry[];
@@ -154,6 +154,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
   };
 
   const allSelected = files.length > 0 && selectedIds.size === files.length;
+  const isIndeterminate = selectedIds.size > 0 && !allSelected;
 
   return (
     <div
@@ -169,12 +170,25 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
           <thead>
             <tr className="border-b border-slate-800 bg-slate-900/80 text-slate-400 font-medium select-none">
               <th className="py-3 px-4 w-10">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={(e) => (e.target.checked ? selectAll() : clearSelection())}
-                  className="rounded border-slate-700 bg-slate-800 text-teal-500 focus:ring-teal-500/20"
-                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (allSelected) clearSelection();
+                    else selectAll();
+                  }}
+                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                    allSelected
+                      ? 'bg-teal-500 border-teal-400 text-slate-950 shadow-sm shadow-teal-500/30'
+                      : isIndeterminate
+                      ? 'bg-teal-500/20 border-teal-400 text-teal-300'
+                      : 'border-slate-700 bg-slate-800 hover:border-slate-500'
+                  }`}
+                  title={allSelected ? 'Deselect all' : 'Select all'}
+                >
+                  {allSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                  {isIndeterminate && <Minus className="w-2.5 h-2.5 stroke-[3]" />}
+                </button>
               </th>
               <th
                 onClick={() => {
@@ -241,19 +255,29 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                     onTouchMove={handleItemTouchMove}
                     onTouchEnd={handleItemTouchEnd}
                     onTouchCancel={handleItemTouchEnd}
-                    className={`group transition-colors cursor-pointer select-none touch-manipulation ${
-                      isSelected ? 'bg-teal-950/30 text-teal-200' : 'hover:bg-slate-800/40 text-slate-300'
+                    className={`group transition-all duration-150 cursor-pointer select-none touch-manipulation relative ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-teal-950/60 to-slate-900/90 text-teal-100 font-medium border-l-4 border-l-teal-400 shadow-sm'
+                        : 'hover:bg-slate-800/40 text-slate-300 border-l-4 border-l-transparent'
                     }`}
                     style={{ WebkitTouchCallout: 'none' }}
                   >
                     <td className="py-2.5 px-4">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelect(file.id, true)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded border-slate-700 bg-slate-800 text-teal-500 focus:ring-teal-500/20"
-                      />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelect(file.id, true);
+                        }}
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-150 ${
+                          isSelected
+                            ? 'bg-teal-500 border-teal-400 text-slate-950 shadow-sm shadow-teal-500/30 scale-105'
+                            : 'border-slate-700 bg-slate-900/80 hover:border-teal-400 opacity-60 group-hover:opacity-100'
+                        }`}
+                        title={isSelected ? 'Deselect' : 'Select'}
+                      >
+                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                      </button>
                     </td>
 
                     <td className="py-2.5 px-3">
@@ -264,7 +288,11 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                           mimeType={file.mimeType}
                           size="sm"
                         />
-                        <span className="font-medium text-slate-200 truncate group-hover:text-teal-300 transition-colors">
+                        <span
+                          className={`font-medium truncate transition-colors ${
+                            isSelected ? 'text-teal-200 font-semibold' : 'text-slate-200 group-hover:text-teal-300'
+                          }`}
+                        >
                           {file.name}
                         </span>
                         {file.starred && (

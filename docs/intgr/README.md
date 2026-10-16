@@ -1,6 +1,6 @@
 # TealDrive geliştirme ve kullanım belgeleri
 
-2026-10-14: yetkilendirilen çekirdek aşamaları uygulandı ve bu sunucuda yeni sürüme geçildi. Güncel teslim ve sınırlar [FINAL_REPORT.md](FINAL_REPORT.md), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md), işlerin kapanışı [PLAN.md](PLAN.md) içindedir. Önceki hedef şemalar [history](history/) altında korunur; eski örnekleri çalışan parser'a vermeyin.
+2026-10-14: yetkilendirilen çekirdek aşamaları uygulandı ve bu sunucuda yeni sürüme geçildi. Güncel teslim ve sınırlar [FINAL_REPORT.md](FINAL_REPORT.md), kabul kanıtları [TEST_RESULTS.md](TEST_RESULTS.md), işlerin kapanışı [PLAN.md](PLAN.md) içindedir. Önceki hedef şemalar ağaçtan kaldırıldı; gerekirse `git show 9d3f204:docs/intgr/history/<dosya>` ile okunabilir. Eski örnekleri çalışan parser'a vermeyin.
 
 14 Ekim iki yeni çekirdek aşaması da tamamlandı ve canlıya alındı. Güncel durum [PHASE_PROGRESS.md](PHASE_PROGRESS.md), kapanan kapsam [NEXT_PHASES.md](NEXT_PHASES.md), ayrıntılı sonuç [FINAL_REPORT.md](FINAL_REPORT.md) içindedir.
 

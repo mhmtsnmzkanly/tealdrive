@@ -37,7 +37,7 @@ Bu kayıt bütün proje işlerinin tamamlandığını göstermez; final rollout 
 
 Aktif eski /usr/local/bin/tealdrive-test-server ve tealdrive-candidate-server, /usr/local/libexec/tealdrive-test-helper ve tealdrive-candidate-helper public konumdan kaldırıldı. Önce setuid kaldırıldı; Root700 final-migration/retired-binaries altında executable rollback kopyaları korundu. Dört yeni PATH linki /home/tealdrive/bin altına gider.
 
-Yeniden kullanılabilir kabul kaynakları tests/live ve tools/dev; operasyon yardımcıları tools/ops altında ayrıldı. Wizard temp namespace dizinleri otomatik temizlendi. Geçici tek-kullanımlık /tmp/td-range-edit.py kaldırılır; yeni private operational audit/backup veya gerçek kullanıcı dosyaları temizleme hedefi yapılmadı. Legacy SRV orijinali migration rollback için korunur. Tarihsel tasarım notları docs/intgr/history altında etiketlenmiştir.
+Yeniden kullanılabilir kabul kaynakları tests/live ve tools/dev; operasyon yardımcıları tools/ops altında ayrıldı. Wizard temp namespace dizinleri otomatik temizlendi. Geçici tek-kullanımlık /tmp/td-range-edit.py kaldırılır; yeni private operational audit/backup veya gerçek kullanıcı dosyaları temizleme hedefi yapılmadı. Legacy SRV orijinali migration rollback için korunur. Tarihsel tasarım notları ağaçtan kaldırıldı; `git show 9d3f204:docs/intgr/history/<dosya>` ile okunabilir.
 
 ## Kullanıcı talebiyle kapsamlı artık temizliği — 2026-10-13
 

@@ -63,4 +63,4 @@ addition to TLS; REST and native HTTP downloads remain TLS-only. See the
 [API examples](sdk-api.js), [configuration](docs/intgr/CONFIGURATION.md),
 [Wizard](docs/intgr/WIZARD.md), [architecture](docs/ARCHITECTURE.md),
 [test evidence](docs/intgr/TEST_RESULTS.md) and [delivery report](docs/intgr/FINAL_REPORT.md).
-Older design drafts are retained under `docs/intgr/history` with explicit labels.
+Superseded design drafts were removed from the tree; read them from git with `git show 9d3f204:docs/intgr/history/<file>`.

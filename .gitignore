@@ -10,7 +10,6 @@ __pycache__/
 # Frontend development artifacts
 /src/ui/frontend/node_modules/
 /src/ui/frontend/dist/
-/src/ui/frontend/*lock*
 /src/ui/frontend/.env.local
 /src/ui/frontend/.env.*.local
 *.log

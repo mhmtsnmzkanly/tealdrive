@@ -1,20 +1,19 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# TealDrive web UI
 
-# Run and deploy your AI Studio app
+React + TypeScript + Tailwind single page application served by the TealDrive
+server as a Root-approved UI package. It talks to the server only through the
+public SDK at `/sdk/v1/tealdrive.js`.
 
-This contains everything you need to run your app locally.
+```sh
+npm ci
+npm run lint
+npm test
+npm run build        # writes dist/ and dist/manifest.json
+```
 
-View your app in AI Studio: https://ai.studio/apps/93c683f5-5c4c-4f63-a7d0-dcfde7040187
+Install the built package with the Wizard instead of pointing the server at
+this directory:
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```sh
+sudo tealdrive-wizard ui install --bundle src/ui/frontend/dist
+```

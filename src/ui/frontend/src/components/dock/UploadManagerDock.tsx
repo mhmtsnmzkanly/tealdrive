@@ -17,7 +17,7 @@ export const UploadManagerDock: React.FC = () => {
 
   if (uploads.length === 0) return null;
 
-  const activeUploads = uploads.filter((u) => u.status === 'uploading');
+  const activeUploads = uploads.filter((u) => u.status === 'uploading' || u.status === 'queued');
   const completedUploads = uploads.filter((u) => u.status === 'completed');
   const overallProgress =
     uploads.reduce((acc, curr) => acc + curr.progress, 0) / uploads.length;
@@ -68,7 +68,7 @@ export const UploadManagerDock: React.FC = () => {
                 </span>
 
                 <div className="flex items-center gap-2">
-                  {item.status === 'uploading' && (
+                  {(item.status === 'uploading' || item.status === 'queued') && (
                     <button
                       onClick={() => cancelUpload(item.fileId)}
                       className="text-slate-400 hover:text-rose-400 p-0.5"
@@ -81,7 +81,9 @@ export const UploadManagerDock: React.FC = () => {
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                   )}
                   {item.status === 'error' && (
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span title={item.error}>
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    </span>
                   )}
                   {item.status === 'aborted' && (
                     <XCircle className="w-4 h-4 text-slate-500 shrink-0" />
@@ -104,12 +106,16 @@ export const UploadManagerDock: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-500">
-                <span>
-                  {formatBytes(item.uploadedBytes)} of {formatBytes(item.size)}
+                <span className="truncate" title={item.error}>
+                  {item.status === 'error' && item.error
+                    ? item.error
+                    : `${formatBytes(item.uploadedBytes)} of ${formatBytes(item.size)}`}
                 </span>
                 <span>
                   {item.status === 'uploading'
-                    ? `${formatBytes(item.speedBytesPerSec)}/s`
+                    ? item.speedBytesPerSec > 0
+                      ? `${formatBytes(item.speedBytesPerSec)}/s`
+                      : 'starting'
                     : item.status}
                 </span>
               </div>

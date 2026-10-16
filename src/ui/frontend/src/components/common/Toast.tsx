@@ -30,10 +30,10 @@ export const ToastContainer: React.FC = () => {
               <div className="text-xs font-semibold text-slate-100">{toast.title}</div>
               {toast.desc && <div className="text-xs text-slate-400 mt-0.5 break-words">{toast.desc}</div>}
 
-              {toast.undoOpId && (
+              {toast.undo && (
                 <button
                   onClick={() => {
-                    undoOperation(toast.undoOpId!);
+                    undoOperation(toast.undo!);
                     dismissToast(toast.id);
                   }}
                   className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-teal-300 bg-teal-950/80 hover:bg-teal-900/90 border border-teal-700/50 rounded-md transition-colors"

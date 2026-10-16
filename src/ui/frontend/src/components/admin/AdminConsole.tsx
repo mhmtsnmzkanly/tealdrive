@@ -24,6 +24,8 @@ import {
   Lock,
 } from 'lucide-react';
 
+const USERNAME_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
+
 export const AdminConsole: React.FC = () => {
   const { addToast, promptCustomDelete } = useTealDrive();
   const [activeTab, setActiveTab] = useState<'virtual' | 'system' | 'budget' | 'settings'>('virtual');
@@ -37,8 +39,10 @@ export const AdminConsole: React.FC = () => {
   // Create Virtual User modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newUsername, setNewUsername] = useState('');
-  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [newQuotaGB, setNewQuotaGB] = useState('5');
+  const [creating, setCreating] = useState(false);
+  const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
 
   const loadData = async () => {
     setLoading(true);
@@ -49,10 +53,18 @@ export const AdminConsole: React.FC = () => {
         tealdrive.admin.quota.getBudget(),
         tealdrive.admin.settings.inspect(),
       ]);
+      // Keep "access denied" distinguishable from "nothing to show".
+      const errors: Record<string, string> = {};
+      const reason = (r: PromiseRejectedResult) => r.reason?.code || r.reason?.message || 'Unavailable';
       if (vuRes.status === 'fulfilled') setVirtualUsers(vuRes.value);
+      else errors.virtual = reason(vuRes);
       if (suRes.status === 'fulfilled') setSystemUsers(suRes.value);
+      else errors.system = reason(suRes);
       if (bRes.status === 'fulfilled') setBudget(bRes.value);
+      else errors.budget = reason(bRes);
       if (sRes.status === 'fulfilled') setSettings(sRes.value);
+      else errors.settings = reason(sRes);
+      setLoadErrors(errors);
     } catch (err: any) {
       addToast({ title: 'Admin API error', desc: err.message, type: 'error' });
     } finally {
@@ -66,35 +78,54 @@ export const AdminConsole: React.FC = () => {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername.trim()) return;
-
-    try {
-      const quotaBytes = parseFloat(newQuotaGB) * 1024 * 1024 * 1024;
-      await tealdrive.admin.virtualUsers.create({
-        username: newUsername.trim(),
-        quotaBytes,
-        email: newEmail.trim() || undefined,
+    const username = newUsername.trim();
+    if (!USERNAME_PATTERN.test(username)) {
+      addToast({
+        title: 'Invalid username',
+        desc: 'Use 1-64 lowercase letters, digits, "_", "." or "-", starting with a letter.',
+        type: 'error',
       });
+      return;
+    }
+    if ([...newPassword].length < 12) {
+      addToast({ title: 'Password too short', desc: 'Use at least 12 characters.', type: 'error' });
+      return;
+    }
+    const quotaBytes = Math.round(parseFloat(newQuotaGB) * 1024 * 1024 * 1024);
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 1) {
+      addToast({ title: 'Invalid quota', desc: 'Enter a positive size in GB.', type: 'error' });
+      return;
+    }
+
+    setCreating(true);
+    try {
+      await tealdrive.admin.virtualUsers.create({ username, quotaBytes, password: newPassword });
       addToast({
         title: 'Virtual user created',
-        desc: `Account "${newUsername}" provisioned with ${newQuotaGB} GB quota`,
+        desc: `"${username}" must choose a new password at first sign-in.`,
         type: 'success',
       });
       setCreateModalOpen(false);
       setNewUsername('');
-      setNewEmail('');
+      setNewPassword('');
       await loadData();
     } catch (err: any) {
       addToast({ title: 'Failed to create user', desc: err.message, type: 'error' });
+    } finally {
+      setCreating(false);
     }
+  };
+
+  const generatePassword = () => {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_.';
+    const bytes = crypto.getRandomValues(new Uint8Array(20));
+    // 60 symbols: the modulo bias over 256 values is negligible for a one-time password.
+    setNewPassword(Array.from(bytes, (b) => alphabet[b % alphabet.length]).join(''));
   };
 
   const handleToggleStatus = async (user: VirtualUser) => {
     try {
-      await tealdrive.admin.virtualUsers.toggleStatus({
-        username: user.username,
-        enabled: !user.enabled,
-      });
+      await tealdrive.admin.virtualUsers.toggleStatus({ user, enabled: !user.enabled });
       addToast({
         title: user.enabled ? 'User suspended' : 'User activated',
         desc: `${user.username} account status updated`,
@@ -106,7 +137,8 @@ export const AdminConsole: React.FC = () => {
     }
   };
 
-  const handleDeleteUser = (username: string) => {
+  const handleDeleteUser = (user: VirtualUser) => {
+    const username = user.username;
     promptCustomDelete({
       title: `Delete Virtual User "${username}"?`,
       description: `Are you sure you want to delete virtual account "${username}"? All assigned quota and account credentials will be permanently erased.`,
@@ -115,7 +147,7 @@ export const AdminConsole: React.FC = () => {
       items: [{ name: username, isDirectory: false }],
       onConfirm: async () => {
         try {
-          await tealdrive.admin.virtualUsers.delete({ username });
+          await tealdrive.admin.virtualUsers.delete({ user });
           addToast({ title: 'User deleted', desc: `Removed ${username}`, type: 'info' });
           await loadData();
         } catch (err: any) {
@@ -212,7 +244,7 @@ export const AdminConsole: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-800 bg-slate-900/80 text-slate-400 font-medium">
-                <th className="py-3 px-4">Username &amp; Email</th>
+                <th className="py-3 px-4">Username</th>
                 <th className="py-3 px-4 w-28 font-mono">UID</th>
                 <th className="py-3 px-4 w-44">Storage Quota</th>
                 <th className="py-3 px-4 w-28">Status</th>
@@ -226,30 +258,41 @@ export const AdminConsole: React.FC = () => {
                   <td colSpan={6} className="py-8 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <UserX className="w-5 h-5 text-slate-600" />
-                      <span>No virtual accounts found. Create one using the form above.</span>
+                      <span>
+                        {loadErrors.virtual
+                          ? `Virtual accounts unavailable (${loadErrors.virtual}).`
+                          : 'No virtual accounts found. Create one using the button above.'}
+                      </span>
                     </div>
                   </td>
                 </tr>
               ) : (
                 virtualUsers.map((user) => {
-                  const percent = Math.min(100, Math.round((user.usedBytes / user.quotaBytes) * 100));
+                  const percent =
+                    user.usedBytes !== undefined && user.quotaBytes > 0
+                      ? Math.min(100, Math.round((user.usedBytes / user.quotaBytes) * 100))
+                      : null;
                   return (
                     <tr key={user.id} className="hover:bg-slate-800/40 text-slate-300 transition-colors">
                       <td className="py-3 px-4">
                         <div className="font-semibold text-slate-200">{user.username}</div>
-                        <div className="text-[11px] text-slate-500">{user.email}</div>
+                        {user.passwordChangeRequired && (
+                          <div className="text-[11px] text-amber-400">Password change pending</div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-400">{user.uid}</td>
                       <td className="py-3 px-4">
-                        <div className="w-full bg-slate-800 rounded-full h-1.5 mb-1 overflow-hidden">
-                          <div
-                            className="bg-teal-500 h-full rounded-full"
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
+                        {percent !== null && (
+                          <div className="w-full bg-slate-800 rounded-full h-1.5 mb-1 overflow-hidden">
+                            <div
+                              className="bg-teal-500 h-full rounded-full"
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
+                        )}
                         <div className="text-[10px] font-mono tabular-nums text-slate-400 flex justify-between">
-                          <span>{formatBytes(user.usedBytes)}</span>
-                          <span>{formatBytes(user.quotaBytes)} ({percent}%)</span>
+                          {percent !== null && <span>{formatBytes(user.usedBytes ?? 0)}</span>}
+                          <span>{formatBytes(user.quotaBytes)}{percent !== null ? ` (${percent}%)` : ''}</span>
                         </div>
                       </td>
                       <td className="py-3 px-4">
@@ -261,11 +304,11 @@ export const AdminConsole: React.FC = () => {
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] text-rose-400">
                             <XCircle className="w-3 h-3" />
-                            <span>Suspended</span>
+                            <span className="capitalize">{user.status}</span>
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-slate-400">{formatRelativeDate(user.createdAt)}</td>
+                      <td className="py-3 px-4 text-slate-400">{user.createdAt ? formatRelativeDate(user.createdAt) : '—'}</td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
@@ -275,7 +318,7 @@ export const AdminConsole: React.FC = () => {
                             {user.enabled ? 'Suspend' : 'Activate'}
                           </button>
                           <button
-                            onClick={() => handleDeleteUser(user.username)}
+                            onClick={() => handleDeleteUser(user)}
                             className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/50 transition-colors"
                             title="Delete user"
                           >
@@ -312,7 +355,11 @@ export const AdminConsole: React.FC = () => {
                   <td colSpan={6} className="py-8 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-1.5">
                       <ShieldAlert className="w-5 h-5 text-slate-600" />
-                      <span>No eligible regular Linux PAM accounts discovered on this host.</span>
+                      <span>
+                        {loadErrors.system
+                          ? `System accounts unavailable (${loadErrors.system}).`
+                          : 'No eligible regular Linux PAM accounts discovered on this host.'}
+                      </span>
                     </div>
                   </td>
                 </tr>
@@ -324,8 +371,8 @@ export const AdminConsole: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-400">{su.uid}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-400">
-                      <div>{su.homeDir}</div>
-                      <div className="text-slate-500">{su.shell}</div>
+                      <div>{su.homeDir || '—'}</div>
+                      {su.shell && <div className="text-slate-500">{su.shell}</div>}
                     </td>
                     <td className="py-3 px-4">
                       {su.approvedForWeb ? (
@@ -362,12 +409,22 @@ export const AdminConsole: React.FC = () => {
       )}
 
       {/* Tab 3: Storage Budget */}
+      {(['budget', 'settings'] as const).map((tab) =>
+        activeTab === tab && !(tab === 'budget' ? budget : settings) ? (
+          <div key={tab} className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+            {loading
+              ? 'Loading…'
+              : `${tab === 'budget' ? 'Storage budget' : 'Server settings'} unavailable${loadErrors[tab] ? ` (${loadErrors[tab]})` : ''}.`}
+          </div>
+        ) : null
+      )}
+
       {activeTab === 'budget' && budget && (
         <div className="space-y-6">
           <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-xl">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-200">
-                NVMe Physical Storage Pool Allocation (Total: {formatBytes(budget.totalDiskBytes)})
+                Admin Storage Budget (Total: {formatBytes(budget.totalDiskBytes)})
               </h3>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -419,7 +476,7 @@ export const AdminConsole: React.FC = () => {
               <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
                 <div className="flex items-center gap-2 text-purple-400 font-semibold mb-1">
                   <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
-                  <span>Used Storage / System Reserve</span>
+                  <span>Admin Own Quota</span>
                 </div>
                 <div className="text-lg font-mono tabular-nums font-bold text-slate-100">
                   {formatBytes(budget.systemReserveBytes)}
@@ -434,7 +491,7 @@ export const AdminConsole: React.FC = () => {
               <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
                 <div className="flex items-center gap-2 text-slate-400 font-semibold mb-1">
                   <div className="w-2.5 h-2.5 rounded-full bg-slate-500" />
-                  <span>Unallocated Free Disk</span>
+                  <span>Unallocated Budget</span>
                 </div>
                 <div className="text-lg font-mono tabular-nums font-bold text-slate-100">
                   {formatBytes(budget.freePhysicalBytes)}
@@ -527,28 +584,46 @@ export const AdminConsole: React.FC = () => {
                   required
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="e.g. alex_developer"
+                  placeholder="e.g. alex_dev"
+                  pattern="[a-z][a-z0-9_.\-]{0,63}"
+                  autoComplete="off"
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-teal-500"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Email (Optional)</label>
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="alex@company.com"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-teal-500"
-                />
+                <label className="block text-slate-400 font-medium mb-1">Initial Password</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    minLength={12}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 12 characters"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 font-mono focus:outline-none focus:border-teal-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={generatePassword}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg whitespace-nowrap"
+                  >
+                    Generate
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Share it privately. The user must replace it at first sign-in.
+                </p>
               </div>
 
               <div>
                 <label className="block text-slate-400 font-medium mb-1">Storage Quota (GB)</label>
                 <input
                   type="number"
-                  min="1"
-                  max="100"
+                  min="0.01"
+                  step="any"
                   required
                   value={newQuotaGB}
                   onChange={(e) => setNewQuotaGB(e.target.value)}
@@ -559,16 +634,20 @@ export const AdminConsole: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-3">
                 <button
                   type="button"
-                  onClick={() => setCreateModalOpen(false)}
+                  onClick={() => {
+                    setCreateModalOpen(false);
+                    setNewPassword('');
+                  }}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-teal-600 hover:bg-teal-500 text-slate-950 font-semibold rounded-lg shadow"
+                  disabled={creating}
+                  className="px-4 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-slate-950 font-semibold rounded-lg shadow"
                 >
-                  Create User
+                  {creating ? 'Creating…' : 'Create User'}
                 </button>
               </div>
             </form>

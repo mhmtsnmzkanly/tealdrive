@@ -4,7 +4,7 @@ import { Lock, User, AlertCircle, Loader2 } from 'lucide-react';
 
 export const LoginModal: React.FC = () => {
   const { login } = useTealDrive();
-  const [username, setUsername] = useState('tealdrive');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -73,7 +73,8 @@ export const LoginModal: React.FC = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="tealdrive"
+                placeholder="username"
+                autoComplete="username"
                 required
                 autoFocus
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 transition-all"
@@ -92,6 +93,7 @@ export const LoginModal: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
+                autoComplete="current-password"
                 required
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 transition-all"
               />

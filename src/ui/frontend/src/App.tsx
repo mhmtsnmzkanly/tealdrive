@@ -25,18 +25,17 @@ import { ConfirmDeleteModal } from './components/modals/ConfirmDeleteModal.tsx';
 import { UploadManagerDock } from './components/dock/UploadManagerDock.tsx';
 import { ToastContainer } from './components/common/Toast.tsx';
 import { LoginModal } from './components/modals/LoginModal.tsx';
-import { getFileCategory, formatBytes } from './utils/formatters.ts';
+import { formatBytes } from './utils/formatters.ts';
+import { PasswordChangeModal } from './components/modals/PasswordChangeModal.tsx';
 import { AlertTriangle, X } from 'lucide-react';
 
 const MainExplorer: React.FC = () => {
   const {
     activeView,
     viewMode,
-    entries,
+    visibleEntries: sortedEntries,
     filter,
     setFilter,
-    sortField,
-    sortOrder,
     uploadFiles,
     quota,
     previewFile,
@@ -49,41 +48,6 @@ const MainExplorer: React.FC = () => {
   } = useTealDrive();
 
   const [quotaBannerDismissed, setQuotaBannerDismissed] = React.useState(false);
-
-  // Filter entries
-  const filteredEntries = React.useMemo(() => {
-    return entries.filter((file) => {
-      if (filter === 'all') return true;
-      const cat = getFileCategory(file.name, file.isDirectory, file.mimeType);
-      if (filter === 'folders') return file.isDirectory;
-      if (filter === 'documents') return cat === 'document';
-      if (filter === 'images') return cat === 'image';
-      if (filter === 'media') return cat === 'media';
-      if (filter === 'code') return cat === 'code';
-      if (filter === 'archives') return cat === 'archive';
-      return true;
-    });
-  }, [entries, filter]);
-
-  // Sort entries
-  const sortedEntries = React.useMemo(() => {
-    return [...filteredEntries].sort((a, b) => {
-      // Directories always come first
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-
-      let cmp = 0;
-      if (sortField === 'name') {
-        cmp = a.name.localeCompare(b.name);
-      } else if (sortField === 'size') {
-        cmp = (a.size || 0) - (b.size || 0);
-      } else if (sortField === 'modified') {
-        cmp = new Date(a.modified).getTime() - new Date(b.modified).getTime();
-      }
-
-      return sortOrder === 'asc' ? cmp : -cmp;
-    });
-  }, [filteredEntries, sortField, sortOrder]);
 
   const filterTabs = [
     { id: 'all', label: 'All Files' },
@@ -212,6 +176,16 @@ const AppContent: React.FC = () => {
     return (
       <>
         <LoginModal />
+        <ToastContainer />
+      </>
+    );
+  }
+
+  // The server refuses every other operation until the password is replaced.
+  if (session.passwordChangeRequired) {
+    return (
+      <>
+        <PasswordChangeModal />
         <ToastContainer />
       </>
     );

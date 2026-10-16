@@ -18,6 +18,7 @@ export const OmnisearchModal: React.FC = () => {
   const [results, setResults] = useState<FileEntry[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -29,24 +30,37 @@ export const OmnisearchModal: React.FC = () => {
     }
   }, [omnisearchOpen]);
 
+  // Each keystroke cancels the previous search, so a slow reply can never replace a newer one.
   useEffect(() => {
-    if (!query.trim()) {
+    const term = query.trim();
+    setSearchError(null);
+    if (!term) {
       setResults([]);
+      setSearching(false);
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const matches = await tealdrive.files.search({ query: query.trim() });
+        const matches = await tealdrive.files.search({ query: term, signal: controller.signal });
+        if (controller.signal.aborted) return;
         setResults(matches);
         setSelectedIndex(0);
+      } catch (err: any) {
+        if (controller.signal.aborted) return;
+        setResults([]);
+        setSearchError(err?.message || err?.code || 'Search failed');
       } finally {
-        setSearching(false);
+        if (!controller.signal.aborted) setSearching(false);
       }
-    }, 60);
+    }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query]);
 
   if (!omnisearchOpen) return null;
@@ -95,7 +109,7 @@ export const OmnisearchModal: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search files, folders, code, or contents..."
+            placeholder="Search file and folder names..."
             className="w-full bg-transparent text-sm text-slate-100 focus:outline-none placeholder:text-slate-500"
           />
           {query && (
@@ -113,26 +127,19 @@ export const OmnisearchModal: React.FC = () => {
 
         {/* Results Area */}
         <div className="max-h-80 overflow-y-auto p-2">
-          {query && results.length === 0 && !searching && (
+          {searchError && (
+            <div className="py-12 text-center text-xs text-rose-300">Search failed: {searchError}</div>
+          )}
+
+          {query && results.length === 0 && !searching && !searchError && (
             <div className="py-12 text-center text-xs text-slate-500">
               No matching files found for &quot;<span className="text-slate-300">{query}</span>&quot;
             </div>
           )}
 
           {!query && (
-            <div className="py-8 px-4 text-center">
-              <div className="text-xs text-slate-400 font-medium">Quick suggestions:</div>
-              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
-                {['README.md', 'main.rs', 'Reports', 'Configs', 'tealdrive.toml'].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setQuery(s)}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-300 text-xs font-mono transition-colors"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+            <div className="py-8 px-4 text-center text-xs text-slate-500">
+              Type part of a file or folder name. Results come from your whole drive.
             </div>
           )}
 

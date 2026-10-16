@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { tealdrive } from '../lib/tealdrive.ts';
+import { getFileCategory } from '../utils/formatters.ts';
+import { joinPath, parentPath, copyName } from '../utils/paths.ts';
 import type {
   FileEntry,
   Session,
@@ -13,12 +15,24 @@ export type ViewType = 'drive' | 'recent' | 'trash' | 'audit' | 'admin';
 export type FilterType = 'all' | 'folders' | 'documents' | 'images' | 'media' | 'code' | 'archives';
 export type SortField = 'name' | 'size' | 'modified';
 
+export interface UndoTarget {
+  operationId: string;
+  expectedState: string;
+}
+
 interface ToastData {
   id: string;
   title: string;
   desc?: string;
   type: 'info' | 'success' | 'warning' | 'error';
-  undoOpId?: string;
+  undo?: UndoTarget;
+}
+
+export interface SelectModifiers {
+  /** Ctrl/Cmd: add or remove one item. */
+  toggle?: boolean;
+  /** Shift: select everything between the anchor and this item. */
+  range?: boolean;
 }
 
 interface TealDriveContextType {
@@ -31,10 +45,13 @@ interface TealDriveContextType {
   setActiveView: (view: ViewType) => void;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 
   // Navigation & directory files
   currentPath: string;
   entries: FileEntry[];
+  /** Entries after the active filter and sort; what the explorer shows. */
+  visibleEntries: FileEntry[];
   recentEntries: FileEntry[];
   trashEntries: FileEntry[];
   auditEntries: AuditEntry[];
@@ -43,7 +60,8 @@ interface TealDriveContextType {
 
   // Selection & views
   selectedIds: Set<string>;
-  toggleSelect: (id: string, isShift?: boolean) => void;
+  toggleSelect: (id: string, additive?: boolean) => void;
+  selectItem: (id: string, modifiers?: SelectModifiers) => void;
   selectAll: () => void;
   clearSelection: () => void;
   viewMode: 'grid' | 'table';
@@ -69,7 +87,7 @@ interface TealDriveContextType {
   downloadFile: (path: string) => Promise<void>;
 
   // Undo system
-  undoOperation: (opId: string) => Promise<void>;
+  undoOperation: (target: UndoTarget) => Promise<void>;
 
   // Uploads
   uploads: UploadProgress[];
@@ -121,12 +139,47 @@ export interface DeleteConfirmModalState {
 
 const TealDriveContext = createContext<TealDriveContextType | null>(null);
 
+/** Uploads that run at once; the rest wait in the dock as "queued". */
+const UPLOAD_CONCURRENCY = 3;
+
+function isAbort(err: any): boolean {
+  return err?.name === 'AbortError' || err?.code === 'ABORTED' || err?.code === 'CANCELLED';
+}
+
+function errorMessage(err: any): string {
+  return err?.message || err?.code || String(err || 'Unknown error');
+}
+
+function isFeatureDisabled(err: any): boolean {
+  return err?.code === 'FEATURE_DISABLED' || errorMessage(err).includes('FEATURE_DISABLED');
+}
+
+/** Epoch seconds a few minutes back, so modest clock skew still matches our own journal record. */
+function journalSince(): number {
+  return Math.floor(Date.now() / 1000) - 300;
+}
+
+interface QueuedUpload {
+  fileId: string;
+  file: File;
+  name: string;
+  dir: string;
+  batch: UploadBatch;
+}
+
+interface UploadBatch {
+  total: number;
+  done: number;
+  failed: number;
+  cancelled: number;
+}
+
 export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [clientState, setClientState] = useState<ClientState>(tealdrive.getState());
   const [quota, setQuota] = useState<StorageQuota | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeView, setActiveView] = useState<ViewType>('drive');
+  const [activeView, setActiveViewState] = useState<ViewType>('drive');
 
   const [currentPath, setCurrentPath] = useState<string>('/');
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -154,175 +207,340 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmModalState | null>(null);
 
-  const addToast = useCallback((toast: Omit<ToastData, 'id'>) => {
-    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 6000);
-  }, []);
+  // Refs hold the latest values for async work that outlives a render.
+  const currentPathRef = useRef('/');
+  const activeViewRef = useRef<ViewType>('drive');
+  const listAbortRef = useRef<AbortController | null>(null);
+  const listSeqRef = useRef(0);
+  const viewSeqRef = useRef(0);
+  const selectionAnchorRef = useRef<string | null>(null);
+  const toastTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const uploadQueueRef = useRef<QueuedUpload[]>([]);
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
+  const signingOutRef = useRef(false);
 
   const dismissToast = useCallback((id: string) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) clearTimeout(timer);
+    toastTimersRef.current.delete(id);
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Fetch initial session & quota
-  useEffect(() => {
-    let unsubQuota: () => void = () => {};
-    let unsubState: () => void = () => {};
+  const addToast = useCallback((toast: Omit<ToastData, 'id'>) => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => [...prev, { ...toast, id }]);
+    // Undo offers stay a little longer so they can be reached.
+    const timer = setTimeout(() => dismissToast(id), toast.undo ? 10000 : 6000);
+    toastTimersRef.current.set(id, timer);
+  }, [dismissToast]);
 
-    const init = async () => {
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      setQuota(await tealdrive.files.quota.get());
+    } catch {
+      // Quota is advisory; keep the last known value.
+    }
+  }, []);
+
+  // Loads a directory. Only the newest request may update state, so a slow
+  // older listing never overwrites the folder the user moved on to.
+  const loadDirectory = useCallback(async (path: string): Promise<boolean> => {
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    const seq = ++listSeqRef.current;
+    try {
+      const res = await tealdrive.files.list({ path, signal: controller.signal });
+      if (seq !== listSeqRef.current) return false;
+      const changedDir = currentPathRef.current !== path;
+      currentPathRef.current = path;
+      setCurrentPath(path);
+      setEntries(res.entries);
+      if (changedDir) {
+        setSelectedIds(new Set());
+        selectionAnchorRef.current = null;
+      } else {
+        // Keep the selection on a refresh, minus anything that vanished.
+        const ids = new Set(res.entries.map((e) => e.id));
+        setSelectedIds((prev) => {
+          const next = new Set([...prev].filter((id) => ids.has(id)));
+          return next.size === prev.size ? prev : next;
+        });
+      }
+      return true;
+    } catch (err: any) {
+      if (seq !== listSeqRef.current || isAbort(err)) return false;
+      addToast({ title: 'Navigation error', desc: errorMessage(err), type: 'error' });
+      return false;
+    } finally {
+      if (listAbortRef.current === controller) listAbortRef.current = null;
+    }
+  }, [addToast]);
+
+  // Each secondary view load is tagged so a late reply cannot land in another view.
+  const loadView = useCallback(async (view: ViewType) => {
+    const seq = ++viewSeqRef.current;
+    const current = () => seq === viewSeqRef.current && activeViewRef.current === view;
+    try {
+      if (view === 'recent') {
+        const recent = await tealdrive.files.getRecent(20);
+        if (current()) setRecentEntries(recent);
+      } else if (view === 'trash') {
+        const trash = await tealdrive.files.trash.list();
+        if (current()) setTrashEntries(trash);
+      } else if (view === 'audit') {
+        const audits = await tealdrive.files.undo.list();
+        if (current()) setAuditEntries(audits);
+      }
+    } catch (err: any) {
+      if (!current()) return;
+      const titles: Record<string, string> = {
+        recent: 'Recent files unavailable',
+        trash: 'Trash unavailable',
+        audit: 'History unavailable',
+      };
+      addToast({
+        title: titles[view] ?? 'Load error',
+        desc: isFeatureDisabled(err) ? 'This feature is disabled by server configuration.' : errorMessage(err),
+        type: isFeatureDisabled(err) ? 'warning' : 'error',
+      });
+    }
+  }, [addToast]);
+
+  const refreshCurrentDirectory = useCallback(async () => {
+    const view = activeViewRef.current;
+    if (view === 'drive') {
+      await loadDirectory(currentPathRef.current);
+    } else if (view !== 'admin') {
+      await loadView(view);
+    }
+  }, [loadDirectory, loadView]);
+
+  const setActiveView = useCallback((view: ViewType) => {
+    activeViewRef.current = view;
+    setActiveViewState(view);
+    if (view === 'drive') {
+      loadDirectory(currentPathRef.current);
+    } else {
+      setSelectedIds(new Set());
+      loadView(view);
+    }
+  }, [loadDirectory, loadView]);
+
+  const goToPath = useCallback(async (path: string) => {
+    activeViewRef.current = 'drive';
+    setActiveViewState('drive');
+    await loadDirectory(path);
+  }, [loadDirectory]);
+
+  // Forgets everything the previous account could see.
+  const resetAccountState = useCallback(() => {
+    listAbortRef.current?.abort();
+    listSeqRef.current++;
+    viewSeqRef.current++;
+    uploadQueueRef.current = [];
+    uploadControllersRef.current.forEach((c) => c.abort());
+    uploadControllersRef.current.clear();
+    currentPathRef.current = '/';
+    activeViewRef.current = 'drive';
+    selectionAnchorRef.current = null;
+    setSession(null);
+    setQuota(null);
+    setActiveViewState('drive');
+    setCurrentPath('/');
+    setEntries([]);
+    setRecentEntries([]);
+    setTrashEntries([]);
+    setAuditEntries([]);
+    setSelectedIds(new Set());
+    setUploads([]);
+    setPreviewFile(null);
+    setEditorFile(null);
+    setChmodFile(null);
+    setRenameModalFile(null);
+    setMoveModalFile(null);
+    setNewFolderOpen(false);
+    setOmnisearchOpen(false);
+    setDeleteConfirm(null);
+  }, []);
+
+  // Opens a signed-in session: empty drive at the root, then the listing.
+  const enterSession = useCallback(async (sess: Session) => {
+    setSession(sess);
+    if (sess.passwordChangeRequired) return;
+    await Promise.all([loadDirectory('/'), refreshQuota()]);
+  }, [loadDirectory, refreshQuota]);
+
+  // Fetch initial session
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       try {
         const sess = await tealdrive.auth.getSession();
-        setSession(sess);
-
+        if (cancelled) return;
         if (sess) {
-          try {
-            await tealdrive.handshake();
-            const q = await tealdrive.files.quota.get();
-            setQuota(q);
-          } catch {}
-
-          unsubQuota = tealdrive.files.observeQuotaWarning((nextQuota) => {
-            setQuota(nextQuota);
-          });
-
-          unsubState = tealdrive.observeState((nextState) => {
-            setClientState(nextState);
-          });
-
-          await loadDirectory('/');
+          tealdrive.handshake().catch(() => {});
+          await enterSession(sess);
         }
       } catch (err: any) {
         console.error('Initialization error:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
-
-    init();
-
+    })();
     return () => {
-      unsubQuota();
-      unsubState();
+      cancelled = true;
     };
-  }, []);
+  }, [enterSession]);
 
-  const loadDirectory = async (path: string) => {
-    try {
-      const res = await tealdrive.files.list({ path });
-      setEntries(res.entries);
-      setCurrentPath(path);
-      setSelectedIds(new Set());
-      const q = await tealdrive.files.quota.get();
-      setQuota(q);
-    } catch (err: any) {
-      addToast({ title: 'Navigation error', desc: err.message, type: 'error' });
-    }
-  };
-
-  const loadRecent = async () => {
-    const recent = await tealdrive.files.getRecent(20);
-    setRecentEntries(recent);
-  };
-
-  const loadTrash = async () => {
-    const trash = await tealdrive.files.trash.list();
-    setTrashEntries(trash);
-  };
-
-  const loadAudit = async () => {
-    const audits = await tealdrive.files.undo.list();
-    setAuditEntries(audits);
-  };
-
+  // Live subscriptions exist exactly while someone is signed in, however they signed in.
+  const signedIn = session !== null;
   useEffect(() => {
-    if (activeView === 'drive') {
-      loadDirectory(currentPath);
-    } else if (activeView === 'recent') {
-      loadRecent();
-    } else if (activeView === 'trash') {
-      loadTrash();
-    } else if (activeView === 'audit') {
-      loadAudit();
-    }
-  }, [activeView, currentPath]);
-
-  const refreshCurrentDirectory = useCallback(async () => {
-    if (activeView === 'drive') {
-      await loadDirectory(currentPath);
-    } else if (activeView === 'recent') {
-      await loadRecent();
-    } else if (activeView === 'trash') {
-      await loadTrash();
-    } else if (activeView === 'audit') {
-      await loadAudit();
-    }
-  }, [activeView, currentPath]);
-
-  const goToPath = useCallback(async (path: string) => {
-    setActiveView('drive');
-    await loadDirectory(path);
-  }, []);
+    if (!signedIn) return;
+    const offState = tealdrive.observeState((next) => setClientState(next));
+    const offQuota = tealdrive.files.observeQuotaWarning((next) => setQuota(next));
+    const offRevoked = tealdrive.onSessionRevoked(() => {
+      if (signingOutRef.current) return;
+      resetAccountState();
+      addToast({
+        title: 'Session ended',
+        desc: 'Your session expired or was revoked. Please sign in again.',
+        type: 'warning',
+      });
+    });
+    return () => {
+      offState();
+      offQuota();
+      offRevoked();
+    };
+  }, [signedIn, resetAccountState, addToast]);
 
   const login = useCallback(async (username: string, password: string) => {
-    setLoading(true);
-    try {
-      const sess = await tealdrive.auth.login({ username, password });
-      setSession(sess);
-      try {
-        const q = await tealdrive.files.quota.get();
-        setQuota(q);
-      } catch {}
-      await loadDirectory('/');
-      addToast({
-        title: 'Signed In',
-        desc: `Welcome back, ${sess.username}!`,
-        type: 'success',
-      });
-    } catch (err: any) {
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [addToast]);
+    // Errors propagate to the login form; the form stays mounted to show them.
+    const sess = await tealdrive.auth.login({ username, password });
+    await enterSession(sess);
+    if (sess.passwordChangeRequired) return;
+    addToast({
+      title: 'Signed In',
+      desc: `Welcome back, ${sess.username}!`,
+      type: 'success',
+    });
+  }, [addToast, enterSession]);
 
   const logout = useCallback(async () => {
+    signingOutRef.current = true;
     try {
       await tealdrive.auth.logout();
-    } catch {}
-    setSession(null);
-    setEntries([]);
-    setSelectedIds(new Set());
+    } catch {
+      // The local state is cleared regardless.
+    } finally {
+      signingOutRef.current = false;
+    }
+    resetAccountState();
     addToast({
       title: 'Signed Out',
       desc: 'You have been signed out successfully.',
       type: 'info',
     });
-  }, [addToast]);
+  }, [addToast, resetAccountState]);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    signingOutRef.current = true;
+    try {
+      await tealdrive.auth.changePassword({ currentPassword, newPassword });
+    } finally {
+      signingOutRef.current = false;
+    }
+    // The server revokes the session after a password change.
+    resetAccountState();
+    addToast({
+      title: 'Password changed',
+      desc: 'Sign in with your new password.',
+      type: 'success',
+    });
+  }, [addToast, resetAccountState]);
+
+  const visibleEntries = useMemo(() => {
+    const filtered = entries.filter((file) => {
+      if (filter === 'all') return true;
+      if (filter === 'folders') return file.isDirectory;
+      const cat = getFileCategory(file.name, file.isDirectory, file.mimeType);
+      if (filter === 'documents') return cat === 'document';
+      if (filter === 'images') return cat === 'image';
+      if (filter === 'media') return cat === 'media';
+      if (filter === 'code') return cat === 'code';
+      if (filter === 'archives') return cat === 'archive';
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      // Directories always come first
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortField === 'size') {
+        cmp = (a.size || 0) - (b.size || 0);
+      } else if (sortField === 'modified') {
+        cmp = new Date(a.modified).getTime() - new Date(b.modified).getTime();
+      }
+
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+  }, [entries, filter, sortField, sortOrder]);
+
+  // A hidden item must never stay selected: bulk actions would hit files the user cannot see.
+  useEffect(() => {
+    const visible = new Set(visibleEntries.map((e) => e.id));
+    setSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleEntries]);
 
   // Selection
-  const toggleSelect = useCallback((id: string, isShift?: boolean) => {
+  const selectItem = useCallback((id: string, modifiers: SelectModifiers = {}) => {
+    const order = visibleEntries.map((e) => e.id);
     setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        if (!isShift) {
-          next.clear();
-        }
-        next.add(id);
+      const anchor = selectionAnchorRef.current;
+      if (modifiers.range && anchor && order.includes(anchor) && order.includes(id)) {
+        const [from, to] = [order.indexOf(anchor), order.indexOf(id)].sort((a, b) => a - b);
+        const next = modifiers.toggle ? new Set(prev) : new Set<string>();
+        order.slice(from, to + 1).forEach((x) => next.add(x));
+        return next;
       }
-      return next;
+      selectionAnchorRef.current = id;
+      if (modifiers.toggle) {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }
+      // A plain click on the only selected item clears it; otherwise it becomes the selection.
+      if (prev.size === 1 && prev.has(id)) return new Set();
+      return new Set([id]);
     });
-  }, []);
+  }, [visibleEntries]);
+
+  const toggleSelect = useCallback((id: string, additive?: boolean) => {
+    selectItem(id, { toggle: Boolean(additive) });
+  }, [selectItem]);
 
   const selectAll = useCallback(() => {
-    const all = new Set(entries.map((e) => e.id));
-    setSelectedIds(all);
-  }, [entries]);
+    setSelectedIds(new Set(visibleEntries.map((e) => e.id)));
+  }, [visibleEntries]);
 
   const clearSelection = useCallback(() => {
+    selectionAnchorRef.current = null;
     setSelectedIds(new Set());
   }, []);
 
@@ -330,200 +548,217 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
   }, []);
 
+  // Looks up the undo candidate the server recorded for an operation we just made.
+  const findUndo = useCallback(async (action: string, path: string, since: number): Promise<UndoTarget | undefined> => {
+    const entry = await tealdrive.files.undo.findLatest({ action, path, since });
+    return entry?.expectedState ? { operationId: entry.id, expectedState: entry.expectedState } : undefined;
+  }, []);
+
   // CRUD handlers
   const createFolder = useCallback(async (name: string) => {
+    const dir = currentPathRef.current;
     try {
-      const folderPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
-      await tealdrive.files.createFolder({ path: folderPath });
+      await tealdrive.files.createFolder({ path: joinPath(dir, name) });
       await refreshCurrentDirectory();
-      const audits = await tealdrive.files.undo.list();
-      const latestOp = audits[0]?.id;
       addToast({
         title: 'Folder created',
-        desc: `"${name}" added to current directory`,
+        desc: `"${name}" added to ${dir}`,
         type: 'success',
-        undoOpId: latestOp,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to create folder', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to create folder', desc: errorMessage(err), type: 'error' });
     }
-  }, [currentPath, refreshCurrentDirectory, addToast]);
+  }, [refreshCurrentDirectory, addToast]);
 
   const renameItem = useCallback(async (path: string, newName: string) => {
+    const since = journalSince();
     try {
       await tealdrive.files.rename({ path, newName });
-      await refreshCurrentDirectory();
-      const audits = await tealdrive.files.undo.list();
-      const latestOp = audits[0]?.id;
+      const [undo] = await Promise.all([findUndo('rename', path, since), refreshCurrentDirectory()]);
       addToast({
         title: 'Item renamed',
         desc: `Renamed to "${newName}"`,
         type: 'success',
-        undoOpId: latestOp,
+        undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to rename', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to rename', desc: errorMessage(err), type: 'error' });
     }
-  }, [refreshCurrentDirectory, addToast]);
+  }, [refreshCurrentDirectory, addToast, findUndo]);
 
   const moveItem = useCallback(async (sourcePath: string, targetDirPath: string) => {
+    const since = journalSince();
     try {
-      await tealdrive.files.move({ sourcePath, targetPath: targetDirPath });
-      await refreshCurrentDirectory();
-      const audits = await tealdrive.files.undo.list();
-      const latestOp = audits[0]?.id;
+      await tealdrive.files.move({ sourcePath, targetPath: joinPath(targetDirPath, sourcePath.split('/').pop() || '') });
+      const [undo] = await Promise.all([findUndo('move', sourcePath, since), refreshCurrentDirectory()]);
       addToast({
         title: 'Item moved',
         desc: `Moved into ${targetDirPath}`,
         type: 'success',
-        undoOpId: latestOp,
+        undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to move', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to move', desc: errorMessage(err), type: 'error' });
     }
-  }, [refreshCurrentDirectory, addToast]);
+  }, [refreshCurrentDirectory, addToast, findUndo]);
 
   const copyItem = useCallback(async (sourcePath: string, targetDirPath: string) => {
+    const name = sourcePath.split('/').pop() || '';
+    // The server takes the full destination path; duplicating in place needs a free name.
+    let targetName = name;
+    if (parentPath(sourcePath) === targetDirPath && targetDirPath === currentPathRef.current) {
+      targetName = copyName(name, new Set(entries.map((e) => e.name)));
+    }
     try {
-      await tealdrive.files.copy({ sourcePath, targetPath: targetDirPath });
-      await refreshCurrentDirectory();
+      await tealdrive.files.copy({ sourcePath, targetPath: joinPath(targetDirPath, targetName) });
+      await Promise.all([refreshCurrentDirectory(), refreshQuota()]);
       addToast({
         title: 'Item duplicated',
-        desc: `Created copy in ${targetDirPath}`,
+        desc: `Created "${targetName}" in ${targetDirPath}`,
         type: 'success',
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to copy', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to copy', desc: errorMessage(err), type: 'error' });
     }
-  }, [refreshCurrentDirectory, addToast]);
+  }, [entries, refreshCurrentDirectory, refreshQuota, addToast]);
 
   const chmodItem = useCallback(async (path: string, mode: string) => {
+    const since = journalSince();
     try {
       await tealdrive.files.chmod({ path, mode });
-      await refreshCurrentDirectory();
-      const audits = await tealdrive.files.undo.list();
-      const latestOp = audits[0]?.id;
+      const [undo] = await Promise.all([findUndo('chmod', path, since), refreshCurrentDirectory()]);
       addToast({
         title: 'Permissions updated',
         desc: `UNIX mode set to ${mode}`,
         type: 'success',
-        undoOpId: latestOp,
+        undo,
       });
     } catch (err: any) {
-      addToast({ title: 'Failed to set permissions', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to set permissions', desc: errorMessage(err), type: 'error' });
     }
-  }, [refreshCurrentDirectory, addToast]);
+  }, [refreshCurrentDirectory, addToast, findUndo]);
 
   const trashSelectedOrPath = useCallback(async (singlePath?: string) => {
-    const pathsToTrash: string[] = [];
-    if (singlePath) {
-      pathsToTrash.push(singlePath);
-    } else {
-      for (const e of entries) {
-        if (selectedIds.has(e.id)) {
-          pathsToTrash.push(e.path);
-        }
-      }
-    }
-
+    const pathsToTrash = singlePath
+      ? [singlePath]
+      : entries.filter((e) => selectedIds.has(e.id)).map((e) => e.path);
     if (pathsToTrash.length === 0) return;
 
-    try {
-      for (const p of pathsToTrash) {
+    const since = journalSince();
+    const failures: Array<{ path: string; err: any }> = [];
+    let moved = 0;
+    for (const p of pathsToTrash) {
+      try {
         await tealdrive.files.trash.move({ path: p });
-      }
-      setSelectedIds(new Set());
-      await refreshCurrentDirectory();
-      const audits = await tealdrive.files.undo.list();
-      const latestOp = audits[0]?.id;
-      addToast({
-        title: pathsToTrash.length > 1 ? `${pathsToTrash.length} items moved to Trash` : 'Moved to Trash',
-        desc: 'Files can be restored from the Trash view anytime',
-        type: 'info',
-        undoOpId: latestOp,
-      });
-    } catch (err: any) {
-      const errMsg = err?.message || String(err || '');
-      if (err?.code === 'FEATURE_DISABLED' || errMsg.includes('FEATURE_DISABLED')) {
-        addToast({
-          title: 'Feature Disabled (FEATURE_DISABLED)',
-          desc: 'Moving items to trash is disabled by server configuration.',
-          type: 'warning',
-        });
-      } else {
-        addToast({ title: 'Error deleting items', desc: errMsg, type: 'error' });
+        moved++;
+      } catch (err: any) {
+        failures.push({ path: p, err });
+        // Every remaining item would fail the same way.
+        if (isFeatureDisabled(err)) break;
       }
     }
-  }, [entries, selectedIds, refreshCurrentDirectory, addToast]);
+    clearSelection();
+    // Refresh in every case: a partial failure still moved some items.
+    const [undo] = await Promise.all([
+      moved === 1 && pathsToTrash.length === 1 ? findUndo('trash', pathsToTrash[0], since) : Promise.resolve(undefined),
+      refreshCurrentDirectory(),
+      refreshQuota(),
+    ]);
+
+    if (failures.length === 0) {
+      addToast({
+        title: moved > 1 ? `${moved} items moved to Trash` : 'Moved to Trash',
+        desc: 'Files can be restored from the Trash view anytime',
+        type: 'info',
+        undo,
+      });
+    } else if (moved === 0 && isFeatureDisabled(failures[0].err)) {
+      addToast({
+        title: 'Feature Disabled (FEATURE_DISABLED)',
+        desc: 'Moving items to trash is disabled by server configuration.',
+        type: 'warning',
+      });
+    } else {
+      const first = failures[0];
+      addToast({
+        title: moved > 0 ? `${moved} of ${pathsToTrash.length} items moved to Trash` : 'Error deleting items',
+        desc: `${failures.length} failed. ${first.path.split('/').pop()}: ${errorMessage(first.err)}`,
+        type: 'error',
+      });
+    }
+  }, [entries, selectedIds, clearSelection, refreshCurrentDirectory, refreshQuota, addToast, findUndo]);
 
   const restoreFromTrash = useCallback(async (id: string) => {
     try {
-      const restored = await tealdrive.files.trash.restore({ id });
-      await loadTrash();
+      const item = trashEntries.find((t) => t.id === id);
+      await tealdrive.files.trash.restore({ id });
+      await Promise.all([loadView('trash'), refreshQuota()]);
       addToast({
         title: 'Restored from Trash',
-        desc: `"${restored.name}" returned to original location`,
+        desc: `"${item?.name ?? 'Item'}" returned to ${item?.originalPath ?? 'its original location'}`,
         type: 'success',
       });
     } catch (err: any) {
-      const errMsg = err?.message || String(err || '');
-      if (err?.code === 'FEATURE_DISABLED' || errMsg.includes('FEATURE_DISABLED')) {
+      if (isFeatureDisabled(err)) {
         addToast({
           title: 'Feature Disabled (FEATURE_DISABLED)',
           desc: 'Restoring from trash is disabled by server policy.',
           type: 'warning',
         });
       } else {
-        addToast({ title: 'Failed to restore', desc: errMsg, type: 'error' });
+        addToast({ title: 'Failed to restore', desc: errorMessage(err), type: 'error' });
       }
     }
+  }, [trashEntries, loadView, refreshQuota, addToast]);
+
+  const permanentDeleteDisabledToast = useCallback(() => {
+    addToast({
+      title: 'Feature Disabled (FEATURE_DISABLED)',
+      desc: 'Manual permanent deletion is disabled by server security policy. Files in Trash are purged automatically after the retention period.',
+      type: 'warning',
+    });
   }, [addToast]);
 
   const emptyTrash = useCallback(async () => {
     try {
       const count = await tealdrive.files.trash.empty();
-      await loadTrash();
       addToast({
         title: 'Trash emptied',
         desc: `Permanently removed ${count} items`,
         type: 'info',
       });
     } catch (err: any) {
-      const errMsg = err?.message || String(err || '');
-      if (err?.code === 'FEATURE_DISABLED' || errMsg.includes('FEATURE_DISABLED')) {
-        addToast({
-          title: 'Feature Disabled (FEATURE_DISABLED)',
-          desc: 'Manual permanent deletion is disabled by server security policy. Files in Trash will be automatically purged after the retention period (21 days).',
-          type: 'warning',
-        });
+      if (isFeatureDisabled(err) && !err.removed) {
+        permanentDeleteDisabledToast();
       } else {
-        addToast({ title: 'Failed to empty trash', desc: errMsg, type: 'error' });
+        addToast({
+          title: err.removed ? `Trash partly emptied (${err.removed} removed)` : 'Failed to empty trash',
+          desc: errorMessage(err),
+          type: 'error',
+        });
       }
+    } finally {
+      await Promise.all([loadView('trash'), refreshQuota()]);
     }
-  }, [addToast]);
+  }, [addToast, loadView, refreshQuota, permanentDeleteDisabledToast]);
 
   const deletePermanent = useCallback(async (id: string) => {
     try {
       await tealdrive.files.trash.deletePermanently({ id });
-      await loadTrash();
+      await Promise.all([loadView('trash'), refreshQuota()]);
       addToast({
         title: 'Deleted permanently',
         desc: 'Item wiped from disk pool',
         type: 'info',
       });
     } catch (err: any) {
-      const errMsg = err?.message || String(err || '');
-      if (err?.code === 'FEATURE_DISABLED' || errMsg.includes('FEATURE_DISABLED')) {
-        addToast({
-          title: 'Feature Disabled (FEATURE_DISABLED)',
-          desc: 'Manual permanent deletion is disabled by server security policy. Files in Trash will be automatically purged after the retention period (21 days).',
-          type: 'warning',
-        });
+      if (isFeatureDisabled(err)) {
+        permanentDeleteDisabledToast();
       } else {
-        addToast({ title: 'Failed to delete permanently', desc: errMsg, type: 'error' });
+        addToast({ title: 'Failed to delete permanently', desc: errorMessage(err), type: 'error' });
       }
     }
-  }, [addToast]);
+  }, [addToast, loadView, refreshQuota, permanentDeleteDisabledToast]);
 
   const promptTrash = useCallback((singlePath?: string) => {
     let itemsToTrash: FileEntry[] = [];
@@ -545,7 +780,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           group: '',
           mimeType: '',
           starred: false,
-          revision: 1,
+          revision: null,
         }];
       }
     } else {
@@ -630,9 +865,12 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const toggleStar = useCallback(async (path: string) => {
     try {
       const updated = await tealdrive.files.star({ path });
-      setEntries((prev) => prev.map((e) => (e.path === path ? updated : e)));
+      const apply = (list: FileEntry[]) =>
+        list.map((e) => (e.path === path ? { ...e, starred: updated.starred } : e));
+      setEntries(apply);
+      setRecentEntries(apply);
     } catch (err: any) {
-      addToast({ title: 'Failed to star item', desc: err.message, type: 'error' });
+      addToast({ title: 'Failed to star item', desc: errorMessage(err), type: 'error' });
     }
   }, [addToast]);
 
@@ -650,152 +888,172 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       addToast({ title: 'Download started', desc: filename, type: 'info' });
     } catch (err: any) {
-      addToast({ title: 'Download error', desc: err.message, type: 'error' });
+      addToast({ title: 'Download error', desc: errorMessage(err), type: 'error' });
     }
   }, [addToast]);
 
   // Undo
-  const undoOperation = useCallback(async (opId: string) => {
+  const undoOperation = useCallback(async (target: UndoTarget) => {
     try {
-      const res = await tealdrive.files.undo.apply({ operationId: opId });
-      if (res.success) {
-        addToast({ title: 'Undo successful', desc: res.message, type: 'success' });
-        await refreshCurrentDirectory();
-        await loadAudit();
-      } else {
-        addToast({ title: 'Cannot undo operation', desc: res.message, type: 'warning' });
-      }
+      const res = await tealdrive.files.undo.apply(target);
+      addToast({ title: 'Undo successful', desc: res.message, type: 'success' });
     } catch (err: any) {
-      addToast({ title: 'Undo error', desc: err.message, type: 'error' });
+      addToast({
+        title: 'Cannot undo operation',
+        desc: isFeatureDisabled(err)
+          ? 'Undo is disabled by server configuration.'
+          : err?.code === 'CONFLICT' || err?.status === 409
+          ? 'The file changed after this operation, so it can no longer be reverted safely.'
+          : errorMessage(err),
+        type: 'warning',
+      });
+    } finally {
+      // Covers the drive listing and, when it is open, the history view.
+      await Promise.all([refreshCurrentDirectory(), refreshQuota()]);
     }
-  }, [refreshCurrentDirectory, addToast]);
+  }, [refreshCurrentDirectory, refreshQuota, addToast]);
 
   // Uploads
-  const uploadFiles = useCallback((files: FileList | File[], targetDir?: string) => {
-    const baseDir = targetDir || currentPath;
-    const fileList = Array.from(files);
-
-    fileList.forEach((file: any) => {
-      let dir = baseDir;
-      let effectiveName = file.name;
-
-      // Handle folder uploads via webkitdirectory
-      if (file.webkitRelativePath) {
-        const parts = file.webkitRelativePath.split('/');
-        effectiveName = parts.pop() || file.name;
-        const subDir = parts.join('/');
-        if (subDir) {
-          dir = baseDir === '/' ? `/${subDir}` : `${baseDir}/${subDir}`;
-        }
-      }
-
-      const fileId = `upload_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const controller = new AbortController();
-
-      const newUpload: UploadProgress = {
-        fileId,
-        fileName: effectiveName,
-        directory: dir,
-        size: file.size || 1024 * 128,
-        uploadedBytes: 0,
-        progress: 0,
-        speedBytesPerSec: 1024 * 1024 * 3.8,
-        status: 'uploading',
-        abortController: controller,
-      };
-
-      setUploads((prev) => [newUpload, ...prev]);
-
-      // Read content if text
-      const reader = new FileReader();
-      const isText =
-        file.type?.startsWith('text/') ||
-        /\.(txt|md|rs|ts|js|json|toml|sh|csv|sql)$/i.test(effectiveName);
-
-      const startUpload = async (contentStr?: string) => {
-        try {
-          await tealdrive.files.upload({
-            directory: dir,
-            file: {
-              name: effectiveName,
-              size: file.size,
-              type: file.type,
-              content: contentStr,
-              rawFile: file,
-            },
-            signal: controller.signal,
-            onProgress: (p) => {
-              setUploads((prev) =>
-                prev.map((item) =>
-                  item.fileId === fileId
-                    ? {
-                        ...item,
-                        progress: p.progress,
-                        uploadedBytes: p.uploadedBytes,
-                        speedBytesPerSec: p.speedBytesPerSec,
-                      }
-                    : item
-                )
-              );
-            },
-          });
-
-          setUploads((prev) =>
-            prev.map((item) =>
-              item.fileId === fileId ? { ...item, progress: 100, status: 'completed' } : item
-            )
-          );
-
-          await refreshCurrentDirectory();
-          addToast({
-            title: 'Upload complete',
-            desc: `"${effectiveName}" uploaded to ${dir}`,
-            type: 'success',
-          });
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-            setUploads((prev) =>
-              prev.map((item) =>
-                item.fileId === fileId ? { ...item, status: 'aborted' } : item
-              )
-            );
-            addToast({ title: 'Upload cancelled', desc: file.name, type: 'info' });
-          } else {
-            setUploads((prev) =>
-              prev.map((item) =>
-                item.fileId === fileId ? { ...item, status: 'error', error: err.message } : item
-              )
-            );
-            addToast({ title: 'Upload failed', desc: err.message, type: 'error' });
-          }
-        }
-      };
-
-      if (isText) {
-        reader.onload = () => startUpload(reader.result as string);
-        reader.onerror = () => startUpload();
-        reader.readAsText(file);
-      } else {
-        startUpload();
-      }
-    });
-  }, [currentPath, refreshCurrentDirectory, addToast]);
-
-  const cancelUpload = useCallback((fileId: string) => {
-    setUploads((prev) => {
-      const item = prev.find((u) => u.fileId === fileId);
-      if (item && item.abortController && item.status === 'uploading') {
-        item.abortController.abort();
-      }
-      return prev.map((u) => (u.fileId === fileId ? { ...u, status: 'aborted' } : u));
-    });
+  const updateUpload = useCallback((fileId: string, patch: Partial<UploadProgress>) => {
+    setUploads((prev) => prev.map((item) => (item.fileId === fileId ? { ...item, ...patch } : item)));
   }, []);
 
+  const finishBatchItem = useCallback((job: QueuedUpload) => {
+    const b = job.batch;
+    if (b.done + b.failed + b.cancelled < b.total) return;
+    if (b.total === 1) {
+      if (b.done === 1) {
+        addToast({ title: 'Upload complete', desc: `"${job.name}" uploaded to ${job.dir}`, type: 'success' });
+      }
+      return;
+    }
+    if (b.failed > 0) {
+      addToast({
+        title: `${b.done} of ${b.total} files uploaded`,
+        desc: `${b.failed} failed${b.cancelled ? `, ${b.cancelled} cancelled` : ''}. See the upload panel for details.`,
+        type: 'error',
+      });
+    } else if (b.done > 0) {
+      addToast({
+        title: 'Uploads complete',
+        desc: `${b.done} files uploaded${b.cancelled ? `, ${b.cancelled} cancelled` : ''}`,
+        type: 'success',
+      });
+    }
+  }, [addToast]);
+
+  const pumpUploads = useCallback(() => {
+    while (uploadControllersRef.current.size < UPLOAD_CONCURRENCY && uploadQueueRef.current.length > 0) {
+      const job = uploadQueueRef.current.shift()!;
+      const controller = new AbortController();
+      uploadControllersRef.current.set(job.fileId, controller);
+      updateUpload(job.fileId, { status: 'uploading' });
+
+      (async () => {
+        try {
+          await tealdrive.files.upload({
+            directory: job.dir,
+            file: { name: job.name, size: job.file.size, type: job.file.type, rawFile: job.file },
+            signal: controller.signal,
+            onProgress: (p) => {
+              updateUpload(job.fileId, {
+                progress: p.progress,
+                uploadedBytes: p.uploadedBytes,
+                speedBytesPerSec: p.speedBytesPerSec,
+              });
+            },
+          });
+          job.batch.done++;
+          updateUpload(job.fileId, { progress: 100, uploadedBytes: job.file.size, status: 'completed' });
+          // Refresh only when the upload landed in (or below) the folder on screen.
+          const here = currentPathRef.current;
+          if (
+            activeViewRef.current === 'drive' &&
+            (job.dir === here || job.dir.startsWith(here === '/' ? '/' : `${here}/`))
+          ) {
+            await loadDirectory(here);
+          }
+        } catch (err: any) {
+          if (isAbort(err) || controller.signal.aborted) {
+            job.batch.cancelled++;
+            updateUpload(job.fileId, { status: 'aborted' });
+          } else {
+            job.batch.failed++;
+            updateUpload(job.fileId, { status: 'error', error: errorMessage(err) });
+            if (job.batch.total === 1) {
+              addToast({ title: 'Upload failed', desc: `${job.name}: ${errorMessage(err)}`, type: 'error' });
+            }
+          }
+        } finally {
+          uploadControllersRef.current.delete(job.fileId);
+          finishBatchItem(job);
+          if (uploadControllersRef.current.size === 0 && uploadQueueRef.current.length === 0) {
+            refreshQuota();
+          }
+          pumpUploads();
+        }
+      })();
+    }
+  }, [updateUpload, loadDirectory, finishBatchItem, refreshQuota, addToast]);
+
+  const uploadFiles = useCallback((files: FileList | File[], targetDir?: string) => {
+    // The destination is fixed now; navigating away must not redirect the upload.
+    const baseDir = targetDir || currentPathRef.current;
+    const fileList = Array.from(files);
+    if (fileList.length === 0) return;
+    const batch: UploadBatch = { total: fileList.length, done: 0, failed: 0, cancelled: 0 };
+    const created: UploadProgress[] = [];
+
+    for (const file of fileList) {
+      let dir = baseDir;
+      let name = file.name;
+      // Handle folder uploads via webkitdirectory
+      const relative = (file as any).webkitRelativePath as string | undefined;
+      if (relative) {
+        const parts = relative.split('/');
+        name = parts.pop() || file.name;
+        const subDir = parts.join('/');
+        if (subDir) dir = joinPath(baseDir, subDir);
+      }
+      const fileId = `upload_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      created.push({
+        fileId,
+        fileName: name,
+        directory: dir,
+        size: file.size,
+        uploadedBytes: 0,
+        progress: 0,
+        speedBytesPerSec: 0,
+        status: 'queued',
+      });
+      uploadQueueRef.current.push({ fileId, file, name, dir, batch });
+    }
+
+    setUploads((prev) => [...created.reverse(), ...prev]);
+    pumpUploads();
+  }, [pumpUploads]);
+
+  const cancelUpload = useCallback((fileId: string) => {
+    const queued = uploadQueueRef.current.find((j) => j.fileId === fileId);
+    if (queued) {
+      uploadQueueRef.current = uploadQueueRef.current.filter((j) => j.fileId !== fileId);
+      queued.batch.cancelled++;
+      updateUpload(fileId, { status: 'aborted' });
+      finishBatchItem(queued);
+      return;
+    }
+    // Running uploads report 'aborted' from their own catch block.
+    uploadControllersRef.current.get(fileId)?.abort();
+  }, [updateUpload, finishBatchItem]);
+
   const clearCompletedUploads = useCallback(() => {
-    setUploads((prev) => prev.filter((u) => u.status === 'uploading'));
+    setUploads((prev) => prev.filter((u) => u.status === 'uploading' || u.status === 'queued'));
   }, []);
 
   // Global keyboard shortcuts
+  const modalOpen = Boolean(
+    previewFile || editorFile || chmodFile || renameModalFile || moveModalFile || newFolderOpen || omnisearchOpen || deleteConfirm
+  );
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd+K or Ctrl+K for omnisearch
@@ -805,54 +1063,40 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return;
       }
 
-      // If active element is an input, textarea or contenteditable, don't trigger explorer shortcuts
-      const tag = (document.activeElement?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || document.activeElement?.getAttribute('contenteditable')) {
+      // Explorer shortcuts belong to the file list only: never inside a dialog or another view.
+      if (modalOpen || activeView !== 'drive') return;
+      const active = document.activeElement;
+      const tag = (active?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (active as HTMLElement | null)?.isContentEditable) {
         return;
       }
 
-      // Spacebar for QuickLook preview
+      const single = () =>
+        selectedIds.size === 1 ? entries.find((f) => f.id === Array.from(selectedIds)[0]) : undefined;
+
       if (e.code === 'Space') {
-        if (selectedIds.size === 1) {
+        const file = single();
+        if (file) {
           e.preventDefault();
-          const selectedId = Array.from(selectedIds)[0];
-          const file = entries.find((e) => e.id === selectedId);
-          if (file) {
-            setPreviewFile(file);
-          }
+          setPreviewFile(file);
         }
-      }
-
-      // F2 for rename
-      if (e.key === 'F2') {
-        if (selectedIds.size === 1) {
+      } else if (e.key === 'F2') {
+        const file = single();
+        if (file) {
           e.preventDefault();
-          const selectedId = Array.from(selectedIds)[0];
-          const file = entries.find((e) => e.id === selectedId);
-          if (file) {
-            setRenameModalFile(file);
-          }
+          setRenameModalFile(file);
         }
-      }
-
-      // Delete or Backspace
-      if (e.key === 'Delete') {
+      } else if (e.key === 'Delete') {
         if (selectedIds.size > 0) {
           e.preventDefault();
           promptTrash();
         }
-      }
-
-      // Escape to deselect
-      if (e.key === 'Escape') {
+      } else if (e.key === 'Escape') {
         if (selectedIds.size > 0) {
           e.preventDefault();
           clearSelection();
         }
-      }
-
-      // Cmd+A or Ctrl+A for Select All (only when in drive view and not in modal)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         selectAll();
       }
@@ -860,7 +1104,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, entries, promptTrash, clearSelection, selectAll]);
+  }, [modalOpen, activeView, selectedIds, entries, promptTrash, clearSelection, selectAll]);
 
   const value = useMemo(
     () => ({
@@ -872,8 +1116,10 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setActiveView,
       login,
       logout,
+      changePassword,
       currentPath,
       entries,
+      visibleEntries,
       recentEntries,
       trashEntries,
       auditEntries,
@@ -881,6 +1127,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       refreshCurrentDirectory,
       selectedIds,
       toggleSelect,
+      selectItem,
       selectAll,
       clearSelection,
       viewMode,
@@ -939,10 +1186,13 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       quota,
       loading,
       activeView,
+      setActiveView,
       login,
       logout,
+      changePassword,
       currentPath,
       entries,
+      visibleEntries,
       recentEntries,
       trashEntries,
       auditEntries,
@@ -950,6 +1200,7 @@ export const TealDriveProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       refreshCurrentDirectory,
       selectedIds,
       toggleSelect,
+      selectItem,
       selectAll,
       clearSelection,
       viewMode,

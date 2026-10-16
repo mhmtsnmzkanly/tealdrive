@@ -17,6 +17,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
   const {
     selectedIds,
     toggleSelect,
+    selectItem,
     goToPath,
     setPreviewFile,
     currentPath,
@@ -220,7 +221,7 @@ export const FileGrid: React.FC<FileGridProps> = ({ files, onUploadDropped }) =>
                 key={file.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleSelect(file.id, e.shiftKey || e.metaKey || e.ctrlKey);
+                  selectItem(file.id, { toggle: e.metaKey || e.ctrlKey, range: e.shiftKey });
                 }}
                 onDoubleClick={() => handleDoubleClick(file)}
                 onContextMenu={(e) => handleItemContextMenu(e, file)}

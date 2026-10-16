@@ -16,6 +16,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
   const {
     selectedIds,
     toggleSelect,
+    selectItem,
     selectAll,
     clearSelection,
     goToPath,
@@ -247,7 +248,7 @@ export const FileTable: React.FC<FileTableProps> = ({ files }) => {
                     key={file.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleSelect(file.id, e.shiftKey || e.metaKey || e.ctrlKey);
+                      selectItem(file.id, { toggle: e.metaKey || e.ctrlKey, range: e.shiftKey });
                     }}
                     onDoubleClick={() => handleDoubleClick(file)}
                     onContextMenu={(e) => handleItemContextMenu(e, file)}

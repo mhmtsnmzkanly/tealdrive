@@ -86,7 +86,7 @@ export const RecentView: React.FC = () => {
             <span>Recently Modified Files</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Files accessed or written in the last 7 days across the storage pool
+            Files you recently uploaded, edited, renamed, moved or copied
           </p>
         </div>
       </div>

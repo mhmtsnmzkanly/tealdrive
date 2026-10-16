@@ -10,7 +10,8 @@ export interface FileEntry {
   group: string;
   mimeType: string;
   starred?: boolean;
-  revision: number;
+  /** 0 marks an unsaved new file; text revisions are server digests; null is unknown. */
+  revision: number | string | null;
   content?: string;
   trashedAt?: string;
   originalPath?: string;
@@ -18,6 +19,8 @@ export interface FileEntry {
 
 export interface Session {
   username: string;
+  /** The account must replace its password before any other operation. */
+  passwordChangeRequired?: boolean;
   uid?: number;
   role: 'admin' | 'user' | 'auditor';
   isAdmin: boolean;
@@ -43,23 +46,32 @@ export interface StorageQuota {
 export interface AuditEntry {
   id: string;
   timestamp: string;
-  action: 'create' | 'upload' | 'rename' | 'move' | 'delete' | 'chmod' | 'edit';
+  /** Server epoch seconds. */
+  createdAt: number;
+  /** Journal action, e.g. write, upload, createFolder, rename, move, copy, trash, chmod. */
+  action: string;
   targetPath: string;
   description: string;
-  previousState?: Partial<FileEntry>;
-  newState?: Partial<FileEntry>;
   undoable: boolean;
+  /** Digest the server must still observe before it reverts the operation. */
+  expectedState?: string;
+  undoUnavailableReason?: string;
+  undoStatus?: string;
 }
 
 export interface VirtualUser {
   id: string;
   username: string;
   uid: number;
+  /** Compare-and-swap token for account mutations. */
+  generation: number;
   quotaBytes: number;
-  usedBytes: number;
+  /** Not reported by the account API; undefined when unknown. */
+  usedBytes?: number;
   enabled: boolean;
+  status: string;
+  passwordChangeRequired: boolean;
   createdAt: string;
-  email: string;
 }
 
 export interface SystemUser {
@@ -98,7 +110,7 @@ export interface UploadProgress {
   uploadedBytes: number;
   progress: number; // 0 - 100
   speedBytesPerSec: number;
-  status: 'uploading' | 'completed' | 'error' | 'aborted';
+  status: 'queued' | 'uploading' | 'completed' | 'error' | 'aborted';
   error?: string;
   abortController?: AbortController;
 }

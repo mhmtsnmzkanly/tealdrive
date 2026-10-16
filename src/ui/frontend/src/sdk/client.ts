@@ -9,6 +9,7 @@ import type {
   StorageBudget,
   ServerSettings,
 } from './types.ts';
+import { recentPath, toAuditEntry, toSession, toVirtualUser, parentOfRelative } from './mapping.ts';
 
 export interface CreateClientOptions {
   baseUrl?: string;
@@ -160,7 +161,6 @@ export function createClient(options: CreateClientOptions = {}) {
   };
 
   const stateListeners = new Set<(state: ClientState) => void>();
-  const quotaListeners = new Set<(quota: StorageQuota) => void>();
 
   const notifyState = (updates: Partial<ClientState>) => {
     clientState = { ...clientState, ...updates };
@@ -236,6 +236,32 @@ export function createClient(options: CreateClientOptions = {}) {
       return { ...clientState };
     },
 
+    /** Fires when the server ends this session (expiry, revocation, password change, logout). */
+    onSessionRevoked(callback: () => void): () => void {
+      let off: (() => void) | null = null;
+      let cancelled = false;
+      getRealSdkClient().then((client) => {
+        if (client && !cancelled) off = client.on('session.revoked', () => callback());
+      });
+      return () => {
+        cancelled = true;
+        off?.();
+      };
+    },
+
+    /** Fires after mutations made through this client, including undo. */
+    onFilesChanged(callback: () => void): () => void {
+      let off: (() => void) | null = null;
+      let cancelled = false;
+      getRealSdkClient().then((client) => {
+        if (client && !cancelled) off = client.on('files.changed', () => callback());
+      });
+      return () => {
+        cancelled = true;
+        off?.();
+      };
+    },
+
     observeState(callback: (state: ClientState) => void): () => void {
       stateListeners.add(callback);
       return () => {
@@ -254,12 +280,7 @@ export function createClient(options: CreateClientOptions = {}) {
               starScope = session.username;
               isConnectedToRealBackend = true;
               notifyState({ connected: true });
-              return {
-                username: session.username,
-                uid: session.uid,
-                role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
-                isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
-              };
+              return toSession(session);
             }
           } catch (err) {
             console.warn('getSession error:', err);
@@ -293,12 +314,7 @@ export function createClient(options: CreateClientOptions = {}) {
           starScope = session.username;
           notifyState({ connected: true });
 
-          return {
-            username: session.username,
-            uid: session.uid,
-            role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
-            isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
-          };
+          return toSession(session);
         } catch (err: any) {
           console.error('Login error:', err);
           const errMsg =
@@ -310,6 +326,16 @@ export function createClient(options: CreateClientOptions = {}) {
               : 'Login failed. Please try again.');
           throw new Error(errMsg);
         }
+      },
+
+      /** Replaces the password; the server then revokes this session, so sign in again. */
+      async changePassword(params: { currentPassword: string; newPassword: string }): Promise<void> {
+        const realClient = await getRealSdkClient();
+        if (!realClient) throw new Error('TealDrive client unavailable');
+        await realClient.auth.changePassword(params);
+        isConnectedToRealBackend = false;
+        starScope = '';
+        notifyState({ connected: false });
       },
 
       async logout(): Promise<void> {
@@ -327,12 +353,16 @@ export function createClient(options: CreateClientOptions = {}) {
     },
 
     files: {
-      async list(params: { path: string }): Promise<{ entries: FileEntry[]; currentPath: string }> {
+      async list(params: { path: string; signal?: AbortSignal }): Promise<{ entries: FileEntry[]; currentPath: string }> {
         const realClient = await ensureConnected();
         if (realClient) {
           try {
             const cleanPath = (params.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
-            const res = await realClient.files.list({ path: cleanPath, includeHidden: true });
+            const res = await realClient.files.list({
+              path: cleanPath,
+              includeHidden: true,
+              ...(params.signal ? { signal: params.signal } : {}),
+            });
             const rawEntries = res?.entries || (Array.isArray(res) ? res : []);
             const entries = rawEntries.map((e: any) => toReactEntry(e, params.path));
             return { entries, currentPath: params.path };
@@ -511,21 +541,33 @@ export function createClient(options: CreateClientOptions = {}) {
         const realClient = await ensureConnected();
         if (!realClient) throw new Error('Client not connected');
         const clean = params.path.replace(/^\/+/, '').replace(/\/+$/, '');
-        let rev = params.expectedRevision;
+        const rev = params.expectedRevision;
+        // Reading the current revision here would silently overwrite someone else's changes.
         if (typeof rev !== 'string' || !(/^[a-f0-9]{64}$/.test(rev) || rev === 'missing')) {
-          try {
-            const current = await realClient.files.readText({ path: clean });
-            rev = current.revision;
-          } catch {
-            rev = 'missing';
-          }
+          const error: any = new Error('The file revision is unknown. Reload the file before saving.');
+          error.code = 'REVISION_CONFLICT';
+          throw error;
         }
         await realClient.files.writeText({
           path: clean,
           content: params.content,
           expectedRevision: rev,
         });
-        return toReactEntry({ name: clean.split('/').pop() || 'file', fileType: 'File', size: params.content.length }, params.path);
+        // The save reply carries no revision. Adopt the server's revision only if
+        // it still holds exactly what we wrote; otherwise someone changed it since.
+        let revision: string | null = null;
+        try {
+          const current = await realClient.files.readText({ path: clean });
+          if (current.content === params.content) revision = current.revision;
+        } catch {}
+        const parent = params.path.split('/').slice(0, -1).join('/') || '/';
+        return {
+          ...toReactEntry(
+            { name: clean.split('/').pop() || 'file', fileType: 'File', size: new TextEncoder().encode(params.content).length },
+            parent
+          ),
+          revision: revision as any,
+        };
       },
 
       trash: {
@@ -560,6 +602,7 @@ export function createClient(options: CreateClientOptions = {}) {
               }));
             } catch (e) {
               console.error('Real trash.list failed:', e);
+              throw e;
             }
           }
           return [];
@@ -576,12 +619,27 @@ export function createClient(options: CreateClientOptions = {}) {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
           const res = await realClient.files.trash.list({});
-          const list = res.items || res || [];
-          if (list.length === 0) return 0;
-          for (const item of list) {
-            await realClient.files.trash.deletePermanently({ trashId: item.trashId || item.id });
+          const queue = [...(res.items || res || [])];
+          let removed = 0;
+          let failure: any = null;
+          // A few deletions in flight at once; stop handing out work after the first failure.
+          const worker = async () => {
+            while (!failure && queue.length > 0) {
+              const item = queue.shift();
+              try {
+                await realClient.files.trash.deletePermanently({ trashId: item.trashId || item.id });
+                removed++;
+              } catch (err: any) {
+                failure ??= err;
+              }
+            }
+          };
+          await Promise.all(Array.from({ length: 4 }, worker));
+          if (failure) {
+            if (removed > 0) failure.removed = removed;
+            throw failure;
           }
-          return list.length;
+          return removed;
         },
 
         async deletePermanently(params: { id: string }): Promise<boolean> {
@@ -607,83 +665,140 @@ export function createClient(options: CreateClientOptions = {}) {
         return toReactEntry({ name: clean.split('/').pop() || 'file', starred: isStarred }, params.path);
       },
 
-      async getRecent(limit = 10): Promise<FileEntry[]> {
-        const realClient = await getRealSdkClient();
-        if (realClient) {
-          try {
-            const res = await realClient.files.list({
-              path: '',
-              sort: { by: 'modifiedAt', direction: 'desc' },
-              includeHidden: true,
-            });
-            const entries = (res.entries || []).map((e: any) => toReactEntry(e, '/'));
-            return entries.slice(0, limit);
-          } catch {
-            return [];
-          }
+      async getRecent(limit = 20): Promise<FileEntry[]> {
+        const realClient = await ensureConnected();
+        if (!realClient) return [];
+        // The journal knows which files this account changed; the directory tree does not.
+        const page = await realClient.files.audit.list({ limit: 200, status: 'success' });
+        const seen = new Set<string>();
+        const paths: string[] = [];
+        for (const record of page?.items || []) {
+          const path = recentPath(record);
+          if (path === null || seen.has(path)) continue;
+          seen.add(path);
+          paths.push(path);
+          if (paths.length >= limit * 2) break;
         }
-        return [];
+        // A path that no longer resolves was moved, renamed or trashed later; skip it.
+        const stats = await Promise.allSettled(paths.map((p) => realClient.files.stat({ path: p })));
+        const entries: FileEntry[] = [];
+        stats.forEach((stat, i) => {
+          if (stat.status !== 'fulfilled' || entries.length >= limit) return;
+          const raw = stat.value?.entry ?? stat.value;
+          if (!raw?.name) return;
+          const entry = toReactEntry(raw, parentOfRelative(paths[i]));
+          if (!entry.isDirectory) entries.push(entry);
+        });
+        return entries;
       },
 
-      async search(params: { query: string }): Promise<FileEntry[]> {
-        const realClient = await getRealSdkClient();
-        if (realClient) {
-          try {
-            const results = await realClient.files.search({ query: params.query, limit: 50 });
-            return (results.matches || results || []).map((e: any) => toReactEntry(e, '/'));
-          } catch (e) {
-            console.error('Real search failed:', e);
-          }
-        }
-        return [];
+      async search(params: { query: string; signal?: AbortSignal }): Promise<FileEntry[]> {
+        const realClient = await ensureConnected();
+        if (!realClient) throw new Error('Client not connected');
+        // An explicit empty path searches the whole root, not the SDK's last directory.
+        const results = await realClient.files.search({
+          path: '',
+          query: params.query,
+          limit: 50,
+          ...(params.signal ? { signal: params.signal } : {}),
+        });
+        return (results?.matches || []).map((m: any) => {
+          return toReactEntry(m.entry ?? m, parentOfRelative(String(m.relativePath ?? '')));
+        });
       },
 
       quota: {
         async get(): Promise<StorageQuota> {
-          const realClient = await getRealSdkClient();
-          if (realClient) {
-            try {
-              const q = await realClient.files.quota.get({ rootId: 'home' });
-              const used = q.usedBytes ?? q.used_bytes ?? 0;
-              const limit = q.limitBytes ?? q.limit_bytes ?? 10 * 1024 * 1024 * 1024;
-              const pct = limit > 0 ? (used / limit) * 100 : 0;
-              return {
-                usedBytes: used,
-                limitBytes: limit,
-                percentage: Math.round(pct),
-                warningLevel: pct > 90 ? 'critical' : pct > 75 ? 'warning' : 'normal',
-              };
-            } catch (e) {
-              console.error('Real quota.get failed:', e);
-            }
-          }
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          const q = await realClient.files.quota.get({ rootId: 'home' });
+          const used = Number(q.usedBytes ?? q.used_bytes ?? 0);
+          // No limit means the root is unmetered; never invent one.
+          const limit = Number(q.limitBytes ?? q.limit_bytes ?? 0);
+          const pct = limit > 0 ? (used / limit) * 100 : 0;
           return {
-            usedBytes: 0,
-            limitBytes: 10 * 1024 * 1024 * 1024,
-            percentage: 0,
-            warningLevel: 'normal',
+            usedBytes: used,
+            limitBytes: limit,
+            percentage: Math.round(pct),
+            warningLevel: pct > 90 ? 'critical' : pct > 75 ? 'warning' : 'normal',
           };
-        },
-
-        setLimit(_limitBytes: number) {
-          // Read-only on live system
         },
       },
 
+      /** The SDK polls quota while someone listens; forward each known reading. */
       observeQuotaWarning(callback: (quota: StorageQuota) => void): () => void {
-        quotaListeners.add(callback);
+        let off: (() => void) | null = null;
+        let cancelled = false;
+        getRealSdkClient().then((client) => {
+          if (!client || cancelled) return;
+          off = client.files.observeQuotaWarning((warning: any) => {
+            const q = warning?.quota;
+            if (!q || q.stale || warning.status !== 'known') return;
+            const used = Number(q.usedBytes ?? 0);
+            const limit = Number(q.limitBytes ?? 0);
+            const pct = limit > 0 ? (used / limit) * 100 : 0;
+            callback({
+              usedBytes: used,
+              limitBytes: limit,
+              percentage: Math.round(pct),
+              warningLevel: pct > 90 ? 'critical' : pct > 75 ? 'warning' : 'normal',
+            });
+          });
+        });
         return () => {
-          quotaListeners.delete(callback);
+          cancelled = true;
+          off?.();
         };
       },
 
       undo: {
-        async list(): Promise<AuditEntry[]> {
-          return [];
+        /** Own-account operation history, joined with the undo candidates the server offers. */
+        async list(limit = 50): Promise<AuditEntry[]> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          const [audit, undo] = await Promise.allSettled([
+            realClient.files.audit.list({ limit }),
+            realClient.files.undo.list({ limit }),
+          ]);
+          if (audit.status === 'rejected' && undo.status === 'rejected') throw audit.reason;
+          const candidates = new Map<string, any>();
+          if (undo.status === 'fulfilled') {
+            for (const c of undo.value?.items || []) candidates.set(c.operation.id, c);
+          }
+          const records =
+            audit.status === 'fulfilled'
+              ? audit.value?.items || []
+              : [...candidates.values()].map((c) => c.operation);
+          return records.map((r: any) => toAuditEntry(r, candidates.get(r.id)));
         },
 
-        async apply(_params: { operationId: string }): Promise<{ success: boolean; message: string }> {
-          return { success: false, message: 'Undo not supported on live server' };
+        /** Finds the undo candidate for an operation this tab just performed. */
+        async findLatest(params: { action: string; path: string; since: number }): Promise<AuditEntry | null> {
+          const realClient = await ensureConnected();
+          if (!realClient) return null;
+          const clean = params.path.replace(/^\/+/, '').replace(/\/+$/, '');
+          try {
+            const page = await realClient.files.undo.list({ limit: 10, action: params.action });
+            const match = (page?.items || []).find(
+              (c: any) =>
+                c.available &&
+                c.operation.sourcePath === clean &&
+                c.operation.createdAt >= params.since
+            );
+            return match ? toAuditEntry(match.operation, match) : null;
+          } catch {
+            return null;
+          }
+        },
+
+        async apply(params: { operationId: string; expectedState: string }): Promise<{ success: boolean; message: string }> {
+          const realClient = await ensureConnected();
+          if (!realClient) throw new Error('Client not connected');
+          await realClient.files.undo.apply({
+            operationId: params.operationId,
+            expectedState: params.expectedState,
+          });
+          return { success: true, message: 'The operation was reverted.' };
         },
       },
     },
@@ -692,179 +807,94 @@ export function createClient(options: CreateClientOptions = {}) {
       virtualUsers: {
         async list(): Promise<VirtualUser[]> {
           const realClient = await ensureConnected();
-          if (realClient) {
-            try {
-              const res = await realClient.admin.virtualUsers.list();
-              const list = Array.isArray(res) ? res : (res?.users || res?.items || []);
-              return list.map((u: any) => ({
-                id: u.accountId || u.id || u.username,
-                username: u.username || u.name,
-                uid: u.uid || 1000,
-                quotaBytes: u.quotaBytes ?? u.quota_bytes ?? 1024 * 1024 * 1024,
-                usedBytes: u.usedBytes ?? u.used_bytes ?? 0,
-                enabled: u.status === 'active' || u.enabled !== false,
-                createdAt: u.createdAt
-                  ? new Date(u.createdAt * 1000).toISOString()
-                  : u.created_at
-                  ? new Date(u.created_at * 1000).toISOString()
-                  : new Date().toISOString(),
-                email: u.email || `${u.username || u.name}@tealdrive.internal`,
-              }));
-            } catch (err) {
-              console.warn('Real admin.virtualUsers.list failed:', err);
-            }
-          }
-          return [];
+          if (!realClient) throw new Error('Client not connected');
+          const res = await realClient.admin.virtualUsers.list();
+          const list = Array.isArray(res) ? res : res?.accounts || res?.users || res?.items || [];
+          return list.map(toVirtualUser);
         },
 
-        async create(params: { username: string; quotaBytes: number; email?: string }): Promise<VirtualUser> {
+        async create(params: { username: string; quotaBytes: number; password: string }): Promise<VirtualUser> {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
+          // The server requires this user to replace the admin-chosen password at first sign-in.
           const u = await realClient.admin.virtualUsers.create({
             name: params.username,
             quotaBytes: params.quotaBytes,
-            password: 'InitialPassword123!',
+            password: params.password,
           });
-          return {
-            id: u?.accountId || params.username,
-            username: params.username,
-            uid: u?.uid || 1000,
-            quotaBytes: params.quotaBytes,
-            usedBytes: 0,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            email: params.email || `${params.username}@tealdrive.internal`,
-          };
+          return toVirtualUser(u);
         },
 
-        async setQuota(params: { username: string; quotaBytes: number }): Promise<VirtualUser> {
+        async setQuota(params: { user: VirtualUser; quotaBytes: number }): Promise<VirtualUser> {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
-          await realClient.admin.virtualUsers.setQuota({
-            accountId: params.username,
+          const u = await realClient.admin.virtualUsers.setQuota({
+            accountId: params.user.id,
+            expectedGeneration: params.user.generation,
             quotaBytes: params.quotaBytes,
           });
-          return {
-            id: params.username,
-            username: params.username,
-            uid: 1000,
-            quotaBytes: params.quotaBytes,
-            usedBytes: 0,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            email: `${params.username}@tealdrive.internal`,
-          };
+          return toVirtualUser(u);
         },
 
-        async toggleStatus(params: { username: string; enabled: boolean }): Promise<VirtualUser> {
+        async toggleStatus(params: { user: VirtualUser; enabled: boolean }): Promise<void> {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
           if (params.enabled) {
-            await realClient.admin.virtualUsers.enable({ accountId: params.username });
+            await realClient.admin.virtualUsers.enable({ accountId: params.user.id });
           } else {
-            await realClient.admin.virtualUsers.disable({ accountId: params.username });
+            await realClient.admin.virtualUsers.disable({ accountId: params.user.id });
           }
-          return {
-            id: params.username,
-            username: params.username,
-            uid: 1000,
-            quotaBytes: 1024 * 1024 * 1024,
-            usedBytes: 0,
-            enabled: params.enabled,
-            createdAt: new Date().toISOString(),
-            email: `${params.username}@tealdrive.internal`,
-          };
         },
 
-        async delete(params: { username: string }): Promise<boolean> {
+        async delete(params: { user: VirtualUser }): Promise<void> {
           const realClient = await ensureConnected();
-          if (!realClient) return false;
-          await realClient.admin.virtualUsers.delete({ accountId: params.username });
-          return true;
+          if (!realClient) throw new Error('Client not connected');
+          await realClient.admin.virtualUsers.delete({
+            accountId: params.user.id,
+            expectedGeneration: params.user.generation,
+          });
         },
       },
 
       systemUsers: {
         async list(): Promise<SystemUser[]> {
           const realClient = await ensureConnected();
-          if (realClient) {
-            try {
-              const res = await realClient.admin.systemUsers.list();
-              const list = Array.isArray(res) ? res : (res?.users || res?.items || []);
-              return list.map((su: any) => ({
-                username: su.username,
-                uid: su.uid,
-                shell: su.shell || '/bin/bash',
-                homeDir: su.homeDir || su.home_directory || `/home/${su.username}`,
-                approvedForWeb: Boolean(su.registered ?? su.approvedForWeb ?? su.approved),
-                lastLogin: su.lastLogin || su.last_login,
-              }));
-            } catch (err) {
-              console.warn('Real admin.systemUsers.list failed:', err);
-            }
-          }
-          return [];
+          if (!realClient) throw new Error('Client not connected');
+          const res = await realClient.admin.systemUsers.list();
+          const list = Array.isArray(res) ? res : res?.users || res?.items || [];
+          return list.map((su: any) => ({
+            username: su.username,
+            uid: su.uid,
+            shell: su.shell || '',
+            homeDir: su.homeDir || su.home || '',
+            approvedForWeb: Boolean(su.registered ?? su.approvedForWeb ?? su.approved),
+            lastLogin: su.lastLogin,
+          }));
         },
 
-        async approve(params: { username: string }): Promise<SystemUser> {
+        async approve(params: { username: string }): Promise<void> {
           const realClient = await ensureConnected();
           if (!realClient) throw new Error('Client not connected');
           await realClient.admin.systemUsers.approve({ username: params.username });
-          return {
-            username: params.username,
-            uid: 1000,
-            shell: '/bin/bash',
-            homeDir: `/home/${params.username}`,
-            approvedForWeb: true,
-          };
         },
       },
 
       quota: {
         async getBudget(): Promise<StorageBudget> {
           const realClient = await ensureConnected();
-          if (realClient) {
-            try {
-              let b: any = null;
-              try {
-                b = await realClient.admin.quota.getBudget();
-              } catch (e) {}
-
-              let q: any = null;
-              try {
-                const quotaRes = await realClient.files.quota.get({ rootId: 'home' });
-                q = quotaRes;
-              } catch (e) {}
-
-              if (b && typeof b === 'object' && (b.limit_bytes || b.totalDiskBytes)) {
-                const total = Number(b.limit_bytes ?? b.totalDiskBytes ?? 10737418240);
-                const reserved = Number(b.reserved_bytes ?? b.virtualUsersAllocatedBytes ?? 0);
-                const used = Number(b.used_bytes ?? q?.usedBytes ?? q?.used_bytes ?? 0);
-                const free = Number(b.available_bytes ?? b.remaining_bytes ?? Math.max(0, total - reserved - used));
-                return {
-                  totalDiskBytes: total,
-                  virtualUsersAllocatedBytes: reserved,
-                  systemReserveBytes: used,
-                  freePhysicalBytes: free,
-                };
-              }
-
-              if (q && typeof q === 'object' && (q.limitBytes || q.limit_bytes)) {
-                const total = Number(q.limitBytes ?? q.limit_bytes);
-                const used = Number(q.usedBytes ?? q.used_bytes ?? 0);
-                const free = Math.max(0, total - used);
-                return {
-                  totalDiskBytes: total,
-                  virtualUsersAllocatedBytes: 0,
-                  systemReserveBytes: used,
-                  freePhysicalBytes: free,
-                };
-              }
-            } catch (err) {
-              console.warn('Real getBudget failed:', err);
-            }
-          }
-          throw new Error('Storage budget unavailable');
+          if (!realClient) throw new Error('Client not connected');
+          // Keys arrive camelCased: limitBytes, reservedBytes, remainingBytes, ownQuotaBytes.
+          const b = await realClient.admin.quota.getBudget();
+          const total = Number(b?.limitBytes);
+          if (!Number.isFinite(total) || total <= 0) throw new Error('Storage budget unavailable');
+          const reserved = Number(b.reservedBytes ?? 0);
+          const own = Number(b.ownQuotaBytes ?? 0);
+          return {
+            totalDiskBytes: total,
+            virtualUsersAllocatedBytes: reserved,
+            systemReserveBytes: own,
+            freePhysicalBytes: Math.max(0, Number(b.remainingBytes ?? total - reserved - own)),
+          };
         },
       },
 
@@ -875,24 +905,27 @@ export function createClient(options: CreateClientOptions = {}) {
             try {
               const res = await realClient.admin.settings.inspect();
               const cfg = res?.config ?? res ?? {};
-              if (cfg && (cfg.server || cfg.limits || cfg.security)) {
+              if (cfg && (cfg.server || cfg.limits)) {
                 const srv = cfg.server ?? {};
                 const lim = cfg.limits ?? {};
-                const sec = cfg.security ?? {};
-                const rat = cfg.rate_limit ?? {};
+                const rat = cfg.rateLimit ?? {};
                 const lif = cfg.lifecycle ?? {};
+                // With web accounts the lifecycle task purges trash; otherwise the legacy day setting does.
+                const trashDays = cfg.webAccounts?.enabled
+                  ? Math.round(Number(lif.trashRetentionHours ?? 504) / 24)
+                  : Number(cfg.trashRetentionDays ?? 30);
 
                 const info = realClient.getInfo?.();
                 const encrypted = Boolean(info?.transport?.encryptedWebSocket);
                 return {
-                  serverName: srv.server_name || '—',
+                  serverName: typeof window !== 'undefined' ? window.location.host : '—',
                   version: info?.protocolVersion ? `TDRV protocol v${info.protocolVersion}` : '—',
-                  listenAddr: srv.bind_addr || '—',
+                  listenAddr: srv.bindAddr || '—',
                   wsEncryption: encrypted ? 'TLS + Noise NK' : 'TLS',
                   tlsCertExpiry: '',
-                  loginMaxFailures: Number(rat.max_login_failures) || 0,
-                  maxUploadSizeMb: lim.max_in_flight_upload ? Math.round(lim.max_in_flight_upload / (1024 * 1024)) : 0,
-                  autoTrashPurgeDays: lif.trash_retention_hours ? Math.round(lif.trash_retention_hours / 24) : 0,
+                  loginMaxFailures: Number(rat.maxLoginFailures) || 0,
+                  maxUploadSizeMb: lim.maxInFlightUpload ? Math.round(lim.maxInFlightUpload / (1024 * 1024)) : 0,
+                  autoTrashPurgeDays: trashDays,
                   noiseHandshakePattern: encrypted ? 'Noise_NK_25519_ChaChaPoly_SHA256' : 'disabled',
                 };
               }
@@ -902,29 +935,6 @@ export function createClient(options: CreateClientOptions = {}) {
             }
           }
           throw new Error('Server settings unavailable');
-        },
-
-        async update(updates: Partial<ServerSettings>): Promise<ServerSettings> {
-          const realClient = await ensureConnected();
-          if (realClient) {
-            try {
-              const changes: any = {};
-              if (updates.maxUploadSizeMb !== undefined) {
-                changes.limits = { max_in_flight_upload: updates.maxUploadSizeMb * 1024 * 1024 };
-              }
-              if (updates.autoTrashPurgeDays !== undefined) {
-                changes.lifecycle = { trash_retention_hours: updates.autoTrashPurgeDays * 24 };
-              }
-              if (Object.keys(changes).length > 0) {
-                await realClient.admin.settings.patch({ changes, persist: true });
-              }
-              return await this.inspect();
-            } catch (err) {
-              console.warn('Real admin.settings.update failed:', err);
-              throw err;
-            }
-          }
-          throw new Error('Client not connected');
         },
       },
     },

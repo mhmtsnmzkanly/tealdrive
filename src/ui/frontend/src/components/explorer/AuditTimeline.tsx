@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTealDrive } from '../../context/TealDriveContext.tsx';
 import { formatRelativeDate } from '../../utils/formatters.ts';
+import type { AuditEntry } from '../../sdk/types.ts';
 import {
   History,
   Undo2,
@@ -13,24 +14,45 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
+const UNDO_REASONS: Record<string, string> = {
+  operationIncomplete: 'Incomplete',
+  unsupportedOperation: 'Not undoable',
+  alreadyClaimed: 'Already undone',
+  restoredBackup: 'Before restore',
+  expired: 'Undo expired',
+  missingExpectedState: 'Not undoable',
+  unsupportedOriginalMode: 'Not undoable',
+  incompleteObservation: 'Not undoable',
+};
+
+function undoLabel(entry: AuditEntry): string {
+  if (entry.undoStatus) return entry.undoStatus === 'success' ? 'Undone' : `Undo ${entry.undoStatus}`;
+  if (entry.undoUnavailableReason) return UNDO_REASONS[entry.undoUnavailableReason] ?? 'Not undoable';
+  return 'Not undoable';
+}
+
 export const AuditTimeline: React.FC = () => {
   const { auditEntries, undoOperation } = useTealDrive();
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case 'create':
+      case 'createFolder':
         return <FolderPlus className="w-3.5 h-3.5 text-teal-400" />;
       case 'upload':
         return <Upload className="w-3.5 h-3.5 text-teal-400" />;
-      case 'edit':
+      case 'write':
         return <FileEdit className="w-3.5 h-3.5 text-emerald-400" />;
       case 'rename':
       case 'move':
+      case 'copy':
         return <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />;
       case 'chmod':
         return <Key className="w-3.5 h-3.5 text-amber-400" />;
+      case 'trash':
       case 'delete':
         return <Trash2 className="w-3.5 h-3.5 text-rose-400" />;
+      case 'restore':
+        return <Undo2 className="w-3.5 h-3.5 text-teal-400" />;
       default:
         return <History className="w-3.5 h-3.5 text-slate-400" />;
     }
@@ -44,7 +66,8 @@ export const AuditTimeline: React.FC = () => {
           <span>Audit History &amp; Instant Undo Engine</span>
         </h2>
         <p className="text-xs text-slate-400 mt-0.5">
-          Immutable server-side transaction log. Any filesystem mutation can be rolled back with single-click precision.
+          Your recent file operations. Renames, moves, permission changes and trash moves can be undone while the
+          server still observes the recorded state.
         </p>
       </div>
 
@@ -91,9 +114,9 @@ export const AuditTimeline: React.FC = () => {
               </div>
 
               <div className="shrink-0 flex items-center gap-2">
-                {entry.undoable ? (
+                {entry.undoable && entry.expectedState ? (
                   <button
-                    onClick={() => undoOperation(entry.id)}
+                    onClick={() => undoOperation({ operationId: entry.id, expectedState: entry.expectedState! })}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-950/90 hover:bg-teal-900 text-teal-300 border border-teal-700/60 text-xs font-medium transition-all shadow-sm active:scale-95"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
@@ -102,7 +125,7 @@ export const AuditTimeline: React.FC = () => {
                 ) : (
                   <span className="flex items-center gap-1 text-[11px] text-slate-500 px-2 py-1 rounded bg-slate-950 border border-slate-800">
                     <CheckCircle2 className="w-3 h-3 text-slate-600" />
-                    <span>Reverted / Static</span>
+                    <span>{undoLabel(entry)}</span>
                   </span>
                 )}
               </div>

@@ -94,15 +94,21 @@ impl InMemoryLoginRateLimiter {
     ) -> LoginRateLimitDecision {
         if self.failures.len() >= Self::MAX_RATE_LIMIT_ENTRIES {
             self.cleanup(now);
-            if self.failures.len() >= Self::MAX_RATE_LIMIT_ENTRIES && !self.failures.contains_key(&key) {
-                if let Some(oldest_key) = self
+            if self.failures.len() >= Self::MAX_RATE_LIMIT_ENTRIES
+                && !self.failures.contains_key(&key)
+            {
+                // Never evict an active lockout: flooding fresh keys must not reset a victim's lock.
+                let max_failures = self.max_failures;
+                let Some(oldest_key) = self
                     .failures
                     .iter()
+                    .filter(|(_, (count, _))| *count < max_failures)
                     .min_by_key(|(_, (_, last))| *last)
                     .map(|(k, _)| k.clone())
-                {
-                    self.failures.remove(&oldest_key);
-                }
+                else {
+                    return LoginRateLimitDecision::Limited;
+                };
+                self.failures.remove(&oldest_key);
             }
         }
         let entry = self.failures.entry(key.clone()).or_insert((0, now));
@@ -169,6 +175,25 @@ mod tests {
             limiter.check_at(&key, 2, 60, 170),
             LoginRateLimitDecision::Allowed
         );
+    }
+
+    #[test]
+    fn full_table_never_evicts_active_lockouts() {
+        let key = |name: &str| LoginRateLimitKey {
+            username: name.to_owned(),
+            ip: Some("192.0.2.1".to_owned()),
+        };
+        let mut limiter = InMemoryLoginRateLimiter::with_lockout(2, 300);
+        limiter.record_failure_at(key("victim"), 300, 10);
+        limiter.record_failure_at(key("victim"), 300, 10);
+        for index in 0..InMemoryLoginRateLimiter::MAX_RATE_LIMIT_ENTRIES + 10 {
+            limiter.record_failure_at(key(&format!("flood-{index}")), 300, 20);
+        }
+        assert_eq!(
+            limiter.check_at(&key("victim"), 2, 300, 30),
+            LoginRateLimitDecision::Limited
+        );
+        assert!(limiter.failures.len() <= InMemoryLoginRateLimiter::MAX_RATE_LIMIT_ENTRIES);
     }
 
     #[test]

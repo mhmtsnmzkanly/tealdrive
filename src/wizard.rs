@@ -430,7 +430,32 @@ fn run_inner(args: Vec<String>) -> Result<()> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
     match parts.as_slice() {
         [] | ["--help"] | ["help"] => {
-            println!("TealDrive Wizard (never setuid)\nOwn UID: init | status | revoke | policy get | policy personal <generation> <rules.json>\nRoot: install/update --bundle <directory> | repair | uninstall | diagnose | config validate/show/apply <file> | account list/approve <username>/admin <id>/user <id>/scope <id> global|tenant/allow <id>/deny <id>/password <id> | bootstrap admin <budget> <own-quota> | account migrate-admin <source-id> <name> <budget> <own-quota>/require-password-change <id> | channel keygen <new-path> | tls status/prepare <DNS-name>/activate <DNS-name> [--caddy <Caddyfile>]/renew <DNS-name> --caddy <Caddyfile> | storage init <physical-size>/init --pool-size <net-size>/expand --pool-size <net-size>/status/check/mount/sync | pool set <size> | budget set <id> <size>/own set <id> <size> | policy root/admin/personal <id> <generation> <rules.json> | backup <new-directory> | restore <directory>\nService: tealdrive-ctl start|stop|restart|reload|status");
+            println!(
+                "TealDrive Wizard (never setuid)
+Own UID:
+  init | status | revoke | policy get | policy personal <generation> <rules.json>
+Root:
+  install --bundle <directory> | update --bundle <directory> | rollback --bundle <directory>
+  repair | uninstall | diagnose | gc | backup <new-directory> | restore <directory>
+  config validate|show|apply <file>
+  ui check <directory> | ui install --bundle <directory> | ui disable
+  account list | account approve <username>
+  account admin|user|allow|deny|password|require-password-change <id>
+  account scope <id> global|tenant
+  account migrate-admin <source-id> <name> <budget> <own-quota>
+  bootstrap admin <budget> <own-quota>
+  virtual admin create <name> <budget> <request-id>
+  pending list | pending cancel <key> | audit list <limit>
+  channel keygen <new-path>
+  tls status | tls prepare <DNS-name> | tls activate <DNS-name> [--caddy <Caddyfile>]
+  tls renew|auto <DNS-name> --caddy <Caddyfile>
+  storage init <physical-size> | storage init|expand --pool-size <net-size>
+  storage status|check|mount|sync
+  pool set <size> | budget set <id> <size> | budget own set <id> <size>
+  policy root|admin|personal <id> <generation> <rules.json>
+Service:
+  tealdrive-ctl start|stop|restart|reload|status (also: tealdrive-wizard service ...)"
+            );
             Ok(())
         }
         ["init"] => {

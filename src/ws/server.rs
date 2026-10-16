@@ -530,6 +530,7 @@ where
                     listener.into_std().map_err(|_| TealDriveError::Internal)?,
                     tls,
                 )
+                .map_err(|_| TealDriveError::Internal)?
                 .handle(handle)
                 .serve(service),
             )

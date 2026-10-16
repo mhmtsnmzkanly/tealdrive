@@ -57,20 +57,22 @@ pub async fn load(
         )
         .map_err(|_| TealDriveError::Validation)?,
     );
-    let certificates = rustls_pemfile::certs(&mut cert.as_slice())
+    use rustls::pki_types::pem::{PemObject, SectionKind};
+    let certificates = rustls::pki_types::CertificateDer::pem_slice_iter(&cert)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| TealDriveError::Validation)?;
     let mut keys = Vec::new();
-    for item in rustls_pemfile::read_all(&mut key.as_slice()) {
-        match item.map_err(|_| TealDriveError::Validation)? {
-            rustls_pemfile::Item::Pkcs1Key(key) => {
-                keys.push(rustls::pki_types::PrivateKeyDer::Pkcs1(key))
+    for item in <(SectionKind, Vec<u8>)>::pem_slice_iter(&key) {
+        let (kind, der) = item.map_err(|_| TealDriveError::Validation)?;
+        match kind {
+            SectionKind::RsaPrivateKey => {
+                keys.push(rustls::pki_types::PrivateKeyDer::Pkcs1(der.into()))
             }
-            rustls_pemfile::Item::Pkcs8Key(key) => {
-                keys.push(rustls::pki_types::PrivateKeyDer::Pkcs8(key))
+            SectionKind::PrivateKey => {
+                keys.push(rustls::pki_types::PrivateKeyDer::Pkcs8(der.into()))
             }
-            rustls_pemfile::Item::Sec1Key(key) => {
-                keys.push(rustls::pki_types::PrivateKeyDer::Sec1(key))
+            SectionKind::EcPrivateKey => {
+                keys.push(rustls::pki_types::PrivateKeyDer::Sec1(der.into()))
             }
             _ => {}
         }

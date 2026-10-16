@@ -18,10 +18,10 @@ export interface FileEntry {
 
 export interface Session {
   username: string;
-  uid: number;
+  uid?: number;
   role: 'admin' | 'user' | 'auditor';
   isAdmin: boolean;
-  email: string;
+  email?: string;
   avatarUrl?: string;
 }
 
@@ -84,7 +84,7 @@ export interface ServerSettings {
   listenAddr: string;
   wsEncryption: string;
   tlsCertExpiry: string;
-  rateLimitPerSec: number;
+  loginMaxFailures: number;
   maxUploadSizeMb: number;
   autoTrashPurgeDays: number;
   noiseHandshakePattern: string;

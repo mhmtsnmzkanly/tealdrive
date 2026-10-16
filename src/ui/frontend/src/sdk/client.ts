@@ -78,6 +78,12 @@ export function getMimeType(ext: string): string {
   return map[ext] || 'application/octet-stream';
 }
 
+// Stars are a per-browser convenience, so keep them separate for every signed-in account.
+let starScope = '';
+function starKey(relPath: string): string {
+  return `tdrv_starred_${encodeURIComponent(starScope)}:${relPath}`;
+}
+
 function toReactEntry(entry: any, dirPath: string): FileEntry {
   const isDir =
     entry.fileType === 'Directory' ||
@@ -105,7 +111,8 @@ function toReactEntry(entry: any, dirPath: string): FileEntry {
   const isStarred =
     Boolean(entry.starred) ||
     (typeof window !== 'undefined' &&
-      window.localStorage?.getItem(`tdrv_starred_${cleanDir ? cleanDir + '/' : ''}${entryName}`) === 'true');
+      starScope !== '' &&
+      window.localStorage?.getItem(starKey(relPath)) === 'true');
 
   let modifiedIso = new Date().toISOString();
   if (entry.modified) {
@@ -191,7 +198,7 @@ export function createClient(options: CreateClientOptions = {}) {
   async function ensureConnected(): Promise<any | null> {
     const realClient = await getRealSdkClient();
     if (!realClient) return null;
-    if (!isConnectedToRealBackend || !realClient._ready) {
+    if (!isConnectedToRealBackend) {
       try {
         await realClient.handshake();
         isConnectedToRealBackend = true;
@@ -213,19 +220,16 @@ export function createClient(options: CreateClientOptions = {}) {
           isConnectedToRealBackend = true;
           notifyState({ connected: true, latency });
           return {
-            protocol: info?.transport?.protocol || 'Noise_NK_25519_ChaChaPoly_SHA256',
-            serverVersion: `TealDrive Core v${info?.protocolVersion || '1.1'}`,
+            protocol: info?.transport?.protocol || 'TLS',
+            serverVersion: info?.protocolVersion ? `TDRV protocol v${info.protocolVersion}` : 'unknown',
             latency,
           };
         } catch (err) {
           console.warn('Handshake failed:', err);
+          throw err;
         }
       }
-      return {
-        protocol: 'Noise_NK_25519_ChaChaPoly_SHA256',
-        serverVersion: 'TealDrive Core 2.0',
-        latency: 0,
-      };
+      throw new Error('TealDrive client unavailable');
     },
 
     getState(): ClientState {
@@ -247,14 +251,14 @@ export function createClient(options: CreateClientOptions = {}) {
             await realClient.handshake();
             const session = await realClient.auth.getSession();
             if (session && session.username) {
+              starScope = session.username;
               isConnectedToRealBackend = true;
               notifyState({ connected: true });
               return {
                 username: session.username,
-                uid: session.uid || 200000,
+                uid: session.uid,
                 role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
                 isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
-                email: `${session.username}@novastrum.dev`,
               };
             }
           } catch (err) {
@@ -270,11 +274,11 @@ export function createClient(options: CreateClientOptions = {}) {
 
         try {
           // If already in an authenticated session on the socket, disconnect cleanly first
-          try {
-            if (realClient._session) {
+          if (isConnectedToRealBackend) {
+            try {
               realClient.disconnect();
-            }
-          } catch {}
+            } catch {}
+          }
 
           // Ensure WebSocket handshake is ready
           await realClient.handshake();
@@ -286,14 +290,14 @@ export function createClient(options: CreateClientOptions = {}) {
           });
 
           isConnectedToRealBackend = true;
+          starScope = session.username;
           notifyState({ connected: true });
 
           return {
             username: session.username,
-            uid: session.uid || 200000,
+            uid: session.uid,
             role: session.isAdmin || session.role === 'admin' ? 'admin' : 'user',
             isAdmin: Boolean(session.isAdmin || session.role === 'admin'),
-            email: `${session.username}@novastrum.dev`,
           };
         } catch (err: any) {
           console.error('Login error:', err);
@@ -317,6 +321,7 @@ export function createClient(options: CreateClientOptions = {}) {
           realClient?.disconnect?.();
         }
         isConnectedToRealBackend = false;
+        starScope = '';
         notifyState({ connected: false });
       },
     },
@@ -346,7 +351,8 @@ export function createClient(options: CreateClientOptions = {}) {
             const cleanPath = (params.path || '').replace(/^\/+/, '').replace(/\/+$/, '');
             const stat = await realClient.files.stat({ path: cleanPath });
             if (stat && (stat.entry || stat.name)) {
-              return toReactEntry(stat.entry || stat, params.path);
+              const parent = params.path.split('/').slice(0, -1).join('/') || '/';
+              return toReactEntry(stat.entry || stat, parent);
             }
           } catch (e) {
             console.warn('Real files.get failed:', e);
@@ -386,7 +392,7 @@ export function createClient(options: CreateClientOptions = {}) {
           onProgress: (p: any) => {
             params.onProgress?.({
               progress: Math.round(p.percent ?? p.progress ?? 0),
-              speedBytesPerSec: p.speedBytesPerSec ?? 1024 * 1024 * 3,
+              speedBytesPerSec: p.speedBytesPerSec ?? 0,
               uploadedBytes: p.uploadedBytes ?? Math.round(((p.percent ?? 0) / 100) * params.file.size),
             });
           },
@@ -588,7 +594,8 @@ export function createClient(options: CreateClientOptions = {}) {
 
       async star(params: { path: string; starred?: boolean }): Promise<FileEntry> {
         const clean = params.path.replace(/^\/+/, '').replace(/\/+$/, '');
-        const key = `tdrv_starred_${clean}`;
+        if (!starScope) throw new Error('Not signed in');
+        const key = starKey(clean);
         const isStarred = params.starred !== undefined ? params.starred : (typeof window !== 'undefined' && window.localStorage?.getItem(key) !== 'true');
         if (typeof window !== 'undefined') {
           if (isStarred) {
@@ -843,7 +850,7 @@ export function createClient(options: CreateClientOptions = {}) {
               }
 
               if (q && typeof q === 'object' && (q.limitBytes || q.limit_bytes)) {
-                const total = Number(q.limitBytes ?? q.limit_bytes ?? 10737418240);
+                const total = Number(q.limitBytes ?? q.limit_bytes);
                 const used = Number(q.usedBytes ?? q.used_bytes ?? 0);
                 const free = Math.max(0, total - used);
                 return {
@@ -857,12 +864,7 @@ export function createClient(options: CreateClientOptions = {}) {
               console.warn('Real getBudget failed:', err);
             }
           }
-          return {
-            totalDiskBytes: 10737418240,
-            virtualUsersAllocatedBytes: 0,
-            systemReserveBytes: 0,
-            freePhysicalBytes: 10737418240,
-          };
+          throw new Error('Storage budget unavailable');
         },
       },
 
@@ -880,37 +882,26 @@ export function createClient(options: CreateClientOptions = {}) {
                 const rat = cfg.rate_limit ?? {};
                 const lif = cfg.lifecycle ?? {};
 
+                const info = realClient.getInfo?.();
+                const encrypted = Boolean(info?.transport?.encryptedWebSocket);
                 return {
-                  serverName: srv.server_name || 'TealDrive Production Daemon',
-                  version: 'TealDrive Core 2.0 (Rust)',
-                  listenAddr: srv.bind_addr || '127.0.0.1:13100',
-                  wsEncryption: sec.production_wire_protocol === 'Tdrv1Binary'
-                    ? 'Tdrv1Binary (Noise-XX + AES/ChaChaPoly)'
-                    : (sec.production_wire_protocol || 'Noise_XX_25519_ChaChaPoly_BLAKE2s'),
-                  tlsCertExpiry: '2027-10-13T21:06:35Z',
-                  rateLimitPerSec: rat.max_login_failures ? rat.max_login_failures * 100 : 500,
-                  maxUploadSizeMb: Math.round((lim.max_in_flight_upload || 1073741824) / (1024 * 1024)),
-                  autoTrashPurgeDays: Math.round((lif.trash_retention_hours || 504) / 24),
-                  noiseHandshakePattern: srv.channel_key_path
-                    ? 'Noise_XX (Static Channel Key Required)'
-                    : 'Noise_XX (25519-ChaChaPoly)',
+                  serverName: srv.server_name || '—',
+                  version: info?.protocolVersion ? `TDRV protocol v${info.protocolVersion}` : '—',
+                  listenAddr: srv.bind_addr || '—',
+                  wsEncryption: encrypted ? 'TLS + Noise NK' : 'TLS',
+                  tlsCertExpiry: '',
+                  loginMaxFailures: Number(rat.max_login_failures) || 0,
+                  maxUploadSizeMb: lim.max_in_flight_upload ? Math.round(lim.max_in_flight_upload / (1024 * 1024)) : 0,
+                  autoTrashPurgeDays: lif.trash_retention_hours ? Math.round(lif.trash_retention_hours / 24) : 0,
+                  noiseHandshakePattern: encrypted ? 'Noise_NK_25519_ChaChaPoly_SHA256' : 'disabled',
                 };
               }
             } catch (err) {
               console.warn('Real admin.settings.inspect failed:', err);
+              throw err;
             }
           }
-          return {
-            serverName: 'TealDrive Production Daemon',
-            version: 'TealDrive Core 2.0 (Rust)',
-            listenAddr: '127.0.0.1:13100',
-            wsEncryption: 'Noise_XX_25519_ChaChaPoly_BLAKE2s',
-            tlsCertExpiry: 'N/A',
-            rateLimitPerSec: 500,
-            maxUploadSizeMb: 1024,
-            autoTrashPurgeDays: 21,
-            noiseHandshakePattern: 'Noise_XX (25519-ChaChaPoly)',
-          };
+          throw new Error('Server settings unavailable');
         },
 
         async update(updates: Partial<ServerSettings>): Promise<ServerSettings> {
@@ -930,9 +921,10 @@ export function createClient(options: CreateClientOptions = {}) {
               return await this.inspect();
             } catch (err) {
               console.warn('Real admin.settings.update failed:', err);
+              throw err;
             }
           }
-          return await this.inspect();
+          throw new Error('Client not connected');
         },
       },
     },

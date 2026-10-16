@@ -19,6 +19,8 @@ import {
   Loader2,
 } from 'lucide-react';
 
+const TEXT_PREVIEW_LIMIT = 1024 * 1024;
+
 interface QuickLookModalProps {
   file: FileEntry;
   onClose: () => void;
@@ -118,9 +120,35 @@ export const QuickLookModal: React.FC<QuickLookModalProps> = ({ file, onClose })
       } catch (err: any) {
         // Fallback: try download endpoint and decode as text
         try {
+          // Read at most the preview limit; large files stay a download, not an in-memory string.
           const dl = await tealdrive.files.download({ path: file.path });
-          const response = await fetch(dl.blobUrl);
-          const txt = await response.text();
+          const response = await fetch(dl.blobUrl, {
+            credentials: 'include',
+            headers: { Range: `bytes=0-${TEXT_PREVIEW_LIMIT - 1}` },
+          });
+          if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let received = 0;
+          while (received < TEXT_PREVIEW_LIMIT) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.byteLength;
+          }
+          await reader.cancel().catch(() => {});
+          const bytes = new Uint8Array(Math.min(received, TEXT_PREVIEW_LIMIT));
+          let offset = 0;
+          for (const chunk of chunks) {
+            const part = chunk.subarray(0, bytes.length - offset);
+            bytes.set(part, offset);
+            offset += part.length;
+            if (offset >= bytes.length) break;
+          }
+          const truncated = received >= TEXT_PREVIEW_LIMIT && file.size > TEXT_PREVIEW_LIMIT;
+          const txt =
+            new TextDecoder().decode(bytes) +
+            (truncated ? `\n\n… (preview truncated at ${TEXT_PREVIEW_LIMIT / 1024} KiB)` : '');
           if (active) {
             setTextContent(txt);
           }

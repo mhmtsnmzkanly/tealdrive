@@ -482,12 +482,12 @@ export const AdminConsole: React.FC = () => {
 
             <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
               <span className="text-slate-500 block mb-1">TLS Certificate Expiry</span>
-              <span className="font-mono text-slate-200">{new Date(settings.tlsCertExpiry).toLocaleDateString()}</span>
+              <span className="font-mono text-slate-200">{settings.tlsCertExpiry ? new Date(settings.tlsCertExpiry).toLocaleDateString() : '—'}</span>
             </div>
 
             <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">
-              <span className="text-slate-500 block mb-1">Rate Limit / Burst</span>
-              <span className="font-mono text-slate-200">{settings.rateLimitPerSec} req/sec</span>
+              <span className="text-slate-500 block mb-1">Login Failure Limit</span>
+              <span className="font-mono text-slate-200">{settings.loginMaxFailures || '—'}</span>
             </div>
 
             <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg">

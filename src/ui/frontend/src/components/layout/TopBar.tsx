@@ -235,8 +235,8 @@ export const TopBar: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-400 truncate mt-0.5">{session?.email}</div>
-                <div className="text-[10px] font-mono text-slate-500 mt-1">UID: {session?.uid}</div>
+                {session?.email && <div className="text-[11px] text-slate-400 truncate mt-0.5">{session.email}</div>}
+                {session?.uid !== undefined && <div className="text-[10px] font-mono text-slate-500 mt-1">UID: {session.uid}</div>}
               </div>
 
               <div className="py-1">

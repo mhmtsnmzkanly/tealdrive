@@ -154,7 +154,7 @@ impl JsonlAuditSink {
         let path = config.path.clone().unwrap_or_else(|| {
             std::env::var("TEALDRIVE_AUDIT_PATH")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| std::env::temp_dir().join("tealdrive-audit.jsonl"))
+                .unwrap_or_else(|_| PathBuf::from(crate::layout::AUDIT_LOG))
         });
         let file = open_file(&path)?;
         Ok(Self {

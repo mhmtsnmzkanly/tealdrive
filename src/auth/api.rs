@@ -766,7 +766,10 @@ mod tests {
         config.account_policy.allowed_users = vec!["alice".into()];
         config.rate_limit.max_login_failures = max_failures;
         let session_store = InMemorySessionStore::new(config.session.clone());
-        let audit_sink = JsonlAuditSink::open_default().expect("sink");
+        let audit_sink = JsonlAuditSink::open(
+            std::env::temp_dir().join(format!("tealdrive-audit-{}.jsonl", uuid::Uuid::new_v4())),
+        )
+        .expect("sink");
         WsServerState::with_authenticator(
             config,
             session_store,

@@ -533,7 +533,10 @@ mod tests {
             ..AppConfig::default()
         };
         let session_store = InMemorySessionStore::new(config.session.clone());
-        let audit_sink = JsonlAuditSink::open_default().expect("sink");
+        let audit_sink = JsonlAuditSink::open(
+            std::env::temp_dir().join(format!("tealdrive-audit-{}.jsonl", uuid::Uuid::new_v4())),
+        )
+        .expect("sink");
         let state = WsServerState::with_authenticator_and_path(
             config,
             config_path,
